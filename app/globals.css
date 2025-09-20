@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Blinking animations for insurance alerts */
+@keyframes blink-red {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes blink-orange {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0.3;
+  }
+}
+
+.blinking-red {
+  animation: blink-red 1s infinite;
+}
+
+.blinking-orange {
+  animation: blink-orange 1s infinite;
+}
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 255, 255, 255;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 142 76% 36%;
+    --card: 0 0% 100%;
+    --card-foreground: 142 76% 36%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 142 76% 36%;
+    --primary: 24 95% 65%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 142 76% 36%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 142 76% 36%;
+    --accent: 24 95% 65%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 24 95% 65%;
+    --chart-1: 24 95% 65%;
+    --chart-2: 142 76% 36%;
+    --chart-3: 24 95% 65%;
+    --chart-4: 142 76% 36%;
+    --chart-5: 24 95% 65%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-primary;
+  }
+  p, span, div {
+    @apply text-secondary;
+  }
+}
+
+.blinking-red {
+  animation: blink 1s steps(2, start) infinite;
+}
+.blinking-orange {
+  animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink {
+  to { visibility: hidden; }
+}

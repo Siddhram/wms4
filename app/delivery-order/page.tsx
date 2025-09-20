@@ -1,0 +1,1811 @@
+"use client";
+
+import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
+import Image from 'next/image';
+import DashboardLayout from '@/components/dashboard-layout';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Search, Download, Plus, Eye } from 'lucide-react';
+import React from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, query, where, addDoc, updateDoc } from 'firebase/firestore';
+import { uploadToCloudinary } from '@/lib/cloudinary';
+
+import { DataTable } from '@/components/data-table';
+
+// Helper function to normalize status text for display
+const normalizeStatusText = (status: string) => {
+  const normalizedStatus = status?.toLowerCase().trim() || '';
+  
+  // Approved status
+  if (normalizedStatus === 'approved' || normalizedStatus === 'approve') {
+    return 'Approved';
+  }
+  
+  // Rejected status
+  if (normalizedStatus === 'rejected' || normalizedStatus === 'reject') {
+    return 'Rejected';
+  }
+  
+  // Resubmitted status  
+  if (normalizedStatus === 'resubmitted' || normalizedStatus === 'resubmit') {
+    return 'Resubmitted';
+  }
+  
+  // Pending status (keep as "Pending" - not past tense)
+  if (normalizedStatus === 'pending') {
+    return 'Pending';
+  }
+  
+  // Default - capitalize first letter for any other status
+  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+};
+
+// Helper function to get status styling
+const getStatusStyling = (status: string) => {
+  const normalizedStatus = status?.toLowerCase().trim() || '';
+  
+  // Pending/inactive/closed - yellow background, black font
+  if (normalizedStatus === 'pending' || normalizedStatus === 'inactive' || normalizedStatus === 'closed') {
+    return 'bg-yellow-100 text-black px-2 py-1 rounded-full text-xs font-medium inline-block';
+  }
+  
+  // Approve/activate/reactive - light green background, dark green font
+  if (normalizedStatus === 'approved' || normalizedStatus === 'activate' || normalizedStatus === 'reactivate' || 
+      normalizedStatus === 'approve' || normalizedStatus === 'reactive') {
+    return 'bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium inline-block';
+  }
+  
+  // Resubmit/reject - baby pink background, red font
+  if (normalizedStatus === 'resubmit' || normalizedStatus === 'reject' || normalizedStatus === 'rejected' || 
+      normalizedStatus === 'resubmitted') {
+    return 'bg-pink-100 text-red-600 px-2 py-1 rounded-full text-xs font-medium inline-block';
+  }
+  
+  // Default styling for unknown status
+  return 'bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs font-medium inline-block';
+};
+
+export default function DeliveryOrderPage() {
+  const { user } = useAuth();
+  const router = useRouter();
+  
+  // Extract user role from user object
+  const userRole = user?.role || 'admin'; // Default to admin if user or role is undefined
+  
+  // Log user role to debug
+  React.useEffect(() => {
+    console.log('Current user:', user);
+    console.log('Current userRole:', userRole);
+  }, [user, userRole]);
+  
+  // Placeholder state for search
+  const [searchTerm, setSearchTerm] = React.useState('');
+  const [showAddModal, setShowAddModal] = React.useState(false);
+  const [roOptions, setRoOptions] = React.useState([] as any[]);
+  const [roSearch, setRoSearch] = React.useState('');
+  const [selectedRO, setSelectedRO] = React.useState(null as any);
+  const searchInputRef = React.useRef(null as HTMLInputElement | null);
+  const [doBags, setDoBags] = React.useState('');
+  const [doQty, setDoQty] = React.useState('');
+  const [fileAttachments, setFileAttachments] = React.useState([] as File[]);
+  const [isUploading, setIsUploading] = React.useState(false);
+  const [formError, setFormError] = React.useState(null as string | null);
+  const [submitSuccess, setSubmitSuccess] = React.useState(false);
+  const [currentBalanceBags, setCurrentBalanceBags] = React.useState(null as number | null);
+  const [currentBalanceQty, setCurrentBalanceQty] = React.useState(null as number | null);
+  const [deliveryOrders, setDeliveryOrders] = React.useState([] as any[]);
+  const [showDODetails, setShowDODetails] = React.useState(false);
+  const [selectedDO, setSelectedDO] = React.useState(null as any);
+  const [remark, setRemark] = React.useState('');
+  const [doStatusUpdating, setDOStatusUpdating] = React.useState(false);
+
+  // Fetch all deliveryOrders for the table
+  React.useEffect(() => {
+    const fetchDOs = async () => {
+      const doCol = collection(db, 'deliveryOrders');
+      const snap = await getDocs(doCol);
+  let data = snap.docs.map((doc: any, idx: number) => {
+        const d = doc.data();
+        // Ensure doCode and doStatus
+        return {
+          id: doc.id,
+          ...d,
+          doCode: d.doCode || `DO-${String(idx + 1).padStart(4, '0')}`,
+          doStatus: d.doStatus || 'pending',
+        };
+      });
+      // Sort by doCode descending (latest first)
+  data.sort((a: any, b: any) => (b.doCode || '').localeCompare(a.doCode || ''));
+      setDeliveryOrders(data);
+    };
+    fetchDOs();
+  }, [submitSuccess, doStatusUpdating]);
+
+  // Helper to get balance from DB if not present in row
+  const getBalanceBags = (row: any) => {
+    if (typeof row.balanceBags === 'number') return row.balanceBags;
+    if (row.balanceBags && !isNaN(Number(row.balanceBags))) return Number(row.balanceBags);
+    // Use releaseBags instead of totalBags for balance calculation
+    if (typeof row.releaseBags === 'number' && typeof row.doBags === 'number') {
+      return row.releaseBags - row.doBags;
+    }
+    return '';
+  };
+  
+  const getBalanceQty = (row: any) => {
+    if (typeof row.balanceQuantity === 'number') return row.balanceQuantity;
+    if (row.balanceQuantity && !isNaN(Number(row.balanceQuantity))) return Number(row.balanceQuantity);
+    // Use releaseQuantity instead of totalQuantity for balance calculation
+    if (typeof row.releaseQuantity === 'number' && typeof row.doQuantity === 'number') {
+      return row.releaseQuantity - row.doQuantity;
+    }
+    return '';
+  };
+
+  // Group deliveryOrders by srwrNo, show only latest per group
+  const [expandedRows, setExpandedRows] = React.useState({} as { [key: string]: boolean });
+  const groupedDOs: { [key: string]: any[] } = {};
+  deliveryOrders.forEach((ro: any) => {
+    if (!groupedDOs[ro.srwrNo]) groupedDOs[ro.srwrNo] = [];
+    groupedDOs[ro.srwrNo].push(ro);
+  });
+  // Sort each group by createdAt descending
+  Object.values(groupedDOs).forEach(group => group.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+  // Only show latest per group in main table
+  const latestDOs = Object.values(groupedDOs).map(group => group[0]);
+  
+  // Filter DO entries based on search term
+  const filteredDOs = React.useMemo(() => {
+    if (!searchTerm) return latestDOs;
+    
+    const searchLower = searchTerm.toLowerCase();
+    return latestDOs.filter(deliveryOrder => {
+      const srwrNo = (deliveryOrder.srwrNo || '').toLowerCase();
+      const state = (deliveryOrder.state || '').toLowerCase();
+      const branch = (deliveryOrder.branch || '').toLowerCase();
+      const location = (deliveryOrder.location || '').toLowerCase();
+      const warehouseName = (deliveryOrder.warehouseName || '').toLowerCase();
+      const warehouseCode = (deliveryOrder.warehouseCode || '').toLowerCase();
+      const clientName = (deliveryOrder.client || '').toLowerCase();
+      
+      return srwrNo.includes(searchLower) ||
+             state.includes(searchLower) ||
+             branch.includes(searchLower) ||
+             location.includes(searchLower) ||
+             warehouseName.includes(searchLower) ||
+             warehouseCode.includes(searchLower) ||
+             clientName.includes(searchLower);
+    });
+  }, [searchTerm, latestDOs]);
+
+  // Columns for main table
+  const doColumns = [
+    {
+      accessorKey: 'expand',
+      header: '',
+      cell: ({ row }: any) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setExpandedRows((prev: any) => ({ ...prev, [row.original.srwrNo]: !prev[row.original.srwrNo] }));
+          }}
+        >
+          {expandedRows[row.original.srwrNo] ? '▼' : '▶'}
+        </Button>
+      ),
+    },
+    { accessorKey: 'doCode', header: 'DO Code', cell: ({ row }: any) => <div>{row.original.doCode || ''}</div> },
+    { accessorKey: 'srwrNo', header: 'SR/WR No.', cell: ({ row }: any) => (
+      <div style={{ minWidth: 180 }} className="flex items-center">
+        {row.original.isDirectDO ? (
+          <span className="inline-block w-3 h-3 rounded-full bg-orange-500 mr-2" title="Direct DO (No Bank Details)"></span>
+        ) : (
+          <span className="inline-block w-3 h-3 rounded-full bg-blue-500 mr-2" title="Regular DO (From Release Order)"></span>
+        )}
+        {row.original.srwrNo}
+        {row.original.isDirectDO && (
+          <span className="ml-2 text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full">Direct</span>
+        )}
+      </div>
+    ) },
+    { accessorKey: 'state', header: 'State' },
+    { accessorKey: 'branch', header: 'Branch' },
+    { accessorKey: 'warehouseName', header: 'Warehouse Name' },
+    { accessorKey: 'warehouseCode', header: 'Warehouse Code' },
+    { accessorKey: 'warehouseAddress', header: 'Warehouse Address' },
+    { accessorKey: 'clientCode', header: 'Client Code' },
+    { accessorKey: 'clientAddress', header: 'Client Address' },
+    { accessorKey: 'totalBags', header: 'Inward Bags' },
+    { accessorKey: 'totalQuantity', header: 'Inward Quantity' },
+    { accessorKey: 'releaseBags', header: 'Release RO Bags' },
+    { accessorKey: 'releaseQuantity', header: 'Release RO Quantity' },
+    { accessorKey: 'doBags', header: 'DO Bags', cell: ({ row }: any) => <div>{row.original.doBags || ''}</div> },
+    { accessorKey: 'doQuantity', header: 'DO Quantity', cell: ({ row }: any) => <div>{row.original.doQuantity || ''}</div> },
+    { accessorKey: 'balanceBags', header: 'Balance Bags', cell: ({ row }: any) => <div>{getBalanceBags(row.original)}</div> },
+    { accessorKey: 'balanceQuantity', header: 'Balance Quantity', cell: ({ row }: any) => <div>{getBalanceQty(row.original)}</div> },
+    { accessorKey: 'doStatus', header: 'DO Status', cell: ({ row }: any) => {
+      const status = row.original.doStatus || 'pending';
+      const statusClass = getStatusStyling(status);
+      
+      return (
+        <div className="flex items-center space-x-2 justify-center">
+          <span className={statusClass}>{status}</span>
+          <Button
+            onClick={() => { setSelectedDO(row.original); setShowDODetails(true); }}
+            size="sm"
+            variant="ghost"
+            className="h-8 w-8 p-0 text-green-600 hover:text-green-800 hover:bg-green-50"
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+        </div>
+      );
+    }},
+  ];
+
+  // Placeholder handler for export
+  const handleExportCSV = () => {
+    // Determine what data to export based on current view
+    let dataToExport;
+    
+    if (searchTerm) {
+      // If search is active, export only what's shown in the filtered table (latest per group that match search)
+      dataToExport = filteredDOs;
+    } else {
+      // If no search, export ALL delivery orders (including all historical entries)
+      dataToExport = deliveryOrders;
+    }
+
+    if (dataToExport.length === 0) {
+      alert('No data to export');
+      return;
+    }
+
+    // Define CSV headers (matching the table columns)
+    const headers = [
+      'DO Code',
+      'SR/WR No.',
+      'State',
+      'Branch',
+      'Location',
+      'Warehouse Name',
+      'Warehouse Code',
+      'Warehouse Address',
+      'Client Name',
+      'Client Code',
+      'Client Address',
+      'Inward Bags',
+      'Inward Quantity (MT)',
+      'Release RO Bags',
+      'Release RO Quantity (MT)',
+      'DO Bags',
+      'DO Quantity (MT)',
+      'Balance Bags',
+      'Balance Quantity (MT)',
+      'DO Status',
+      'Is Direct DO',
+      'Created Date',
+      'Created By',
+      'Remark'
+    ];
+
+    // Convert data to CSV format
+  const csvData = dataToExport.map((do_item: any) => [
+      do_item.doCode || '',
+      do_item.srwrNo || '',
+      do_item.state || '',
+      do_item.branch || '',
+      do_item.location || '',
+      do_item.warehouseName || '',
+      do_item.warehouseCode || '',
+      do_item.warehouseAddress || '',
+      do_item.client || '',
+      do_item.clientCode || '',
+      do_item.clientAddress || '',
+      do_item.totalBags || '',
+      do_item.totalQuantity || '',
+      do_item.releaseBags || '',
+      do_item.releaseQuantity || '',
+      do_item.doBags || '',
+      do_item.doQuantity || '',
+      getBalanceBags(do_item),
+      getBalanceQty(do_item),
+      normalizeStatusText(do_item.doStatus || 'pending'),
+      do_item.isDirectDO ? 'Yes' : 'No',
+      do_item.createdAt ? new Date(do_item.createdAt).toLocaleDateString('en-GB') : '',
+      do_item.createdBy || '',
+      do_item.remark || ''
+    ]);
+
+    // Combine headers and data
+    const csvContent = [headers, ...csvData]
+      .map((row: any[]) => row.map((field: any) => {
+        // Escape quotes and wrap in quotes if contains comma, quote, or newline
+        const stringField = String(field);
+        if (stringField.includes(',') || stringField.includes('"') || stringField.includes('\n')) {
+          return `"${stringField.replace(/"/g, '""')}"`;
+        }
+        return stringField;
+      }).join(','))
+      .join('\n');
+
+    // Create and download the file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    // Include search info in filename if search is active
+    const searchSuffix = searchTerm ? `-filtered-${searchTerm.replace(/[^a-zA-Z0-9]/g, '')}` : '';
+    link.setAttribute('href', url);
+    link.setAttribute('download', `delivery-orders${searchSuffix}-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Fetch both approved ROs and inward entries without bank details for dropdown
+  React.useEffect(() => {
+    const fetchOptions = async () => {
+      // Fetch approved ROs
+      const roCol = collection(db, 'releaseOrders');
+      const roQ = query(roCol, where('roStatus', '==', 'approved'));
+      const roSnap = await getDocs(roQ);
+      
+      // Fetch all existing DOs to check balances
+      const doCol = collection(db, 'deliveryOrders');
+      const doSnap = await getDocs(doCol);
+  const allDOs = doSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+      
+      // Group DOs by SR/WR number for balance calculation
+      const dosBySRWR: Record<string, any[]> = {};
+      
+      // Loop through each DO and group by SR/WR number
+      allDOs.forEach((doItem: any) => {
+        const srwrNo = doItem.srwrNo;
+        if (srwrNo) {
+          if (!dosBySRWR[srwrNo]) {
+            dosBySRWR[srwrNo] = [];
+          }
+          dosBySRWR[srwrNo].push(doItem);
+        }
+      });
+      
+      // Calculate balances for ROs taking into account existing DOs
+  const roData: any[] = roSnap.docs.map((doc: any) => {
+        // Get the document data properly typed as 'any' to avoid TypeScript errors
+        const docData = doc.data() as any;
+        const roData = { 
+          id: doc.id, 
+          ...docData,
+          source: 'ro' // Mark as coming from RO collection
+        };
+        
+        // Calculate remaining balance by checking existing DOs
+        const srwrNo = roData.srwrNo as string | undefined;
+        const existingDOs = srwrNo ? (dosBySRWR[srwrNo] || []) : [];
+        
+        // Start with releaseBags and releaseQuantity
+        let balanceBags = Number(roData.releaseBags || 0);
+        let balanceQuantity = Number(roData.releaseQuantity || 0);
+        
+        // Log for debugging
+        console.log(`RO ${srwrNo}: Starting with ${balanceBags} bags, ${balanceQuantity} quantity`);
+        
+        // Subtract DO quantities from each existing DO
+        if (existingDOs.length > 0) {
+          console.log(`Found ${existingDOs.length} existing DOs for ${srwrNo}`);
+          
+          existingDOs.forEach((doItem: any) => {
+            const doBags = Number(doItem.doBags || 0);
+            const doQty = Number(doItem.doQuantity || 0);
+            
+            console.log(`Subtracting DO ${doItem.doCode}: ${doBags} bags, ${doQty} quantity`);
+            
+            balanceBags -= doBags;
+            balanceQuantity -= doQty;
+          });
+        }
+        
+        // Ensure balance doesn't go below zero
+        balanceBags = Math.max(0, balanceBags);
+        balanceQuantity = Math.max(0, balanceQuantity);
+        
+        console.log(`RO ${srwrNo}: Final balance ${balanceBags} bags, ${balanceQuantity.toFixed(2)} quantity`);
+        
+        // Add calculated balances to RO data
+        return {
+          ...roData,
+          balanceBags,
+          balanceQuantity
+        };
+      })
+      // Filter out ROs with zero balance
+  .filter((ro: any) => ro.balanceBags > 0);
+      
+      console.log(`Found ${roData.length} ROs with positive balance`);
+      
+      // Fetch all inward entries first
+      const inwardCol = collection(db, 'inward');
+      const inwardSnap = await getDocs(inwardCol);
+  const allInwardEntries: any[] = inwardSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+      
+      // Fetch all inspection entries to check for bank details
+      const inspectionCol = collection(db, 'inspections');
+      const inspectionSnap = await getDocs(inspectionCol);
+  const inspectionEntries: any[] = inspectionSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+      
+      // Fetch warehouse survey data for bank details information - only active warehouses
+      const warehouseCol = collection(db, 'warehouseCreation');
+      const warehouseQ = query(warehouseCol, where('status', '==', 'activated'));  // Only get active warehouses
+      const warehouseSnap = await getDocs(warehouseQ);
+  const warehouseEntries: any[] = warehouseSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+      
+      console.log("Active warehouses count:", warehouseEntries.length);
+      
+      // Log all active warehouses to see their structure
+      warehouseEntries.forEach((wh, idx) => {
+        console.log(`[${idx}] Active warehouse: ${wh.warehouseName} (${wh.warehouseCode})`);
+        console.log(`Bank details object:`, JSON.stringify(wh.bankDetails || {}));
+        
+        // Check for specific bank fields at root level
+        const bankFields = ['bankName', 'bankBranch', 'bankState', 'ifscCode'];
+        const foundBankFields = bankFields.filter(field => wh[field] && wh[field].trim() !== '');
+        
+        if (foundBankFields.length > 0) {
+          console.log(`⚠️ WARNING: Direct bank fields found for ${wh.warehouseName}:`, 
+            foundBankFields.map(field => `${field}=${wh[field]}`).join(', '));
+        }
+      });
+      
+      // IMPROVED: Filter inward entries to only show those EXPLICITLY CONFIRMED to have no bank details
+      const inwardData: any[] = allInwardEntries
+        .filter(entry => {
+          // Get warehouse name and code for this entry
+          const warehouseName = entry.warehouseName?.toLowerCase().trim() || '';
+          const warehouseCode = entry.warehouseCode?.toLowerCase().trim() || '';
+          
+          console.log(`\nChecking inward entry: ${warehouseName} (${warehouseCode})`);
+          
+          // Special check for wh-6 (WH-0007) which we know has bank details
+          if ((warehouseCode === 'wh-0007' || warehouseName === 'wh-6')) {
+            console.log(`⚠️ BLOCKING: This is warehouse wh-6 (WH-0007) which has SBI bank details (SBIN0123456)`);
+            return false;
+          }
+          
+          // Enhanced logging for debugging
+          console.log(`🔍 DETAILED CHECK FOR: ${entry.warehouseName} (${entry.warehouseCode})`);
+          
+          // FIRST CHECK: Does this warehouse exist in the active warehouses list?
+          const matchingWarehouse = warehouseEntries.find(
+            wh => (wh.warehouseName?.toLowerCase().trim() === warehouseName ||
+                  wh.warehouseCode?.toLowerCase().trim() === warehouseCode) &&
+                  wh.status === 'activated'
+          );
+          
+          // If we found an active warehouse, check its bank details
+          if (matchingWarehouse) {
+            console.log(`Found matching active warehouse in surveys: ${matchingWarehouse.warehouseName}`);
+            console.log(`Full warehouse data: ${JSON.stringify(matchingWarehouse, null, 2)}`);
+            
+            // Direct bank fields check - some warehouses might have these at root level
+            const directBankFields = ['bankName', 'bankBranch', 'bankState', 'ifscCode'];
+            for (const field of directBankFields) {
+              if (matchingWarehouse[field] && typeof matchingWarehouse[field] === 'string' && matchingWarehouse[field].trim() !== '') {
+                console.log(`⚠️ Warehouse has direct bank field: ${field} = ${matchingWarehouse[field]}`);
+                return false;
+              }
+            }
+            
+            // Check if bank details exist and have content
+            if (matchingWarehouse.bankDetails) {
+              // Check various bank detail fields
+              if (matchingWarehouse.bankDetails.name && matchingWarehouse.bankDetails.name.trim() !== '') {
+                console.log(`⚠️ Warehouse has bank name: ${matchingWarehouse.bankDetails.name}`);
+                return false;
+              }
+              if (matchingWarehouse.bankDetails.accountNumber && matchingWarehouse.bankDetails.accountNumber.trim() !== '') {
+                console.log(`⚠️ Warehouse has account number`);
+                return false;
+              }
+              if (matchingWarehouse.bankDetails.ifscCode && matchingWarehouse.bankDetails.ifscCode.trim() !== '') {
+                console.log(`⚠️ Warehouse has IFSC code: ${matchingWarehouse.bankDetails.ifscCode}`);
+                return false;
+              }
+              
+              // Check if the bankDetails object has any properties at all
+              if (Object.keys(matchingWarehouse.bankDetails).length > 0) {
+                for (const key in matchingWarehouse.bankDetails) {
+                  const value = matchingWarehouse.bankDetails[key];
+                  if (value && typeof value === 'string' && value.trim() !== '') {
+                    console.log(`⚠️ Warehouse has bank details: ${key} = ${value}`);
+                    return false;
+                  }
+                }
+              }
+            }
+            
+            console.log(`No bank details found in active warehouse survey`);
+          } else {
+            console.log(`No matching active warehouse found in surveys`);
+          }
+          
+          // SECOND CHECK: Does it have bank details in inspection?
+          const matchingInspections = inspectionEntries.filter(
+            insp => insp.warehouseName?.toLowerCase().trim() === warehouseName || 
+                    insp.warehouseCode?.toLowerCase().trim() === warehouseCode
+          );
+          
+          console.log(`Found ${matchingInspections.length} matching inspection records for ${warehouseName} (${warehouseCode})`);
+          
+          // Check ALL matching inspections for bank details
+          for (const matchingInspection of matchingInspections) {
+            console.log(`Checking inspection record: ${matchingInspection.id} - ${matchingInspection.warehouseName}`);
+            
+            // Check for bankName directly (sometimes used instead of bankDetails.name)
+            if (matchingInspection.bankName && matchingInspection.bankName.trim() !== '') {
+              console.log(`⚠️ Inspection has bank name (direct property): ${matchingInspection.bankName}`);
+              return false;
+            }
+            
+            // Check for ifscCode directly (sometimes used instead of bankDetails.ifscCode)
+            if (matchingInspection.ifscCode && matchingInspection.ifscCode.trim() !== '') {
+              console.log(`⚠️ Inspection has IFSC code (direct property): ${matchingInspection.ifscCode}`);
+              return false;
+            }
+            
+            // Check bankDetails object if present
+            if (matchingInspection.bankDetails) {
+              console.log(`Inspection has bankDetails object: ${JSON.stringify(matchingInspection.bankDetails)}`);
+              
+              // Check various bank detail fields
+              if (matchingInspection.bankDetails.name && matchingInspection.bankDetails.name.trim() !== '') {
+                console.log(`⚠️ Inspection has bank name: ${matchingInspection.bankDetails.name}`);
+                return false;
+              }
+              if (matchingInspection.bankDetails.accountNumber && matchingInspection.bankDetails.accountNumber.trim() !== '') {
+                console.log(`⚠️ Inspection has account number`);
+                return false;
+              }
+              if (matchingInspection.bankDetails.ifscCode && matchingInspection.bankDetails.ifscCode.trim() !== '') {
+                console.log(`⚠️ Inspection has IFSC code: ${matchingInspection.bankDetails.ifscCode}`);
+                return false;
+              }
+              
+              // Check if the bankDetails object has any properties at all
+              if (Object.keys(matchingInspection.bankDetails).length > 0) {
+                for (const key in matchingInspection.bankDetails) {
+                  const value = matchingInspection.bankDetails[key];
+                  if (value && typeof value === 'string' && value.trim() !== '') {
+                    console.log(`⚠️ Inspection has bank details: ${key} = ${value}`);
+                    return false;
+                  }
+                }
+              }
+            }
+          }
+          
+          // THIRD CHECK: Does the inward entry itself have bank details?
+          // First check direct bank fields on the entry
+          const directInwardBankFields = ['bankName', 'bankBranch', 'bankState', 'ifscCode'];
+          for (const field of directInwardBankFields) {
+            if (entry[field] && typeof entry[field] === 'string' && entry[field].trim() !== '') {
+              console.log(`⚠️ Inward has direct bank field: ${field} = ${entry[field]}`);
+              return false;
+            }
+          }
+          
+          if (entry.bankDetails) {
+            // Check various bank detail fields
+            if (entry.bankDetails.name && entry.bankDetails.name.trim() !== '') {
+              console.log(`⚠️ Inward has bank name`);
+              return false;
+            }
+            if (entry.bankDetails.accountNumber && entry.bankDetails.accountNumber.trim() !== '') {
+              console.log(`⚠️ Inward has account number`);
+              return false;
+            }
+            if (entry.bankDetails.ifscCode && entry.bankDetails.ifscCode.trim() !== '') {
+              console.log(`⚠️ Inward has IFSC code`);
+              return false;
+            }
+            
+            // Check if the bankDetails object has any properties at all
+            if (Object.keys(entry.bankDetails).length > 0) {
+              for (const key in entry.bankDetails) {
+                const value = entry.bankDetails[key];
+                if (value && typeof value === 'string' && value.trim() !== '') {
+                  console.log(`⚠️ Inward has bank details: ${key} = ${value}`);
+                  return false;
+                }
+              }
+            }
+          }
+          
+          // FOURTH CHECK: Final verification - does ANY field contain bank-related strings?
+          const bankRelatedTerms = ['bank', 'ifsc', 'account', 'sbi', 'hdfc', 'icici', 'axis'];
+          for (const key in entry) {
+            const value = entry[key];
+            if (typeof value === 'string') {
+              const valueLower = value.toLowerCase();
+              for (const term of bankRelatedTerms) {
+                if (valueLower.includes(term)) {
+                  console.log(`⚠️ Inward entry has bank-related term in field ${key}: ${value}`);
+                  return false;
+                }
+              }
+            }
+          }
+          
+          // If we got here, no bank details were found anywhere
+          console.log(`✅ NO BANK DETAILS FOUND - allowing for Direct DO`);
+          return true;
+        })
+        .map(entry => {
+          // Debug info with clearly visible marker to find in console
+          console.log(`============================`);
+          console.log(`🔶 ALLOWING DIRECT DO for warehouse: ${entry.warehouseName} (${entry.warehouseCode}) - NO BANK DETAILS FOUND`);
+          console.log(`============================`);
+          
+          // Format similar to RO entries
+          return {
+            id: entry.id,
+            srwrNo: `${entry.receiptType || 'SR'}-${entry.inwardId || ''}-${entry.dateOfInward || ''}`,
+            cadNumber: entry.cadNumber,
+            state: entry.state,
+            branch: entry.branch,
+            location: entry.location,
+            warehouseName: entry.warehouseName,
+            warehouseCode: entry.warehouseCode,
+            warehouseAddress: entry.warehouseAddress,
+            client: entry.client,
+            clientCode: entry.clientCode,
+            clientAddress: entry.clientAddress,
+            totalBags: entry.totalBags,
+            totalQuantity: entry.totalQuantity,
+            // These direct inwards don't have release values, so we use total as release
+            releaseBags: entry.totalBags,
+            releaseQuantity: entry.totalQuantity,
+            source: 'inward', // Mark as coming from inward collection
+            directDO: true // Flag that this is for direct DO creation
+          };
+        })
+        .map(inwardEntry => {
+          // Calculate remaining balance by checking existing DOs - same logic as for ROs
+          const srwrNo = inwardEntry.srwrNo as string;
+          const existingDOs = srwrNo ? (dosBySRWR[srwrNo] || []) : [];
+          
+          // Start with releaseBags and releaseQuantity
+          let balanceBags = Number(inwardEntry.releaseBags || 0);
+          let balanceQuantity = Number(inwardEntry.releaseQuantity || 0);
+          
+          // Log for debugging
+          console.log(`Inward ${srwrNo}: Starting with ${balanceBags} bags, ${balanceQuantity} quantity`);
+          
+          // Subtract DO quantities from each existing DO
+          if (existingDOs.length > 0) {
+            console.log(`Found ${existingDOs.length} existing DOs for inward ${srwrNo}`);
+            
+            existingDOs.forEach((doItem: any) => {
+              const doBags = Number(doItem.doBags || 0);
+              const doQty = Number(doItem.doQuantity || 0);
+              
+              console.log(`Subtracting DO ${doItem.doCode}: ${doBags} bags, ${doQty} quantity`);
+              
+              balanceBags -= doBags;
+              balanceQuantity -= doQty;
+            });
+          }
+          
+          // Ensure balance doesn't go below zero
+          balanceBags = Math.max(0, balanceBags);
+          balanceQuantity = Math.max(0, balanceQuantity);
+          
+          // Add calculated balances to inward data
+          return {
+            ...inwardEntry,
+            balanceBags,
+            balanceQuantity
+          };
+        })
+        // Filter out inward entries with zero balance
+        .filter(entry => entry.balanceBags > 0);
+      
+      console.log(`Found ${inwardData.length} inward entries with positive balance`);
+      
+      // Combine both sets of options
+      const combinedOptions = [...roData, ...inwardData];
+      console.log(`Total of ${combinedOptions.length} options available for DO creation`);
+      setRoOptions(combinedOptions);
+    };
+    fetchOptions();
+  }, []);
+
+  // Filtered options for dropdown - Enhanced search functionality focusing on SR/WR numbers
+  const filteredROOptions = React.useMemo(() => {
+    // If search is empty, show all options
+    if (!roSearch || roSearch.trim() === '') return roOptions;
+    
+    const searchLower = roSearch.toLowerCase().trim();
+    
+    // DEBUG - Log the search term to console to help with troubleshooting
+    console.log('Searching for:', searchLower);
+  console.log('Available options:', roOptions.map((opt: any) => opt.srwrNo));
+    
+    // First try to find exact matches on SR/WR No
+  const exactMatches = roOptions.filter((opt: any) => {
+      const srwr = `${opt.srwrNo || ''}`.toLowerCase();
+      return srwr === searchLower;
+    });
+    
+    // If we have exact matches, just return those
+    if (exactMatches.length > 0) {
+  console.log('Found exact matches:', exactMatches.map((opt: any) => opt.srwrNo));
+      return exactMatches;
+    }
+    
+    // Otherwise, look for partial matches prioritizing SR/WR numbers
+  const partialMatches = roOptions.filter((opt: any) => {
+      // Start with SR/WR No as primary search field
+      const srwr = `${opt.srwrNo || ''}`.toLowerCase();
+      
+      // Check if SR/WR contains the search term
+      if (srwr.includes(searchLower)) {
+        return true;
+      }
+      
+      // Secondary fields for broader search
+      const warehouseName = `${opt.warehouseName || ''}`.toLowerCase();
+      const warehouseCode = `${opt.warehouseCode || ''}`.toLowerCase();
+      const clientCode = `${opt.clientCode || ''}`.toLowerCase();
+      
+      // Include "no bank" as a search term for direct DO entries
+      const source = opt.source === 'inward' 
+        ? 'no bank details direct do without bank' 
+        : opt.roCode?.toLowerCase() || '';
+      
+      // Return true if any of these fields contain the search term
+      return warehouseName.includes(searchLower) || 
+             warehouseCode.includes(searchLower) || 
+             clientCode.includes(searchLower) ||
+             source.includes(searchLower);
+    });
+    
+  console.log('Found partial matches:', partialMatches.map((opt: any) => opt.srwrNo));
+    return partialMatches;
+  }, [roOptions, roSearch]);
+
+  // When RO is selected, update form fields
+  React.useEffect(() => {
+    const updateFormFields = () => {
+      if (!selectedRO) {
+        setCurrentBalanceBags(null);
+        setCurrentBalanceQty(null);
+        return;
+      }
+      
+      // Calculate balance bags and quantity
+      let balanceBags = 0;
+      let balanceQty = 0;
+      
+      // If balanceBags is already in the data, use it
+      if (selectedRO.balanceBags !== undefined && selectedRO.balanceBags !== null) {
+        balanceBags = Number(selectedRO.balanceBags);
+      } 
+      // Otherwise calculate from releaseBags
+      else if (selectedRO.releaseBags !== undefined && selectedRO.releaseBags !== null) {
+        balanceBags = Number(selectedRO.releaseBags);
+      }
+      
+      // If balanceQuantity is already in the data, use it
+      if (selectedRO.balanceQuantity !== undefined && selectedRO.balanceQuantity !== null) {
+        balanceQty = Number(selectedRO.balanceQuantity);
+      }
+      // Otherwise calculate from releaseQuantity
+      else if (selectedRO.releaseQuantity !== undefined && selectedRO.releaseQuantity !== null) {
+        balanceQty = Number(selectedRO.releaseQuantity);
+      }
+      
+      setCurrentBalanceBags(balanceBags);
+      setCurrentBalanceQty(balanceQty);
+    };
+    updateFormFields();
+  }, [selectedRO]);
+  
+  // Reset search and focus the search input when modal opens
+  React.useEffect(() => {
+    if (showAddModal) {
+      // Clear previous search when opening the modal
+      setRoSearch('');
+      // Focus the search input after a short delay to ensure the modal is fully rendered
+      setTimeout(() => {
+        const searchInput = document.querySelector('input[placeholder="Type to search by SR/WR No..."]') as HTMLInputElement;
+        if (searchInput) {
+          searchInput.focus();
+        }
+      }, 100);
+    }
+  }, [showAddModal]);
+
+  // Handle form submission
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+
+    if (!selectedRO) {
+      setFormError('Please select an RO');
+      return;
+    }
+    
+    // Check for mandatory attachment
+    if (fileAttachments.length === 0) {
+      setFormError('Please upload at least one attachment');
+      return;
+    }
+
+    // Validate DO bags and quantity
+    let dbBags = Number(doBags);
+    let dQuantity = Number(doQty);
+    const balanceBags = currentBalanceBags || 0;
+    const balanceQty = currentBalanceQty || 0;
+
+    // Check if balance is zero - if so, prevent creation
+    if (balanceBags <= 0 || balanceQty <= 0) {
+      setFormError('No remaining balance available for this Release Order');
+      return;
+    }
+
+    if (isNaN(dbBags) || dbBags <= 0) {
+      setFormError('Please enter valid number of bags');
+      return;
+    }
+    if (isNaN(dQuantity) || dQuantity <= 0) {
+      setFormError('Please enter valid quantity');
+      return;
+    }
+    
+    // If this is the last bag, automatically adjust to use all remaining quantity
+    if (dbBags === balanceBags) {
+      dQuantity = balanceQty;
+      setDoQty(balanceQty.toString());
+    }
+    
+    if (dbBags > balanceBags) {
+      setFormError(`Cannot release more than available balance bags (${balanceBags})`);
+      return;
+    }
+    if (dQuantity > balanceQty) {
+      setFormError(`Cannot release more than available balance quantity (${balanceQty})`);
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      let attachmentUrls: string[] = [];
+      let hasUploadErrors = false;
+
+      // Upload attachments if any
+      if (fileAttachments.length > 0) {
+        for (const file of fileAttachments) {
+          try {
+            console.log(`Uploading file: ${file.name}, type: ${file.type}, size: ${file.size}`);
+            const result = await uploadToCloudinary(file);
+            if (result && result.secure_url) {
+              console.log(`Upload successful: ${result.secure_url}`);
+              attachmentUrls.push(result.secure_url);
+            }
+          } catch (uploadError) {
+            hasUploadErrors = true;
+            console.error(`Error uploading file ${file.name}:`, uploadError);
+            // Continue with next file even if this one fails
+          }
+        }
+        
+        // Show warning if some uploads failed
+        if (hasUploadErrors && attachmentUrls.length < fileAttachments.length) {
+          alert(`Some files failed to upload. ${attachmentUrls.length} of ${fileAttachments.length} were successful.`);
+        }
+      }
+
+      // Prepare DO data
+      const newBalanceBags = balanceBags - dbBags;
+      const newBalanceQty = balanceQty - dQuantity;
+
+      // Get next DO code number
+      const doCol = collection(db, 'deliveryOrders');
+      const doSnap = await getDocs(doCol);
+      const doCount = doSnap.size;
+      const newDOCode = `DO-${String(doCount + 1).padStart(4, '0')}`;
+
+      // Create new DO record
+      const doData = {
+        doCode: newDOCode,
+        srwrNo: selectedRO.srwrNo,
+        cadNumber: selectedRO.cadNumber,
+        state: selectedRO.state,
+        branch: selectedRO.branch,
+        location: selectedRO.location,
+        warehouseName: selectedRO.warehouseName,
+        warehouseCode: selectedRO.warehouseCode,
+        warehouseAddress: selectedRO.warehouseAddress,
+        client: selectedRO.client,
+        clientCode: selectedRO.clientCode,
+        clientAddress: selectedRO.clientAddress,
+        totalBags: selectedRO.totalBags,
+        totalQuantity: selectedRO.totalQuantity,
+        releaseBags: selectedRO.releaseBags,
+        releaseQuantity: selectedRO.releaseQuantity,
+        doBags: dbBags,
+        doQuantity: dQuantity,
+        balanceBags: newBalanceBags,
+        balanceQuantity: newBalanceQty,
+        attachmentUrls,
+        remark: remark,
+        doStatus: 'pending',
+        createdAt: new Date().toISOString(),
+        createdBy: userRole, // Already has a default value
+        // Add source information
+        isDirectDO: selectedRO.source === 'inward',
+        source: selectedRO.source || 'ro'
+      };
+
+      await addDoc(collection(db, 'deliveryOrders'), doData);
+      
+      setSubmitSuccess(true);
+      setIsUploading(false);
+      setShowAddModal(false);
+      setSelectedRO(null);
+      setDoBags('');
+      setDoQty('');
+      setFileAttachments([]);
+      setRemark('');
+
+      // Reset success flag after a delay
+      setTimeout(() => {
+        setSubmitSuccess(false);
+      }, 3000);
+    } catch (error: any) {
+      console.error('Error submitting DO:', error);
+      // Display a more specific error message if available
+      if (error?.message?.includes('Cloudinary')) {
+        setFormError(`File upload error: ${error.message}. Please try again with different files or formats.`);
+      } else {
+        setFormError(`An error occurred: ${error?.message || 'Unknown error'}. Please try again.`);
+      }
+      setIsUploading(false);
+    }
+  };
+
+  // Handle DO status change
+  const handleDOStatusChange = async (newStatus: string) => {
+    if (!selectedDO) return;
+    
+    try {
+      setDOStatusUpdating(true);
+      
+      // Update the status in Firestore
+      const deliveryOrdersCol = collection(db, 'deliveryOrders');
+      const q = query(deliveryOrdersCol, where('doCode', '==', selectedDO.doCode));
+      const snap = await getDocs(q);
+      
+      if (!snap.empty) {
+        const docRef = snap.docs[0].ref;
+        await updateDoc(docRef, { 
+          doStatus: newStatus,
+          statusUpdatedAt: new Date().toISOString(),
+          statusUpdatedBy: userRole, // Already has a default value
+          statusRemark: remark || '' // Ensure remark is not undefined
+        });
+      }
+      
+      setShowDODetails(false);
+      setSelectedDO(null);
+      setRemark('');
+      setDOStatusUpdating(false);
+    } catch (error) {
+      console.error('Error updating DO status:', error);
+      setDOStatusUpdating(false);
+    }
+  };
+
+  return (
+    <DashboardLayout>
+      <div className="p-6">
+        <div className="flex justify-between items-center mb-6">
+          <Button onClick={() => router.push('/dashboard')} variant="ghost" className="flex items-center bg-orange-500 text-white hover:bg-orange-600">
+            ← Dashboard
+          </Button>
+          <h1 className="text-3xl font-bold text-orange-600 text-center flex-1">Delivery Order</h1>
+          <Button onClick={() => setShowAddModal(true)} className="bg-green-500 hover:bg-green-600 text-white">
+            <Plus className="h-4 w-4 mr-2" /> Add DO
+          </Button>
+        </div>
+
+        {/* Search and Export */}
+        <div className="bg-green-50 rounded-lg p-4 mb-6 border border-green-200">
+          <div className="text-lg font-semibold text-green-800 mb-3">Search & Export Options</div>
+          <div className="flex justify-between items-center">
+            <div className="flex items-center">
+              <span className="mr-2 text-gray-600">Search:</span>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+                <Input
+                  type="search"
+                  placeholder="Search by SR/WR No, State, Branch, Location, Warehouse Name/Code, Client Name..."
+                  className="pl-8 pr-8 w-[400px]"
+                  value={searchTerm}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                  <button 
+                    type="button" 
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600"
+                    title="Clear search"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {searchTerm && (
+                <div className="ml-3 text-sm text-gray-600">
+                  {filteredDOs.length} of {latestDOs.length} entries
+                </div>
+              )}
+            </div>
+            <Button onClick={handleExportCSV} className="bg-blue-500 hover:bg-blue-600 text-white">
+              <Download className="h-4 w-4 mr-2" /> Export CSV
+            </Button>
+          </div>
+        </div>
+
+        {/* Main Table */}
+        <div className="bg-white rounded-lg shadow-md">
+          <div className="py-3 px-4 bg-green-50 border-b border-green-100">
+            <div className="flex justify-between items-center">
+              <h2 className="text-green-700 text-xl font-semibold">Delivery Orders</h2>
+              <div className="flex items-center space-x-6">
+                <div className="flex items-center">
+                  <span className="inline-block w-3 h-3 rounded-full bg-orange-500 mr-2"></span>
+                  <span className="text-sm text-gray-700">Direct DO (No Bank Details)</span>
+                </div>
+                <div className="flex items-center">
+                  <span className="inline-block w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
+                  <span className="text-sm text-gray-700">Regular DO (From Release Order)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-[1400px] border text-sm w-full">
+              <thead className="bg-orange-100">
+                <tr>
+                  <th className="px-2 py-1 border"></th>
+                  <th className="px-2 py-1 border">DO Code</th>
+                  <th className="px-2 py-1 border">SR/WR No.</th>
+                  <th className="px-2 py-1 border">State</th>
+                  <th className="px-2 py-1 border">Branch</th>
+                  <th className="px-2 py-1 border">Location</th>
+                  <th className="px-2 py-1 border">Warehouse Name</th>
+                  <th className="px-2 py-1 border">Warehouse Code</th>
+                  <th className="px-2 py-1 border">Warehouse Address</th>
+                  <th className="px-2 py-1 border">Client Name</th>
+                  <th className="px-2 py-1 border">Client Code</th>
+                  <th className="px-2 py-1 border">Client Address</th>
+                  <th className="px-2 py-1 border">Inward Bags</th>
+                  <th className="px-2 py-1 border">Inward Quantity (MT)</th>
+                  <th className="px-2 py-1 border">Release RO Bags</th>
+                  <th className="px-2 py-1 border">Release RO Quantity (MT)</th>
+                  <th className="px-2 py-1 border">DO Bags</th>
+                  <th className="px-2 py-1 border">DO Quantity (MT)</th>
+                  <th className="px-2 py-1 border">Balance Bags</th>
+                  <th className="px-2 py-1 border">Balance Quantity (MT)</th>
+                  <th className="px-2 py-1 border">DO Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredDOs.length === 0 ? (
+                  <tr>
+                    <td colSpan={21} className="px-2 py-8 text-center text-gray-500">
+                      {deliveryOrders.length === 0 
+                        ? "No delivery orders found. Click 'Add DO' to create your first entry."
+                        : "No delivery orders match your search criteria. Try adjusting your search terms."
+                      }
+                    </td>
+                  </tr>
+                ) : (
+                  filteredDOs.map((do_item: any) => (
+                  <React.Fragment key={do_item.doCode}>
+                    <tr className="even:bg-gray-50">
+                      <td className="px-2 py-1 border">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="p-1"
+                          onClick={() => {
+                            setExpandedRows((prev: any) => ({ ...prev, [do_item.srwrNo]: !prev[do_item.srwrNo] }));
+                          }}
+                        >
+                          {expandedRows[do_item.srwrNo] ? '▼' : '▶'}
+                        </Button>
+                      </td>
+                      <td className="px-2 py-1 border">{do_item.doCode || ''}</td>
+                      <td className="px-2 py-1 border" style={{ minWidth: '180px' }}>
+                        <div className="flex items-center justify-start">
+                          {do_item.isDirectDO ? (
+                            <span className="inline-block w-3 h-3 rounded-full bg-orange-500 mr-2" title="Direct DO (No Bank Details)"></span>
+                          ) : (
+                            <span className="inline-block w-3 h-3 rounded-full bg-blue-500 mr-2" title="Regular DO (From Release Order)"></span>
+                          )}
+                          {do_item.srwrNo}
+                          {do_item.isDirectDO && (
+                            <span className="ml-2 text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full">Direct</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-2 py-1 border">{do_item.state}</td>
+                      <td className="px-2 py-1 border">{do_item.branch}</td>
+                      <td className="px-2 py-1 border">{do_item.location}</td>
+                      <td className="px-2 py-1 border">{do_item.warehouseName}</td>
+                      <td className="px-2 py-1 border">{do_item.warehouseCode}</td>
+                      <td className="px-2 py-1 border">{do_item.warehouseAddress}</td>
+                      <td className="px-2 py-1 border">{do_item.client}</td>
+                      <td className="px-2 py-1 border">{do_item.clientCode}</td>
+                      <td className="px-2 py-1 border">{do_item.clientAddress}</td>
+                      <td className="px-2 py-1 border">{do_item.totalBags}</td>
+                      <td className="px-2 py-1 border">{do_item.totalQuantity}</td>
+                      <td className="px-2 py-1 border">{do_item.releaseBags}</td>
+                      <td className="px-2 py-1 border">{do_item.releaseQuantity}</td>
+                      <td className="px-2 py-1 border">{do_item.doBags || ''}</td>
+                      <td className="px-2 py-1 border">{do_item.doQuantity || ''}</td>
+                      <td className="px-2 py-1 border">{getBalanceBags(do_item)}</td>
+                      <td className="px-2 py-1 border">{getBalanceQty(do_item)}</td>
+                      <td className="px-2 py-1 border">
+                        <div className="flex items-center justify-center gap-2">
+                          <span className={getStatusStyling(do_item.doStatus || 'pending')}>{normalizeStatusText(do_item.doStatus || 'pending')}</span>
+                          <Button
+                            onClick={() => { setSelectedDO(do_item); setShowDODetails(true); }}
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 text-green-600 hover:text-green-800 hover:bg-green-50"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedRows[do_item.srwrNo] && groupedDOs[do_item.srwrNo] && groupedDOs[do_item.srwrNo].length > 0 && (
+                      <tr>
+                        <td colSpan={21} className="p-0">
+                          <div className="bg-gray-50 p-4">
+                            <div className="text-sm font-medium mb-2">Previous Delivery Orders for this SR/WR</div>
+                            <div className="overflow-x-auto">
+                              <table className="w-full border text-xs">
+                                <thead className="bg-gray-100">
+                                  <tr>
+                                    <th className="px-2 py-1 border">Date</th>
+                                    <th className="px-2 py-1 border">DO Code</th>
+                                    <th className="px-2 py-1 border">DO Bags</th>
+                                    <th className="px-2 py-1 border">DO Qty</th>
+                                    <th className="px-2 py-1 border">Balance Bags</th>
+                                    <th className="px-2 py-1 border">Balance Qty</th>
+                                    <th className="px-2 py-1 border">DO Status</th>
+                                    <th className="px-2 py-1 border">Attachment</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {groupedDOs[do_item.srwrNo].map((entry, idx) => (
+                                    <tr key={entry.doCode || idx} className="even:bg-gray-100">
+                                      <td className="px-2 py-1 border text-center">{entry.createdAt ? new Date(entry.createdAt).toLocaleDateString('en-GB') : ''}</td>
+                                      <td className="px-2 py-1 border text-center">{entry.doCode}</td>
+                                      <td className="px-2 py-1 border text-center">{entry.doBags}</td>
+                                      <td className="px-2 py-1 border text-center">{entry.doQuantity}</td>
+                                      <td className="px-2 py-1 border text-center">{entry.balanceBags}</td>
+                                      <td className="px-2 py-1 border text-center">{entry.balanceQuantity}</td>
+                                      <td className="px-2 py-1 border text-center">
+                                        <div className="flex items-center justify-center gap-2">
+                                          <span className={getStatusStyling(entry.doStatus || 'pending')}>{normalizeStatusText(entry.doStatus || 'pending')}</span>
+                                          <Button variant="ghost" size="sm" className="p-1" title="View Details" onClick={() => { setSelectedDO(entry); setShowDODetails(true); }}>
+                                            <Eye className="h-4 w-4 text-green-600" />
+                                          </Button>
+                                        </div>
+                                      </td>
+                                      <td className="px-2 py-1 border text-center">
+                                        {Array.isArray(entry.attachmentUrls) && entry.attachmentUrls.length > 0 ? 
+                                          <a href={entry.attachmentUrls[0]} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">View</a> : 
+                                          <span className="text-gray-400">No file</span>
+                                        }
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Add DO Dialog */}
+        <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div>
+              <DialogTitle className="text-xl text-center text-orange-600 font-bold">
+                DELIVERY ORDER (DO) / DIRECT DO
+                <div className="mt-1 text-sm font-normal text-gray-600">
+                  Create a Delivery Order based on a Release Order or directly for entries without bank details
+                </div>
+              </DialogTitle>
+            </div>
+            <form onSubmit={handleSubmit} className="overflow-y-auto pr-1">
+              {formError && <div className="bg-red-100 p-3 mb-4 text-red-600 rounded-md text-center font-medium">{formError}</div>}
+              
+              <div className="space-y-5 pt-4">
+                {/* RO Selection */}
+                <div className="bg-green-50 p-4 rounded-md border border-green-200">
+                  <Label htmlFor="ro-select" className="text-green-800 font-semibold text-lg mb-2 block">
+                    Select Release Order (RO) or Entry Without Bank Details
+                  </Label>
+                  {filteredROOptions.some((opt: any) => opt.source === 'inward') && (
+                    <div className="mb-2 px-3 py-2 bg-orange-100 text-orange-800 rounded-md text-sm flex items-start">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div>
+                        <strong>Direct DO Entries:</strong> Items with <span className="inline-block w-2 h-2 rounded-full bg-orange-500 mx-1"></span> orange indicator are warehouses with NO bank details. The system strictly checks active warehouses from the survey section and only allows direct DO for those specifically confirmed to have no bank details. Check browser console logs for detailed bank details verification.
+                      </div>
+                    </div>
+                  )}
+                  <div className="relative">
+                    <div className="relative mb-1">
+                      <Input
+                        ref={searchInputRef}
+                        placeholder="Type to search by SR/WR No..."
+                        value={roSearch}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRoSearch(e.target.value)}
+                        className="mb-1 pr-8 border-2 border-blue-300 focus:border-blue-500"
+                        autoFocus
+                      />
+                      {roSearch && (
+                        <button 
+                          type="button" 
+                          onClick={() => setRoSearch('')}
+                          className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                    {roSearch && (
+                      <div className="text-xs mb-2">
+                        <span className={`${filteredROOptions.length > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                          {filteredROOptions.length} {filteredROOptions.length === 1 ? 'result' : 'results'} found
+                          {filteredROOptions.length === 0 && roSearch.length > 0 && " - Try partial SR/WR number"}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {/* Debug info */}
+                    <div className="text-xs mb-2 text-blue-600">
+                      Available options: {roOptions.length} | 
+                      Filtered: {filteredROOptions.length} | 
+                      With positive balance: {filteredROOptions.filter((opt: any) => 
+                        (opt.balanceBags !== undefined ? Number(opt.balanceBags) : 
+                          (opt.releaseBags !== undefined ? Number(opt.releaseBags) : 0)) > 0
+                      ).length}
+                    </div>
+                    
+                    <Select
+                      value={selectedRO?.id || ''}
+                      onValueChange={(value: string) => {
+                        const selected = roOptions.find((ro: any) => ro.id === value);
+                        setSelectedRO(selected || null);
+                      }}
+                    >
+                      <SelectTrigger id="ro-select" className="bg-white">
+                        <SelectValue placeholder="Select RO" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px]">
+                        {filteredROOptions
+                          .filter((option: any) => {
+                            // Calculate and check if balance is positive
+                            const balanceBags = option.balanceBags !== undefined ? 
+                              Number(option.balanceBags) : 
+                              (option.releaseBags !== undefined ? Number(option.releaseBags) : 0);
+                            return balanceBags > 0;
+                          })
+                          .map((option: any) => {
+                            // Get the balance for display
+                            const balanceBags = option.balanceBags !== undefined ? 
+                              Number(option.balanceBags) : 
+                              (option.releaseBags !== undefined ? Number(option.releaseBags) : 0);
+                          
+                          return (
+                            <SelectItem 
+                              key={option.id} 
+                              value={option.id} 
+                              className={option.source === 'inward' ? "bg-orange-50 text-orange-800 font-medium" : ""}
+                            >
+                              {option.source === 'inward' ? (
+                                <span className="flex items-center">
+                                  <span className="inline-block w-2 h-2 rounded-full bg-orange-500 mr-2"></span>
+                                  {option.srwrNo} <span className="ml-1 font-semibold">(No Bank Details - Direct DO)</span>
+                                </span>
+                              ) : (
+                                <span>
+                                  {option.srwrNo} - {option.roCode}
+                                  <span className="ml-2 text-green-700">
+                                    (Balance: {balanceBags} bags)
+                                  </span>
+                                </span>
+                              )}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Auto-populated Fields */}
+                {selectedRO && (
+                  <div className="grid grid-cols-2 gap-6 p-4 bg-green-50 rounded-md border border-green-200">
+                    <div>
+                      <Label className="text-green-800 font-medium">CAD NUMBER</Label>
+                      <Input value={selectedRO.cadNumber || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div>
+                      <Label className="text-green-800 font-medium">STATE</Label>
+                      <Input value={selectedRO.state || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div>
+                      <Label className="text-green-800 font-medium">BRANCH</Label>
+                      <Input value={selectedRO.branch || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div>
+                      <Label className="text-green-800 font-medium">LOCATION</Label>
+                      <Input value={selectedRO.location || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div>
+                      <Label className="text-green-800 font-medium">WAREHOUSE NAME</Label>
+                      <Input value={selectedRO.warehouseName || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div>
+                      <Label className="text-green-800 font-medium">WAREHOUSE CODE</Label>
+                      <Input value={selectedRO.warehouseCode || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div className="col-span-2">
+                      <Label className="text-green-800 font-medium">WAREHOUSE ADDRESS</Label>
+                      <Input value={selectedRO.warehouseAddress || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div>
+                      <Label className="text-green-800 font-medium">CLIENT NAME</Label>
+                      <Input value={selectedRO.client || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div>
+                      <Label className="text-green-800 font-medium">CLIENT CODE</Label>
+                      <Input value={selectedRO.clientCode || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div className="col-span-2">
+                      <Label className="text-green-800 font-medium">CLIENT ADDRESS</Label>
+                      <Input value={selectedRO.clientAddress || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    
+                    <div>
+                      <Label className="text-green-800 font-medium">INWARD BAGS</Label>
+                      <Input value={selectedRO.totalBags || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div>
+                      <Label className="text-green-800 font-medium">INWARD QUANTITY (MT)</Label>
+                      <Input value={selectedRO.totalQuantity || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div>
+                      <Label className="text-green-800 font-medium">RELEASE RO BAGS</Label>
+                      <Input value={selectedRO.releaseBags || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+                    <div>
+                      <Label className="text-green-800 font-medium">RELEASE RO QUANTITY (MT)</Label>
+                      <Input value={selectedRO.releaseQuantity || ''} readOnly className="bg-white border-green-100" />
+                    </div>
+
+                    {/* Input fields */}
+                    <div>
+                      <Label htmlFor="doBags" className="text-orange-600 font-medium">DO BAGS</Label>
+                      <Input
+                        id="doBags"
+                        type="number"
+                        value={doBags}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          const newValue = e.target.value;
+                          setDoBags(newValue);
+                          // If user entered exactly the remaining balance bags, auto-set quantity too
+                          if (Number(newValue) === currentBalanceBags) {
+                            setDoQty(currentBalanceQty?.toString() || "0");
+                          }
+                        }}
+                        required
+                        className="bg-white border-orange-200"
+                      />
+                      {currentBalanceBags === 1 && (
+                        <div className="text-xs text-blue-600 mt-1">
+                          This is the last bag - full remaining quantity will be used
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <Label htmlFor="doQty" className="text-orange-600 font-medium">DO QUANTITY (MT)</Label>
+                      <Input
+                        id="doQty"
+                        type="number"
+                        step="0.01"
+                        value={doQty}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDoQty(e.target.value)}
+                        required
+                        className="bg-white border-orange-200"
+                        // Auto-set to full remaining quantity if this is the last bag
+                        readOnly={Number(doBags) === currentBalanceBags}
+                      />
+                      {Number(doBags) === currentBalanceBags && (
+                        <div className="text-xs text-blue-600 mt-1">
+                          Using full remaining quantity for last bag
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Auto calculated balance fields */}
+                    <div>
+                      <Label className="text-green-800 font-medium">BALANCE BAGS</Label>
+                      <Input 
+                        value={currentBalanceBags !== null && doBags ? 
+                          Math.max(0, Number(currentBalanceBags) - Number(doBags || 0)).toString() : 
+                          currentBalanceBags?.toString() || ''} 
+                        readOnly 
+                        className="bg-green-50 border-green-100"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-green-800 font-medium">BALANCE QUANTITY (MT)</Label>
+                      <Input 
+                        value={currentBalanceQty !== null && doQty ? 
+                          Math.max(0, Number(currentBalanceQty) - Number(doQty || 0)).toFixed(2) : 
+                          currentBalanceQty?.toString() || ''} 
+                        readOnly 
+                        className="bg-green-50 border-green-100"
+                      />
+                    </div>
+
+                    {/* Attachment - Now Mandatory */}
+                    <div className="col-span-2">
+                      <Label htmlFor="attachment" className="text-orange-600 font-medium flex items-center">
+                        ATTACHMENT (ALL FILE TYPES ALLOWED) 
+                        <span className="text-red-500 ml-1">*</span>
+                      </Label>
+                      <Input
+                        id="attachment"
+                        type="file"
+                        className="cursor-pointer bg-white border-orange-200"
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          if (e.target.files) {
+                            const filesArray = Array.from(e.target.files);
+                            setFileAttachments([...fileAttachments, ...filesArray]);
+                            // Reset the input to allow selecting the same file again
+                            e.target.value = '';
+                          }
+                        }}
+                        required={fileAttachments.length === 0}
+                        multiple
+                      />
+                      {fileAttachments.length > 0 && (
+                        <div className="mt-3 bg-green-50 p-3 rounded-md border border-green-100">
+                          <Label className="text-green-800 font-medium mb-2 block">Selected Files:</Label>
+                          <div className="space-y-2">
+                            {fileAttachments.map((file: File, idx: number) => (
+                              <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-green-100">
+                                <span className="text-sm truncate">{file.name}</span>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 text-red-500"
+                                  onClick={() => {
+                                    const newFiles = [...fileAttachments];
+                                    newFiles.splice(idx, 1);
+                                    setFileAttachments(newFiles);
+                                  }}
+                                >
+                                  Remove
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Remark */}
+                    <div className="col-span-2">
+                      <Label htmlFor="remark" className="text-green-800 font-medium">REMARK</Label>
+                      <Input
+                        id="remark"
+                        value={remark}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRemark(e.target.value)}
+                        placeholder="Enter remarks..."
+                        className="bg-white border-green-100"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-8 pt-4 border-t border-green-100 flex gap-4 justify-end">
+                <Button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white px-6" disabled={isUploading}>
+                  {isUploading ? 'Submitting...' : 'SUBMIT'}
+                </Button>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline" className="border-green-200 text-green-800 hover:bg-green-50">Cancel</Button>
+                </DialogClose>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* DO Details Dialog */}
+        <Dialog open={showDODetails} onOpenChange={setShowDODetails}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="border-b border-green-100 pb-4">
+           
+            </div>
+            {selectedDO && (
+              <div className="max-h-[80vh] overflow-y-auto p-2">
+                {/* Agrogreen Logo and DO Details Header */}
+                <div className="flex flex-col items-center justify-center mb-8 mt-2">
+                  <Image src="/Group 86.png" alt="Agrogreen Logo" width={120} height={100} style={{ marginBottom: 8, borderRadius: '30%', objectFit: 'cover' }} />
+                  <div className="text-lg font-extrabold text-orange-600 mt-2 mb-1 text-center" style={{ letterSpacing: '0.02em' }}>
+                    AGROGREEN WAREHOUSING PRIVATE LTD.
+                  </div>
+                  <div className="text-base font-semibold text-green-600 mb-2 text-center">
+                    603, 6th Floor, Princess Business Skyline, Indore, Madhya Pradesh - 452010
+                  </div>
+                  <div className="text-md font-bold text-orange-600 underline text-center mb-2" style={{ letterSpacing: '0.01em' }}>
+                    DELIVERY ORDER (DO) DETAILS
+                  </div>
+                </div>
+                
+                {/* CIR-style header */}
+                <div style={{ textAlign: 'center', marginBottom: 8 }}>
+                  <Image src="/Group 86.png" alt="Agrogreen Logo" width={90} height={90} style={{ borderRadius: '50%', margin: '0 auto 8px' }} />
+                  <div style={{ fontSize: 28, fontWeight: 700, color: '#e67c1f', letterSpacing: 0.5, marginBottom: 2 }}>AGROGREEN WAREHOUSING PRIVATE LTD.</div>
+                  <div style={{ fontSize: 18, fontWeight: 500, color: '#1aad4b', marginBottom: 8 }}>603, 6th Floor, Princess Business Skyline, Indore, Madhya Pradesh - 452010</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: '#e67c1f', margin: '24px 0 0 0', textDecoration: 'underline' }}>DO Details</div>
+                </div>
+                
+                {/* Three-column grid for fields */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr 1fr',
+                    gap: '0 24px',
+                    marginTop: 32,
+                  }}
+                >
+                  {/* All fields except attachments and remarks */}
+                  {[
+                    { label: 'DO Code', value: selectedDO.doCode },
+                    { label: 'SR/WR No.', value: selectedDO.srwrNo },
+                    { label: 'CAD Number', value: selectedDO.cadNumber },
+                    { label: 'State', value: selectedDO.state },
+                    { label: 'Branch', value: selectedDO.branch },
+                    { label: 'Location', value: selectedDO.location },
+                    { label: 'Warehouse Name', value: selectedDO.warehouseName },
+                    { label: 'Warehouse Code', value: selectedDO.warehouseCode },
+                    { label: 'Warehouse Address', value: selectedDO.warehouseAddress },
+                    { label: 'Client Name', value: selectedDO.client },
+                    { label: 'Client Code', value: selectedDO.clientCode },
+                    { label: 'Client Address', value: selectedDO.clientAddress },
+                    { label: 'Inward Bags', value: selectedDO.totalBags },
+                    { label: 'Inward Quantity (MT)', value: selectedDO.totalQuantity },
+                    { label: 'Release RO Bags', value: selectedDO.releaseBags },
+                    { label: 'Release RO Quantity (MT)', value: selectedDO.releaseQuantity },
+                    { label: 'DO Bags', value: selectedDO.doBags },
+                    { label: 'DO Quantity (MT)', value: selectedDO.doQuantity },
+                    { label: 'Balance Bags', value: getBalanceBags(selectedDO) },
+                    { label: 'Balance Quantity (MT)', value: getBalanceQty(selectedDO) },
+                  ].map((f, idx) => (
+                    <div key={idx} style={{ marginBottom: 12 }}>
+                      <div style={{ fontWeight: 700, color: '#1aad4b', fontSize: 16, marginBottom: 4, marginTop: 12, letterSpacing: 0.2 }}>{f.label}</div>
+                      <div style={{ fontWeight: 500, color: '#222', fontSize: 16, marginBottom: 8, background: '#f6fef9', borderRadius: 8, padding: '6px 12px', border: '1px solid #e0f2e9' }}>{f.value ?? '-'}</div>
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Attachments row below grid */}
+                <div style={{ marginTop: 24 }}>
+                  <div style={{ fontWeight: 700, color: '#1aad4b', fontSize: 16, marginBottom: 4, marginTop: 12, letterSpacing: 0.2 }}>Attachment</div>
+                  {Array.isArray(selectedDO.attachmentUrls) && selectedDO.attachmentUrls.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {selectedDO.attachmentUrls.map((url: string, idx: number) => {
+                        const ext = url.split('.').pop()?.toLowerCase();
+                        let label = 'View File';
+                        if (ext === 'pdf') label = 'View PDF';
+                        else if (ext === 'docx') label = 'View DOCX';
+                        else if (["jpg", "jpeg", "png"].includes(ext || '')) label = 'View Image';
+                        return (
+                          <a key={idx} href={url} target="_blank" rel="noopener noreferrer" style={{ color: '#1a56db', textDecoration: 'underline', fontSize: 15 }}>
+                            {label} {idx + 1}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <span style={{ color: '#888', fontSize: 15 }}>No file</span>
+                  )}
+                </div>
+                
+                {/* Remark section - positioned in left bottom corner */}
+                <div style={{ marginTop: 24 }}>
+                  <div style={{ fontWeight: 700, color: '#1aad4b', fontSize: 16, marginBottom: 4, marginTop: 12, letterSpacing: 0.2 }}>Remark</div>
+                  <div style={{ fontWeight: 500, color: '#222', fontSize: 16, marginBottom: 8, background: '#f6fef9', borderRadius: 8, padding: '6px 12px', border: '1px solid #e0f2e9', minHeight: '40px' }}>
+                    {selectedDO.remark || '-'}
+                  </div>
+                </div>
+                
+
+                {/* Generate Receipt Button (only if approved) */}
+                {selectedDO.doStatus === 'approved' && (
+                  <div className="flex justify-end mt-2">
+                    <Button type="button" className="bg-orange-600 hover:bg-orange-700 text-white" onClick={async () => {
+                      try {
+                        // Import required libraries
+                        const html2canvas = (await import('html2canvas')).default;
+                        const jsPDF = (await import('jspdf')).default;
+                        
+                        const tempElement = document.createElement('div');
+                        tempElement.style.position = 'absolute';
+                        tempElement.style.left = '-9999px';
+                        tempElement.style.top = '0';
+                        tempElement.style.padding = '40px';
+                        tempElement.style.backgroundColor = 'white';
+                        tempElement.style.fontFamily = 'Arial, sans-serif';
+                        
+                        tempElement.innerHTML = `
+                          <div style="text-align: center; margin-bottom: 30px;">
+                            <img src="/Group 86.png" alt="Agrogreen Logo" style="width: 90px; height: 90px; border-radius: 50%; margin: 0 auto 8px;">
+                            <div style="font-size: 28px; font-weight: 700; color: #e67c1f; letter-spacing: 0.5px; margin-bottom: 2px;">AGROGREEN WAREHOUSING PRIVATE LTD.</div>
+                            <div style="font-size: 18px; font-weight: 500; color: #1aad4b; margin-bottom: 8px;">603, 6th Floor, Princess Business Skyline, Indore, Madhya Pradesh - 452010</div>
+                            <div style="font-size: 20px; font-weight: 700; color: #e67c1f; margin: 24px 0 0 0; text-decoration: underline;">DO RECEIPT</div>
+                          </div>
+
+                          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 24px; margin-top: 32px;">
+                            ${[
+                              { label: 'DO Code', value: selectedDO.doCode },
+                              { label: 'SR/WR No.', value: selectedDO.srwrNo },
+                              { label: 'CAD Number', value: selectedDO.cadNumber },
+                              { label: 'State', value: selectedDO.state },
+                              { label: 'Branch', value: selectedDO.branch },
+                              { label: 'Location', value: selectedDO.location },
+                              { label: 'Warehouse Name', value: selectedDO.warehouseName },
+                              { label: 'Warehouse Code', value: selectedDO.warehouseCode },
+                              { label: 'Warehouse Address', value: selectedDO.warehouseAddress },
+                              { label: 'Client Name', value: selectedDO.client },
+                              { label: 'Client Code', value: selectedDO.clientCode },
+                              { label: 'Client Address', value: selectedDO.clientAddress },
+                              { label: 'Inward Bags', value: selectedDO.totalBags },
+                              { label: 'Inward Quantity (MT)', value: selectedDO.totalQuantity },
+                              { label: 'Release RO Bags', value: selectedDO.releaseBags },
+                              { label: 'Release RO Quantity (MT)', value: selectedDO.releaseQuantity },
+                              { label: 'DO Bags', value: selectedDO.doBags },
+                              { label: 'DO Quantity (MT)', value: selectedDO.doQuantity },
+                              { label: 'Balance Bags', value: getBalanceBags(selectedDO) },
+                              { label: 'Balance Quantity (MT)', value: getBalanceQty(selectedDO) }
+                            ].map(field => `
+                              <div style="margin-bottom: 12px;">
+                                <div style="font-weight: 700; color: #e67c1f; font-size: 16px; margin-bottom: 4px; margin-top: 12px; letter-spacing: 0.2px;">${field.label}</div>
+                                <div style="font-weight: 500; color: #222; font-size: 16px; margin-bottom: 8px; background: #fff7f0; border-radius: 8px; padding: 6px 12px; border: 1px solid #fed7aa;">${field.value ?? '-'}</div>
+                              </div>
+                            `).join('')}
+                          </div>
+
+                          ${selectedDO.attachmentUrls && Array.isArray(selectedDO.attachmentUrls) && selectedDO.attachmentUrls.length > 0 ? `
+                            <div style="margin-top: 24px;">
+                              <div style="font-weight: 700; color: #e67c1f; font-size: 16px; margin-bottom: 4px; margin-top: 12px; letter-spacing: 0.2px;">Attachment</div>
+                              <div style="display: flex; flex-direction: column; gap: 4px;">
+                                ${selectedDO.attachmentUrls.map((url: string, idx: number) => {
+                                  const ext = url.split('.').pop()?.toLowerCase();
+                                  let label = 'View File';
+                                  if (ext === 'pdf') label = 'View PDF';
+                                  else if (ext === 'docx') label = 'View DOCX';  
+                                  else if (["jpg", "jpeg", "png"].includes(ext || '')) label = 'View Image';
+                                  return `<a href="${url}" style="color: #1a56db; text-decoration: underline; font-size: 15px;">${label} ${idx + 1}</a>`;
+                                }).join('')}
+                              </div>
+                            </div>
+                          ` : ''}
+                        `;
+                        
+                        document.body.appendChild(tempElement);
+                        
+                        const canvas = await html2canvas(tempElement, {
+                          scale: 2,
+                          useCORS: true,
+                          allowTaint: true,
+                          backgroundColor: '#ffffff'
+                        });
+                        
+                        const imgData = canvas.toDataURL('image/png');
+                        const pdf = new jsPDF('p', 'mm', 'a4');
+                        
+                        const pdfWidth = pdf.internal.pageSize.getWidth();
+                        const pdfHeight = pdf.internal.pageSize.getHeight();
+                        const imgWidth = canvas.width;
+                        const imgHeight = canvas.height;
+                        
+                        const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+                        const imgX = (pdfWidth - imgWidth * ratio) / 2;
+                        const imgY = 30;
+                        
+                        pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+                        pdf.save(`DO-Receipt-${selectedDO.doCode}.pdf`);
+                        
+                        document.body.removeChild(tempElement);
+                        
+                        alert("PDF generated successfully!");
+                      } catch (error: any) {
+                        console.error("PDF generation error:", error);
+                        alert(`Error generating PDF: ${error?.message || 'Unknown error'}`);
+                      }
+                    }}>
+                      Generate Receipt
+                    </Button>
+                  </div>
+                )}
+                {/* Previous DO entries table removed for PDF generation */}
+                {selectedDO.doStatus !== 'approved' && (
+                  <div className="mt-6 pt-4 border-t border-green-200">
+                    <Label className="text-green-800 font-medium">Update Status with Remark</Label>
+                    <Input value={remark} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRemark(e.target.value)} placeholder="Enter remark..." className="mt-2 border-green-100" />
+                    <div className="flex gap-4 mt-4 justify-end">
+                      <Button type="button" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleDOStatusChange('approved')} disabled={doStatusUpdating}>Approve</Button>
+                      <Button type="button" className="bg-red-600 hover:bg-red-700 text-white" onClick={() => handleDOStatusChange('rejected')} disabled={doStatusUpdating}>Reject</Button>
+                      <Button type="button" className="bg-orange-500 hover:bg-orange-600 text-white" onClick={() => handleDOStatusChange('resubmitted')} disabled={doStatusUpdating}>Resubmit</Button>
+                    </div>
+                  </div>
+                )}
+                {selectedDO.doStatus === 'approved' && (
+                  <div className="mt-6 pt-4 border-t border-green-200">
+                    <div className="flex items-center justify-center gap-2 text-green-700">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      <span className="font-medium">This delivery order has been approved</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
+    </DashboardLayout>
+  );
+}
