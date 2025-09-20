@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
@@ -101,7 +101,10 @@ const pendingColumns = [
     header: "Business Type",
     cell: ({ row }: { row: Row<any> }) => (
       <span className="text-green-700 w-full flex justify-center">
-        {row.getValue("businessType")?.toUpperCase()}
+        {(() => {
+          const v = row.getValue("businessType");
+          return typeof v === 'string' ? v.toUpperCase() : '-';
+        })()}
       </span>
     ),
     meta: { align: 'center' },
@@ -171,7 +174,9 @@ const pendingColumns = [
     header: "Created Date",
     cell: ({ row }: { row: Row<any> }) => {
       const date = row.getValue("createdAt");
-      const formattedDate = date ? new Date(date).toLocaleDateString() : '';
+      const formattedDate = (typeof date === 'string' || typeof date === 'number' || date instanceof Date)
+        ? new Date(date).toLocaleDateString()
+        : '';
       return (
         <span className="text-green-700 w-full flex justify-center">
           {formattedDate}
@@ -239,7 +244,7 @@ export default function PendingWarehousePage() {
   const [businessTypeFilter, setBusinessTypeFilter] = useState('');
 
   // Load inspections data
-  const loadInspections = async () => {
+  const loadInspections = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -288,7 +293,7 @@ export default function PendingWarehousePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   // Load data on component mount
   useEffect(() => {
@@ -313,7 +318,7 @@ export default function PendingWarehousePage() {
       window.removeEventListener('inspectionDataUpdated', handleInspectionUpdate as EventListener);
       document.removeEventListener('viewInspectionDetails', handleViewDetails as EventListener);
     };
-  }, []);
+  }, [loadInspections]);
 
   // Filter and sort inspections data
   const filteredAndSortedInspections = useMemo(() => {

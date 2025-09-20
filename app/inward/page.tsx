@@ -3209,42 +3209,7 @@ export default function InwardPage() {
     },
   ], []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ... inside InwardPage component, after other useState hooks ...
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-  const sortColumn = 'inwardId';
-
-  // ... update filteredData to sort by sortColumn and sortDirection ...
-  const filteredData = useMemo(() => {
-    const term = searchTerm.toLowerCase();
-    // Sort data by Inward Code and direction
-    const sortedData = [...inwardData].sort((a, b) => {
-      let aVal = a[sortColumn];
-      let bVal = b[sortColumn];
-      // If value is number, compare as number
-      if (!isNaN(Number(aVal)) && !isNaN(Number(bVal))) {
-        aVal = Number(aVal);
-        bVal = Number(bVal);
-      } else {
-        aVal = (aVal || '').toString().toLowerCase();
-        bVal = (bVal || '').toString().toLowerCase();
-      }
-      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
-    if (!term) return sortedData;
-    return sortedData.filter((item: any) => {
-      const lowerCaseSearchTerm = term.toLowerCase();
-      return (
-        item.state?.toLowerCase().includes(lowerCaseSearchTerm) ||
-        item.branch?.toLowerCase().includes(lowerCaseSearchTerm) ||
-        item.location?.toLowerCase().includes(lowerCaseSearchTerm) ||
-        item.warehouseName?.toLowerCase().includes(lowerCaseSearchTerm) ||
-        item.client?.toLowerCase().includes(lowerCaseSearchTerm) ||
-        item.receiptType?.toLowerCase().includes(lowerCaseSearchTerm)
-      );
-    });
-  }, [searchTerm, inwardData, sortDirection]);
+  // Note: Sorting state and filteredData are defined earlier in the file; avoid duplicate declarations.
 
   const handleExportCSV = () => {
     const dataToExport = filteredData;
@@ -4089,103 +4054,6 @@ export default function InwardPage() {
   };
 
   // SR/WR View Modal
-  const handleApproveSR = async (sr: any) => {
-    if (!hologramNumber.trim()) {
-      toast({
-        title: 'Hologram Number Required',
-        description: 'Please enter the hologram number before proceeding.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    
-    if (!remarks.trim()) {
-      toast({
-        title: 'Remarks Required',
-        description: 'Please enter remarks before proceeding.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    
-    // Update status, srGenerationDate, and hologramNumber in Firestore
-    const today = new Date();
-    const todayISO = today.toISOString().slice(0, 10);
-    
-    try {
-      const inwardCollection = collection(db, 'inward');
-      const q = query(inwardCollection, where('inwardId', '==', sr.inwardId));
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const docRef = doc(db, 'inward', querySnapshot.docs[0].id);
-        
-        // Update the document with all required fields in one operation
-        await updateDoc(docRef, { 
-          status: 'approved', 
-          srGenerationDate: todayISO, 
-          hologramNumber, 
-          remarks: remarks || '',
-          updatedAt: new Date().toISOString()
-        });
-        
-        console.log('Successfully updated inward document with srGenerationDate:', todayISO);
-        
-        // Update local state
-        setIsFormApproved(true);
-        setSrGenerationDate(todayISO);
-        
-        // Update the selectedRowForSR to reflect the changes
-        setSelectedRowForSR((prev: any) => ({
-          ...prev,
-          status: 'approved',
-          srGenerationDate: todayISO,
-          hologramNumber
-        }));
-        
-        toast({
-          title: 'Approved Successfully',
-          description: 'The receipt has been approved and is now ready for printing.',
-          variant: 'default',
-        });
-      } else {
-        throw new Error(`No inward document found with inwardId: ${sr.inwardId}`);
-      }
-    } catch (error) {
-      console.error('Error updating status to approve:', error);
-      toast({
-        title: 'Error',
-        description: `Failed to approve receipt: ${error instanceof Error ? error.message : String(error)}`,
-        variant: 'destructive',
-      });
-      return;
-    }
-  };
-
-  const handleRejectSR = async (sr: any) => {
-    if (!remarks.trim()) {
-      toast({
-        title: 'Remarks Required',
-        description: 'Please enter remarks before proceeding.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    
-    // Update status in Firestore
-    try {
-      const inwardCollection = collection(db, 'inward');
-      const q = query(inwardCollection, where('inwardId', '==', sr.inwardId));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        const docRef = doc(db, 'inward', querySnapshot.docs[0].id);
-        await updateDoc(docRef, { status: 'rejected', remarks: remarks || '' });
-      }
-    } catch (error) {
-      console.error('Error updating status to rejected:', error);
-    }
-    setShowSRForm(false);
-  };
 
 
   const isInsuranceExpired = (sr: any) => {
@@ -4914,7 +4782,7 @@ export default function InwardPage() {
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         {/* Logo and company info header (copied from SR/WR receipt) */}
         <div className="flex flex-col items-center justify-center mb-8 mt-2">
-          <img src="/Group 86.png" alt="Agrogreen Logo" style={{ width: 120, height: 100, marginBottom: 8, borderRadius: '30%', objectFit: 'cover' }} />
+          <Image src="/Group 86.png" alt="Agrogreen Logo" width={120} height={100} style={{ marginBottom: 8, borderRadius: '30%', objectFit: 'cover' }} />
           <div className="text-lg font-extrabold text-orange-600 mt-2 mb-1 text-center" style={{ letterSpacing: '0.02em' }}>
             AGROGREEN WAREHOUSING PRIVATE LTD.
           </div>
@@ -7160,7 +7028,7 @@ export default function InwardPage() {
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           {/* Custom Header Section */}
           <div className="flex flex-col items-center justify-center mb-8 mt-2">
-            <img src="/Group 86.png" alt="Agrogreen Logo" style={{ width: 120, height: 100, marginBottom: 8, borderRadius: '30%', objectFit: 'cover' }} />
+            <Image src="/Group 86.png" alt="Agrogreen Logo" width={120} height={100} style={{ marginBottom: 8, borderRadius: '30%', objectFit: 'cover' }} />
             <div className="text-lg font-extrabold text-orange-600 mt-2 mb-1 text-center" style={{ letterSpacing: '0.02em' }}>
               AGROGREEN WAREHOUSING PRIVATE LTD.
             </div>
@@ -7484,7 +7352,7 @@ export default function InwardPage() {
               {/* Agrogreen Logo and Test Certificate (Modal View) */}
               <div className="relative flex flex-col items-center justify-center my-8">
               <div className="flex flex-col items-center justify-center mb-8 mt-2">
-            <img src="/Group 86.png" alt="Agrogreen Logo" style={{ width: 120, height: 100, marginBottom: 8, borderRadius: '30%', objectFit: 'cover' }} />
+            <Image src="/Group 86.png" alt="Agrogreen Logo" width={120} height={100} style={{ marginBottom: 8, borderRadius: '30%', objectFit: 'cover' }} />
             <div className="text-lg font-extrabold text-orange-600 mt-2 mb-1 text-center" style={{ letterSpacing: '0.02em' }}>
               AGROGREEN WAREHOUSING PRIVATE LTD.
             </div>
@@ -7797,7 +7665,7 @@ export default function InwardPage() {
           <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
             {/* Logo and company info header (copied from SR/WR receipt) */}
             <div className="flex flex-col items-center justify-center mb-8 mt-2">
-              <img src="/Group 86.png" alt="Agrogreen Logo" style={{ width: 120, height: 100, marginBottom: 8, borderRadius: '30%', objectFit: 'cover' }} />
+              <Image src="/Group 86.png" alt="Agrogreen Logo" width={120} height={100} style={{ marginBottom: 8, borderRadius: '30%', objectFit: 'cover' }} />
               <div className="text-lg font-extrabold text-orange-600 mt-2 mb-1 text-center" style={{ letterSpacing: '0.02em' }}>
                 AGROGREEN WAREHOUSING PRIVATE LTD.
               </div>

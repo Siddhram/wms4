@@ -3,13 +3,14 @@
 import DashboardLayout from '@/components/dashboard-layout';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Search, Download, Plus, AlertTriangle, PlusCircle, Eye } from 'lucide-react';
+import { Search, Download, Plus, AlertTriangle, PlusCircle, Eye, Edit3 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
 
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where, addDoc, doc, updateDoc } from 'firebase/firestore';
@@ -69,6 +70,20 @@ const getStatusStyling = (status: string) => {
   return 'bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs font-medium inline-block';
 };
 
+// Helpers to sort by outward code (ascending)
+const extractOutwardNumber = (code?: string) => {
+  if (!code) return Number.POSITIVE_INFINITY; // place empty/invalid codes at the end
+  const match = code.match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : Number.POSITIVE_INFINITY;
+};
+
+const compareOutwardCodeAsc = (a: any, b: any) => {
+  const na = extractOutwardNumber(a?.outwardCode);
+  const nb = extractOutwardNumber(b?.outwardCode);
+  if (na !== nb) return na - nb;
+  return (a?.outwardCode || '').localeCompare(b?.outwardCode || '');
+};
+
 export default function OutwardPage() {
   const { user } = useAuth();
   const userRole = user?.role || 'user';
@@ -95,6 +110,8 @@ export default function OutwardPage() {
   const [totalBagsOutward, setTotalBagsOutward] = React.useState('');
   const [stackEntries, setStackEntries] = React.useState<any[]>([]);
   const [fileAttachments, setFileAttachments] = React.useState<File[]>([]);
+  // Track entries added in this session for multi-vehicle flow
+  const [sessionEntries, setSessionEntries] = React.useState<any[]>([]);
   
   // Status variables
   const [isUploading, setIsUploading] = React.useState(false);
@@ -109,6 +126,17 @@ export default function OutwardPage() {
   const [selectedOutward, setSelectedOutward] = React.useState<any>(null);
   const [remark, setRemark] = React.useState('');
   const [outwardStatusUpdating, setOutwardStatusUpdating] = React.useState(false);
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = React.useState(false);
+  const [editingOutward, setEditingOutward] = React.useState<any>(null);
+  const [existingAttachmentUrls, setExistingAttachmentUrls] = React.useState<string[]>([]);
+  // Additional fields and pagination
+  const [warehouseType, setWarehouseType] = React.useState('');
+  const [typeOfBusiness, setTypeOfBusiness] = React.useState('');
+  const [commodityName, setCommodityName] = React.useState('');
+  const [varietyName, setVarietyName] = React.useState('');
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const pageSize = 10;
   
   // Calculate net weight automatically when gross weight or tare weight changes
   React.useEffect(() => {
@@ -161,8 +189,8 @@ export default function OutwardPage() {
           outwardStatus: d.outwardStatus || 'pending',
         };
       });
-      // Sort by outwardCode descending (latest first)
-      data.sort((a, b) => (b.outwardCode || '').localeCompare(a.outwardCode || ''));
+      // Sort by outwardCode ascending
+      data.sort(compareOutwardCodeAsc);
       setOutwardEntries(data);
     };
     fetchOutwards();
@@ -252,7 +280,12 @@ export default function OutwardPage() {
     };
     
     fetchDOs();
-  }, []);
+  }, [submitSuccess, outwardStatusUpdating]);
+
+  // Clear SR/WR search filter whenever Add Outward dialog opens or closes
+  React.useEffect(() => {
+    setDoSearch('');
+  }, [showAddModal]);
 
   // Helper to get balance from DO bags/quantity
   const getBalanceBags = (row: any) => {
@@ -280,9 +313,282 @@ export default function OutwardPage() {
     
     // Update the outward bags total
     setOutwardBags(totalBags.toString());
+    setTotalBagsOutward(totalBags.toString());
     
     console.log(`Updated total bags: ${totalBags}`);
   };
+
+  // Centralized submit handler to support Submit and Add Entry flows
+  const handleOutwardSubmit = React.useCallback(async (options?: { stayOpen?: boolean }) => {
+    const stayOpen = !!options?.stayOpen;
+    setFormError(null);
+
+    if (!selectedDO && !isEditMode) {
+      setFormError('Please select a DO');
+      return;
+    }
+
+    // Require at least one attachment: either existing or newly added
+    const hasAnyAttachment = (existingAttachmentUrls && existingAttachmentUrls.length > 0) || (fileAttachments.length > 0);
+    if (!hasAnyAttachment) {
+      setFormError('Please upload at least one attachment');
+      return;
+    }
+
+    // Validate outward bags and quantity
+    const obBags = Number(outwardBags);
+    const oQuantity = Number(outwardQty);
+  const balanceBags = currentBalanceBags || 0;
+  const balanceQty = currentBalanceQty || 0;
+
+    if (balanceBags <= 0 || balanceQty <= 0) {
+      setFormError('No remaining balance available for this Delivery Order');
+      return;
+    }
+    if (isNaN(obBags) || obBags <= 0) {
+      setFormError('Please enter valid number of bags');
+      return;
+    }
+    if (isNaN(oQuantity) || oQuantity <= 0) {
+      setFormError('Please enter valid quantity');
+      return;
+    }
+
+    // Check stack entries total: must equal outwardBags
+    const totalStackBags = stackEntries.reduce((sum, stack) => sum + Number(stack.bags || 0), 0);
+    if (totalStackBags !== obBags) {
+      setFormError(`Total stack bags (${totalStackBags}) must match outward bags (${obBags})`);
+      return;
+    }
+    if (obBags > balanceBags) {
+      setFormError(`Cannot release more than available balance bags (${balanceBags})`);
+      return;
+    }
+    if (oQuantity > balanceQty) {
+      setFormError(`Cannot release more than available balance quantity (${balanceQty})`);
+      return;
+    }
+    if (!vehicleNumber.trim()) {
+      setFormError('Vehicle number is required');
+      return;
+    }
+    if (!gatepass.trim()) {
+      setFormError('Gatepass is required');
+      return;
+    }
+    if (!weighbridgeName.trim()) {
+      setFormError('Weighbridge name is required');
+      return;
+    }
+    if (!weighbridgeSlipNo.trim()) {
+      setFormError('Weighbridge slip number is required');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      let createdOutwardForSession: any = null;
+      let attachmentUrls: string[] = [...(existingAttachmentUrls || [])];
+      let hasUploadErrors = false;
+      if (fileAttachments.length > 0) {
+        for (const file of fileAttachments) {
+          try {
+            const result = await uploadToCloudinary(file);
+            if (result && result.secure_url) {
+              attachmentUrls.push(result.secure_url);
+            }
+          } catch (uploadError) {
+            hasUploadErrors = true;
+          }
+        }
+        if (hasUploadErrors && attachmentUrls.length < fileAttachments.length) {
+          alert(`Some files failed to upload. ${attachmentUrls.length} of ${fileAttachments.length} were successful.`);
+        }
+      }
+
+      // Prepare new balances (balance is available balance shown in the form)
+      const newBalanceBags = balanceBags - obBags;
+      const newBalanceQty = balanceQty - oQuantity;
+
+      // Get next outward code number
+  const outwardCol = collection(db, 'outwards');
+  const outwardSnap = await getDocs(outwardCol);
+  const outwardCount = outwardSnap.size;
+  const newOutwardCode = `OUT-${String(outwardCount + 1).padStart(4, '0')}`;
+
+      const finalTotalBagsOutward = obBags;
+
+      if (isEditMode && editingOutward) {
+        // Update existing outward document
+        const updatedData = {
+          // Keep the same outwardCode and identifiers
+          outwardCode: editingOutward.outwardCode,
+          srwrNo: editingOutward.srwrNo,
+          doCode: editingOutward.doCode,
+          cadNumber: editingOutward.cadNumber,
+          state: editingOutward.state,
+          branch: editingOutward.branch,
+          location: editingOutward.location,
+          warehouseName: editingOutward.warehouseName,
+          warehouseCode: editingOutward.warehouseCode,
+          warehouseAddress: editingOutward.warehouseAddress,
+          client: editingOutward.client,
+          clientCode: editingOutward.clientCode,
+          clientAddress: editingOutward.clientAddress,
+          // DO data (unchanged in edit mode)
+          doBags: editingOutward.doBags,
+          doQuantity: editingOutward.doQuantity,
+          // Outward specific data
+          outwardBags: obBags,
+          outwardQuantity: oQuantity,
+          vehicleNumber,
+          gatepass,
+          weighbridgeName,
+          weighbridgeSlipNo,
+          grossWeight: parseFloat(grossWeight) || 0,
+          tareWeight: parseFloat(tareWeight) || 0,
+          netWeight: parseFloat(netWeight) || 0,
+          totalBagsOutward: finalTotalBagsOutward,
+          // Stack entries
+          stackEntries: stackEntries.map(stack => ({
+            stackNo: stack.stackNo,
+            bags: Number(stack.bags),
+            balanceBags: Number((stack.inwardBags || 0) - (Number(stack.bags) || 0))
+          })),
+          // Updated balances
+          balanceBags: newBalanceBags,
+          balanceQuantity: newBalanceQty,
+          attachmentUrls,
+          remark,
+          // Keep status as resubmitted for review
+          outwardStatus: 'resubmitted',
+          updatedAt: new Date().toISOString(),
+          updatedBy: userRole
+        } as any;
+
+        const outwardRef = doc(db, 'outwards', editingOutward.id);
+        await updateDoc(outwardRef, updatedData);
+      } else {
+        // Create new outward document
+        const outwardData = {
+          outwardCode: newOutwardCode,
+          srwrNo: selectedDO.srwrNo,
+          doCode: selectedDO.doCode,
+          cadNumber: selectedDO.cadNumber,
+          state: selectedDO.state,
+          branch: selectedDO.branch,
+          location: selectedDO.location,
+          warehouseName: selectedDO.warehouseName,
+          warehouseCode: selectedDO.warehouseCode,
+          warehouseAddress: selectedDO.warehouseAddress,
+          client: selectedDO.client,
+          clientCode: selectedDO.clientCode,
+          clientAddress: selectedDO.clientAddress,
+          // DO data
+          doBags: selectedDO.doBags,
+          doQuantity: selectedDO.doQuantity,
+          // Outward specific data
+          outwardBags: obBags,
+          outwardQuantity: oQuantity,
+          vehicleNumber,
+          gatepass,
+          weighbridgeName,
+          weighbridgeSlipNo,
+          grossWeight: parseFloat(grossWeight) || 0,
+          tareWeight: parseFloat(tareWeight) || 0,
+          netWeight: parseFloat(netWeight) || 0,
+          totalBagsOutward: finalTotalBagsOutward,
+          // Stack entries
+          stackEntries: stackEntries.map(stack => ({
+            stackNo: stack.stackNo,
+            bags: Number(stack.bags),
+            balanceBags: Number((stack.inwardBags || 0) - (Number(stack.bags) || 0))
+          })),
+          // Balance and other data
+          balanceBags: newBalanceBags,
+          balanceQuantity: newBalanceQty,
+          attachmentUrls,
+          remark,
+          outwardStatus: 'pending',
+          createdAt: new Date().toISOString(),
+          createdBy: userRole
+        } as any;
+
+        await addDoc(collection(db, 'outwards'), outwardData);
+        createdOutwardForSession = outwardData;
+      }
+
+      // Update list and/or session state
+      setSubmitSuccess(true);
+      setIsUploading(false);
+
+  if (!isEditMode && stayOpen) {
+        // Keep modal open for next vehicle, update balances and reset per-vehicle fields
+    setSessionEntries(prev => [{ ...createdOutwardForSession, id: `session-${prev.length + 1}` }, ...prev]);
+        setCurrentBalanceBags(newBalanceBags);
+        setCurrentBalanceQty(newBalanceQty);
+
+        // Prepare next stacks with updated available (use balanceBags from last entry)
+        const nextStacks = stackEntries.map((stack: any) => {
+          const inward = Number(stack.inwardBags || 0);
+          const outB = Number(stack.bags || 0);
+          const newAvail = Math.max(0, inward - outB);
+          return {
+            stackNo: stack.stackNo,
+            bags: '',
+            inwardBags: newAvail,
+            balanceBags: newAvail,
+            commodityName: stack.commodityName,
+            varietyName: stack.varietyName
+          };
+        });
+        setStackEntries(nextStacks);
+
+        // Reset vehicle-specific inputs
+        setOutwardBags('');
+        setOutwardQty('');
+        setVehicleNumber('');
+        setGatepass('');
+        setWeighbridgeName('');
+        setWeighbridgeSlipNo('');
+        setGrossWeight('');
+        setTareWeight('');
+        setNetWeight('');
+        setTotalBagsOutward('');
+        setFileAttachments([]);
+        setRemark('');
+        return; // stay in modal
+      }
+
+  // Close modal on normal submit or after edit
+  setShowAddModal(false);
+  // Reset form
+  setSelectedDO(null);
+      setOutwardBags('');
+      setOutwardQty('');
+      setVehicleNumber('');
+      setGatepass('');
+      setWeighbridgeName('');
+      setWeighbridgeSlipNo('');
+      setGrossWeight('');
+      setTareWeight('');
+      setNetWeight('');
+      setTotalBagsOutward('');
+      setStackEntries([]);
+      setFileAttachments([]);
+  setExistingAttachmentUrls([]);
+      setRemark('');
+      setSessionEntries([]);
+  setIsEditMode(false);
+  setEditingOutward(null);
+
+      setTimeout(() => setSubmitSuccess(false), 3000);
+    } catch (error: any) {
+      console.error('Error submitting outward:', error);
+      setFormError(`An error occurred: ${error?.message || 'Unknown error'}. Please try again.`);
+      setIsUploading(false);
+    }
+  }, [selectedDO, fileAttachments, existingAttachmentUrls, isEditMode, editingOutward, outwardBags, outwardQty, currentBalanceBags, currentBalanceQty, stackEntries, vehicleNumber, gatepass, weighbridgeName, weighbridgeSlipNo, grossWeight, tareWeight, netWeight, remark, userRole]);
 
   // Group outward entries by srwrNo, show only latest per group
   const [expandedRows, setExpandedRows] = React.useState<{ [key: string]: boolean }>({});
@@ -295,22 +601,27 @@ export default function OutwardPage() {
   Object.values(groupedOutwards).forEach(group => group.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
   // Only show latest per group in main table
   const latestOutwards = Object.values(groupedOutwards).map(group => group[0]);
+  // Ensure table uses ascending Outward Code order
+  const latestOutwardsSorted = React.useMemo(() => {
+    return [...latestOutwards].sort(compareOutwardCodeAsc);
+  }, [latestOutwards]);
   
   // Filter outward entries based on search term
   // CSV Export function
   const exportToCSV = () => {
     // Determine which data to export based on search state
-    const dataToExport = searchTerm.trim() ? filteredOutwards : latestOutwards;
+    const baseData = searchTerm.trim() ? filteredOutwards : latestOutwardsSorted;
+    const dataToExport = [...baseData].sort(compareOutwardCodeAsc);
     
     if (dataToExport.length === 0) {
       alert('No data to export');
       return;
     }
 
-    // Define CSV headers (matching the table columns)
+    // Define CSV headers as requested
     const headers = [
       'Outward Code',
-      'SR/WR No.',
+      'SR/WR Receipt Number',
       'DO Code',
       'CAD Number',
       'State',
@@ -318,66 +629,85 @@ export default function OutwardPage() {
       'Location',
       'Warehouse Name',
       'Warehouse Code',
+      'Warehouse Address',
       'Client Name',
       'Client Code',
       'Client Address',
-      'Vehicle Number',
+      'Warehouse Type',
+      'Type of Business',
+      'Commodity',
+      'Variety',
+      'Inward Bags',
+      'Inward Quantity (MT)',
       'DO Bags',
-      'DO Qty (MT)',
+      'DO Quantity (MT)',
       'Outward Bags',
-      'Outward Qty (MT)',
-      'Balance Bags',
-      'Balance Qty (MT)',
-      'Status',
-      'Created Date',
-      'Created By',
-      'Gatepass',
+      'Outward Quantity (MT)',
+      'Vehicle Number',
+      'Gatepass Number',
       'Weighbridge Name',
-      'Weighbridge Slip No',
+      'Weighbridge Slip Number',
       'Gross Weight (MT)',
       'Tare Weight (MT)',
       'Net Weight (MT)',
-      'Total Bags Outward',
-      'Remark'
+      'Total Outward Bags',
+      'Stack Number',
+      'Stack Inward Bags',
+      'Stack Outward Bags',
+      'Stack Balance Bags',
+      'Remarks',
+      'Status'
     ];
 
-    // Convert data to CSV format
-    const csvData = dataToExport.map(outward => [
-      outward.outwardCode || '',
-      outward.srwrNo || '',
-      outward.doCode || '',
-      outward.cadNumber || '',
-      outward.state || '',
-      outward.branch || '',
-      outward.location || '',
-      outward.warehouseName || '',
-      outward.warehouseCode || '',
-      outward.client || '',
-      outward.clientCode || '',
-      outward.clientAddress || '',
-      outward.vehicleNumber || '',
-      outward.doBags || '',
-      outward.doQuantity || '',
-      outward.outwardBags || '',
-      outward.outwardQuantity || '',
-      getBalanceBags(outward),
-      getBalanceQty(outward),
-      normalizeStatusText(outward.outwardStatus || 'pending'),
-      outward.createdAt ? new Date(outward.createdAt).toLocaleDateString('en-GB') : '',
-      outward.createdBy || '',
-      outward.gatepass || '',
-      outward.weighbridgeName || '',
-      outward.weighbridgeSlipNo || '',
-      outward.grossWeight || '',
-      outward.tareWeight || '',
-      outward.netWeight || '',
-      outward.totalBagsOutward || '',
-      outward.remark || ''
-    ]);
+    // Convert data to CSV format (one row per stack entry; if no stacks, one row with blank stack fields)
+    const csvData = dataToExport.flatMap(outward => {
+      const stacks = Array.isArray(outward.stackEntries) && outward.stackEntries.length > 0
+        ? outward.stackEntries
+        : [null];
+      return stacks.map((stack: any) => [
+        outward.outwardCode || '',
+        outward.srwrNo || '',
+        outward.doCode || '',
+        outward.cadNumber || '',
+        outward.state || '',
+        outward.branch || '',
+        outward.location || '',
+        outward.warehouseName || '',
+        outward.warehouseCode || '',
+        outward.warehouseAddress || '',
+        outward.client || '',
+        outward.clientCode || '',
+        outward.clientAddress || '',
+        outward.warehouseType || outward.typeOfWarehouse || '',
+        outward.typeOfBusiness || outward.businessType || '',
+        outward.commodity || outward.commodityName || '',
+        outward.variety || outward.varietyName || '',
+        outward.inwardBags || outward.totalBags || '',
+        outward.inwardQuantity || outward.totalQuantity || '',
+        outward.doBags || '',
+        outward.doQuantity || '',
+        outward.outwardBags || '',
+        outward.outwardQuantity || '',
+        outward.vehicleNumber || '',
+        outward.gatepass || '',
+        outward.weighbridgeName || '',
+        outward.weighbridgeSlipNo || '',
+        outward.grossWeight || '',
+        outward.tareWeight || '',
+        outward.netWeight || '',
+        outward.totalBagsOutward || '',
+        stack?.stackNo || '',
+        stack?.inwardBags ?? '',
+        stack?.bags ?? '',
+        stack ? ((stack.inwardBags || 0) - (parseInt(stack.bags) || 0)) : '',
+        outward.remark || '',
+        normalizeStatusText(outward.outwardStatus || 'pending'),
+      ]);
+    });
 
     // Combine headers and data
     const csvContent = [headers, ...csvData]
-      .map(row => row.map(field => {
+      .map((row: any[]) => row.map((field: any) => {
         // Escape quotes and wrap in quotes if contains comma, quote, or newline
         const stringField = String(field);
         if (stringField.includes(',') || stringField.includes('"') || stringField.includes('\n')) {
@@ -407,10 +737,10 @@ export default function OutwardPage() {
   };
 
   const filteredOutwards = React.useMemo(() => {
-    if (!searchTerm) return latestOutwards;
+    if (!searchTerm) return latestOutwardsSorted;
     
     const searchLower = searchTerm.toLowerCase();
-    return latestOutwards.filter(outward => {
+    return latestOutwardsSorted.filter(outward => {
       const srwrNo = (outward.srwrNo || '').toLowerCase();
       const state = (outward.state || '').toLowerCase();
       const branch = (outward.branch || '').toLowerCase();
@@ -427,7 +757,19 @@ export default function OutwardPage() {
              warehouseCode.includes(searchLower) ||
              clientName.includes(searchLower);
     });
-  }, [searchTerm, latestOutwards]);
+  }, [searchTerm, latestOutwardsSorted]);
+
+  // Pagination derived data
+  const totalItems = filteredOutwards.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const paginatedOutwards = React.useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredOutwards.slice(start, start + pageSize);
+  }, [filteredOutwards, currentPage]);
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
   
   // Filter DO options based on search input
   const filteredDOOptions = React.useMemo(() => {
@@ -446,6 +788,17 @@ export default function OutwardPage() {
              warehouseName.includes(searchLower);
     });
   }, [doSearch, doOptions]);
+
+  // Group DO options by SR/WR so the selector shows SR/WR headers with their DOs
+  const groupedDOOptions = React.useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    filteredDOOptions.forEach(opt => {
+      const key = opt.srwrNo || 'Unknown SR/WR';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(opt);
+    });
+    return Object.entries(groups).map(([srwrNo, items]) => ({ srwrNo, items }));
+  }, [filteredDOOptions]);
   
   return (
     <DashboardLayout>
@@ -468,8 +821,8 @@ export default function OutwardPage() {
         </div>
 
         {/* Search and Export */}
-        <div className="bg-blue-50 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 border border-blue-200">
-          <div className="text-base sm:text-lg font-semibold text-orange-500 mb-3">Search & Export Options</div>
+        <div className="bg-orange-50 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 border border-orange-200">
+          <div className="text-base sm:text-lg font-semibold text-orange-600 mb-3">Search & Export Options</div>
           <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-1">
               <span className="text-gray-600 text-sm sm:text-base whitespace-nowrap">Search:</span>
@@ -495,15 +848,13 @@ export default function OutwardPage() {
                   </button>
                 )}
               </div>
-              {searchTerm && (
-                <div className="text-sm text-gray-600 text-center sm:text-left whitespace-nowrap">
-                  {filteredOutwards.length} of {latestOutwards.length} entries
-                </div>
-              )}
+              <div className="text-sm text-gray-700 text-center sm:text-left whitespace-nowrap">
+                Showing {Math.min((currentPage - 1) * pageSize + 1, totalItems)}–{Math.min(currentPage * pageSize, totalItems)} of {totalItems} entries
+              </div>
             </div>
             <Button 
               onClick={exportToCSV} 
-              className="bg-blue-500 hover:bg-blue-600 text-white w-full lg:w-auto flex-shrink-0"
+              className="bg-orange-500 hover:bg-orange-600 text-white w-full lg:w-auto flex-shrink-0"
             >
               <Download className="h-4 w-4 mr-2" /> Export CSV
             </Button>
@@ -512,15 +863,15 @@ export default function OutwardPage() {
 
         {/* Main Table */}
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="py-3 px-4 bg-blue-50 border-b border-blue-100">
-            <h2 className="text-orange-500 text-lg sm:text-xl font-semibold">Outward Entries</h2>
+          <div className="py-3 px-4 bg-orange-50 border-b border-orange-100">
+            <h2 className="text-orange-600 text-lg sm:text-xl font-semibold">Outward Entries</h2>
           </div>
           
           {/* Mobile Card Layout */}
           <div className="block lg:hidden">
             {outwardEntries.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
-                No outward entries found. Click "Add Outward" to create your first entry.
+                No outward entries found. Click &quot;Add Outward&quot; to create your first entry.
               </div>
             ) : filteredOutwards.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
@@ -528,7 +879,7 @@ export default function OutwardPage() {
               </div>
             ) : (
               <div className="space-y-3 p-4">
-                {filteredOutwards.map((outward) => (
+                {paginatedOutwards.map((outward) => (
                   <div key={outward.id} className="border border-gray-200 bg-white rounded-lg p-4">
                     <div className="flex justify-between items-start mb-3">
                       <div>
@@ -553,7 +904,7 @@ export default function OutwardPage() {
                             setSelectedOutward(outward);
                             setShowOutwardDetails(true);
                           }}
-                          className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
+                          className="p-2 text-orange-600 hover:text-orange-800 hover:bg-orange-50 rounded"
                           title="View Details"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -605,10 +956,10 @@ export default function OutwardPage() {
           </div>
           
           {/* Desktop Table Layout */}
-          <div className="hidden lg:block overflow-x-auto">
+          <div className="hidden lg:block overflow-x-auto overflow-y-auto max-h-[70vh]">
             {outwardEntries.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
-                No outward entries found. Click "Add Outward" to create your first entry.
+                No outward entries found. Click &quot;Add Outward&quot; to create your first entry.
               </div>
             ) : filteredOutwards.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
@@ -616,42 +967,41 @@ export default function OutwardPage() {
               </div>
             ) : (
               <table className="min-w-full border text-sm">
-                <thead className="bg-blue-100">
+                <thead className="bg-orange-100 sticky top-0 z-10">
                   <tr>
-                    <th className="px-3 py-2 border"></th>
-                    <th className="px-3 py-2 border">Outward Code</th>
-                    <th className="px-3 py-2 border">SR/WR No.</th>
-                    <th className="px-3 py-2 border">DO Code</th>
-                    <th className="px-3 py-2 border">CAD Number</th>
-                    <th className="px-3 py-2 border">State</th>
-                    <th className="px-3 py-2 border">Branch</th>
-                    <th className="px-3 py-2 border">Location</th>
-                    <th className="px-3 py-2 border">Warehouse Name</th>
-                    <th className="px-3 py-2 border">Warehouse Code</th>
-                    <th className="px-3 py-2 border">Client Name</th>
-                    <th className="px-3 py-2 border">Client Address</th>
-                    <th className="px-3 py-2 border">Client Code</th>
-                    <th className="px-3 py-2 border">Vehicle Number</th>
-                    <th className="px-3 py-2 border">GATE PASS</th>
-                    <th className="px-3 py-2 border">WEIGHBRIDGE NAME</th>
-                    <th className="px-3 py-2 border">WEIGHBRIDGE SLIP NO</th>
-                    <th className="px-3 py-2 border">GROSS WEIGHT (MT)</th>
-                    <th className="px-3 py-2 border">TARE WEIGHT (MT)</th>
-                    <th className="px-3 py-2 border">NET WEIGHT (MT)</th> 
-                    <th className="px-3 py-2 border">DO Bags</th>
-                    <th className="px-3 py-2 border">DO Qty (MT)</th>
-                    <th className="px-3 py-2 border">Outward Bags</th>
-                    <th className="px-3 py-2 border">Outward Qty (MT)</th>
-                    <th className="px-3 py-2 border">Balance Bags</th>
-                    <th className="px-3 py-2 border">Balance Qty (MT)</th>
-                    <th className="px-3 py-2 border">Status</th>
+                    <th className="px-3 py-2 border bg-orange-100 sticky left-0 z-20">{''}</th>
+                    <th className="px-3 py-2 border bg-orange-100">SR/WR No.</th>
+                    <th className="px-3 py-2 border bg-orange-100">DO Code</th>
+                    <th className="px-3 py-2 border bg-orange-100">CAD Number</th>
+                    <th className="px-3 py-2 border bg-orange-100">State</th>
+                    <th className="px-3 py-2 border bg-orange-100">Branch</th>
+                    <th className="px-3 py-2 border bg-orange-100">Location</th>
+                    <th className="px-3 py-2 border bg-orange-100">Warehouse Name</th>
+                    <th className="px-3 py-2 border bg-orange-100">Warehouse Code</th>
+                    <th className="px-3 py-2 border bg-orange-100">Client Name</th>
+                    <th className="px-3 py-2 border bg-orange-100">Client Address</th>
+                    <th className="px-3 py-2 border bg-orange-100">Client Code</th>
+                    <th className="px-3 py-2 border bg-orange-100">Vehicle Number</th>
+                    <th className="px-3 py-2 border bg-orange-100">GATE PASS</th>
+                    <th className="px-3 py-2 border bg-orange-100">WEIGHBRIDGE NAME</th>
+                    <th className="px-3 py-2 border bg-orange-100">WEIGHBRIDGE SLIP NO</th>
+                    <th className="px-3 py-2 border bg-orange-100">GROSS WEIGHT (MT)</th>
+                    <th className="px-3 py-2 border bg-orange-100">TARE WEIGHT (MT)</th>
+                    <th className="px-3 py-2 border bg-orange-100">NET WEIGHT (MT)</th> 
+                    <th className="px-3 py-2 border bg-orange-100">DO Bags</th>
+                    <th className="px-3 py-2 border bg-orange-100">DO Qty (MT)</th>
+                    <th className="px-3 py-2 border bg-orange-100">Outward Bags</th>
+                    <th className="px-3 py-2 border bg-orange-100">Outward Qty (MT)</th>
+                    <th className="px-3 py-2 border bg-orange-100">Balance Bags</th>
+                    <th className="px-3 py-2 border bg-orange-100">Balance Qty (MT)</th>
+                    <th className="px-3 py-2 border bg-orange-100">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOutwards.map((outward) => (
+                  {paginatedOutwards.map((outward) => (
                     <React.Fragment key={outward.outwardCode}>
                       <tr className="hover:bg-gray-50">
-                        <td className="px-3 py-2 border">
+                        <td className="px-3 py-2 border sticky left-0 z-20 bg-white">
                           <Button
                             variant="ghost"
                             size="sm"
@@ -663,7 +1013,6 @@ export default function OutwardPage() {
                             {expandedRows[outward.srwrNo] ? '▼' : '▶'}
                           </Button>
                         </td>
-                        <td className="px-3 py-2 border">{outward.outwardCode}</td>
                         <td className="px-3 py-2 border">{outward.srwrNo}</td>
                         <td className="px-3 py-2 border">{outward.doCode}</td>
                         <td className="px-3 py-2 border">{outward.cadNumber}</td>
@@ -690,9 +1039,64 @@ export default function OutwardPage() {
                         <td className="px-3 py-2 border">{getBalanceQty(outward)}</td>
                         <td className="px-3 py-2 border">
                           <div className="flex items-center justify-center gap-2">
-                            <span className={getStatusStyling(outward.outwardStatus || 'pending')}>
-                              {normalizeStatusText(outward.outwardStatus || 'pending')}
-                            </span>
+                            {(!(groupedOutwards[outward.srwrNo] && groupedOutwards[outward.srwrNo].length > 1)) && (
+                              <span className={getStatusStyling(outward.outwardStatus || 'pending')}>
+                                {normalizeStatusText(outward.outwardStatus || 'pending')}
+                              </span>
+                            )}
+                            {(outward.outwardStatus === 'resubmitted') && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="p-1" 
+                                title="Edit (Resubmitted)" 
+                                onClick={() => {
+                                  // Open form in edit mode, prefill values
+                                  setIsEditMode(true);
+                                  setEditingOutward(outward);
+                                  setShowAddModal(true);
+                                  setSelectedDO(null); // Editing doesn't need DO change
+                                  setExistingAttachmentUrls(Array.isArray(outward.attachmentUrls) ? outward.attachmentUrls : []);
+                                  setOutwardBags(String(outward.outwardBags || ''));
+                                  setOutwardQty(String(outward.outwardQuantity || ''));
+                                  setVehicleNumber(outward.vehicleNumber || '');
+                                  setGatepass(outward.gatepass || '');
+                                  setWeighbridgeName(outward.weighbridgeName || '');
+                                  setWeighbridgeSlipNo(outward.weighbridgeSlipNo || '');
+                                  setGrossWeight(String(outward.grossWeight ?? ''));
+                                  setTareWeight(String(outward.tareWeight ?? ''));
+                                  setNetWeight(String(outward.netWeight ?? ''));
+                                  setTotalBagsOutward(String(outward.totalBagsOutward ?? ''));
+                                  setRemark(outward.remark || '');
+                                  // Prefill stacks
+                                  const stacks = Array.isArray(outward.stackEntries) ? outward.stackEntries : [];
+                                  setStackEntries(stacks.map((s: any) => ({
+                                    stackNo: s.stackNo,
+                                    bags: String(s.bags ?? ''),
+                                    inwardBags: (s.inwardBags !== undefined ? s.inwardBags : (Number(s.bags || 0) + Number(s.balanceBags || 0))) || 0,
+                                    balanceBags: s.balanceBags !== undefined ? s.balanceBags : 0,
+                                    commodityName: s.commodityName || outward.commodity || outward.commodityName || '',
+                                    varietyName: s.varietyName || outward.variety || outward.varietyName || ''
+                                  })));
+
+                                  // Set balances for edit context: compute as do minus sum of all approved/pending outwards excluding the current one plus its original
+                                  const sumOtherBags = (groupedOutwards[outward.srwrNo] || [])
+                                    .filter((e: any) => e.id !== outward.id)
+                                    .reduce((sum: number, e: any) => sum + Number(e.outwardBags || 0), 0);
+                                  const sumOtherQty = (groupedOutwards[outward.srwrNo] || [])
+                                    .filter((e: any) => e.id !== outward.id)
+                                    .reduce((sum: number, e: any) => sum + Number(e.outwardQuantity || 0), 0);
+                                  const doBags = Number(outward.doBags || 0);
+                                  const doQty = Number(outward.doQuantity || 0);
+                                  const availableBags = Math.max(0, doBags - sumOtherBags);
+                                  const availableQty = Math.max(0, doQty - sumOtherQty);
+                                  setCurrentBalanceBags(availableBags);
+                                  setCurrentBalanceQty(availableQty);
+                                }}
+                              >
+                                <Edit3 className="h-4 w-4 text-orange-600" />
+                              </Button>
+                            )}
                             <Button 
                               variant="ghost" 
                               size="sm" 
@@ -763,7 +1167,7 @@ export default function OutwardPage() {
                                           </td>
                                           <td className="px-2 py-1 border text-center">
                                             {Array.isArray(entry.attachmentUrls) && entry.attachmentUrls.length > 0 ? 
-                                              <a href={entry.attachmentUrls[0]} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">View</a> : 
+                                              <a href={entry.attachmentUrls[0]} target="_blank" rel="noopener noreferrer" className="text-orange-600 underline">View</a> : 
                                               <span className="text-gray-400">No file</span>
                                             }
                                           </td>
@@ -782,6 +1186,18 @@ export default function OutwardPage() {
               </table>
             )}
           </div>
+          {filteredOutwards.length > 0 && (
+            <div className="flex items-center justify-between p-3 border-t">
+              <div className="text-sm text-gray-700">
+                Showing {Math.min((currentPage - 1) * pageSize + 1, totalItems)}–{Math.min(currentPage * pageSize, totalItems)} of {totalItems}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>Prev</Button>
+                <span className="text-sm">Page {currentPage} of {totalPages}</span>
+                <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>Next</Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       
@@ -790,204 +1206,17 @@ export default function OutwardPage() {
         <DialogContent className="w-[95vw] max-w-4xl h-[95vh] p-3 sm:p-4">
           <DialogHeader>
             <DialogTitle className="text-lg sm:text-xl text-left text-orange-600 font-bold">
-              New Outward Entry
+              {isEditMode ? 'Edit Outward Entry (Resubmission)' : 'New Outward Entry'}
             </DialogTitle>
           </DialogHeader>
           
-          <form onSubmit={async (e) => {
-            e.preventDefault();
-            setFormError(null);
-
-            if (!selectedDO) {
-              setFormError('Please select a DO');
-              return;
-            }
-            
-            // Check for mandatory attachment
-            if (fileAttachments.length === 0) {
-              setFormError('Please upload at least one attachment');
-              return;
-            }
-
-            // Validate outward bags and quantity
-            const obBags = Number(outwardBags);
-            const oQuantity = Number(outwardQty);
-            const balanceBags = currentBalanceBags || 0;
-            const balanceQty = currentBalanceQty || 0;
-
-            // Check if balance is zero - if so, prevent creation
-            if (balanceBags <= 0 || balanceQty <= 0) {
-              setFormError('No remaining balance available for this Delivery Order');
-              return;
-            }
-
-            if (isNaN(obBags) || obBags <= 0) {
-              setFormError('Please enter valid number of bags');
-              return;
-            }
-            if (isNaN(oQuantity) || oQuantity <= 0) {
-              setFormError('Please enter valid quantity');
-              return;
-            }
-            
-            // Check stack entries total
-            const totalStackBags = stackEntries.reduce((sum, stack) => sum + Number(stack.bags || 0), 0);
-            if (totalStackBags !== obBags) {
-              setFormError(`Total stack bags (${totalStackBags}) must match outward bags (${obBags})`);
-              return;
-            }
-            
-            if (obBags > balanceBags) {
-              setFormError(`Cannot release more than available balance bags (${balanceBags})`);
-              return;
-            }
-            if (oQuantity > balanceQty) {
-              setFormError(`Cannot release more than available balance quantity (${balanceQty})`);
-              return;
-            }
-            
-            // Basic validations
-            if (!vehicleNumber.trim()) {
-              setFormError('Vehicle number is required');
-              return;
-            }
-            if (!gatepass.trim()) {
-              setFormError('Gatepass is required');
-              return;
-            }
-            if (!weighbridgeName.trim()) {
-              setFormError('Weighbridge name is required');
-              return;
-            }
-            if (!weighbridgeSlipNo.trim()) {
-              setFormError('Weighbridge slip number is required');
-              return;
-            }
-
-            try {
-              setIsUploading(true);
-              let attachmentUrls: string[] = [];
-              let hasUploadErrors = false;
-
-              // Upload attachments if any
-              if (fileAttachments.length > 0) {
-                for (const file of fileAttachments) {
-                  try {
-                    console.log(`Uploading file: ${file.name}, type: ${file.type}, size: ${file.size}`);
-                    const result = await uploadToCloudinary(file);
-                    if (result && result.secure_url) {
-                      console.log(`Upload successful: ${result.secure_url}`);
-                      attachmentUrls.push(result.secure_url);
-                    }
-                  } catch (uploadError) {
-                    hasUploadErrors = true;
-                    console.error(`Error uploading file ${file.name}:`, uploadError);
-                    // Continue with next file even if this one fails
-                  }
-                }
-                
-                // Show warning if some uploads failed
-                if (hasUploadErrors && attachmentUrls.length < fileAttachments.length) {
-                  alert(`Some files failed to upload. ${attachmentUrls.length} of ${fileAttachments.length} were successful.`);
-                }
-              }
-
-              // Prepare outward data
-              const newBalanceBags = balanceBags - obBags;
-              const newBalanceQty = balanceQty - oQuantity;
-
-              // Get next outward code number
-              const outwardCol = collection(db, 'outwards');
-              const outwardSnap = await getDocs(outwardCol);
-              const outwardCount = outwardSnap.size;
-              const newOutwardCode = `OUT-${String(outwardCount + 1).padStart(4, '0')}`;
-
-              // Create new outward record
-              const outwardData = {
-                outwardCode: newOutwardCode,
-                srwrNo: selectedDO.srwrNo,
-                doCode: selectedDO.doCode,
-                cadNumber: selectedDO.cadNumber,
-                state: selectedDO.state,
-                branch: selectedDO.branch,
-                location: selectedDO.location,
-                warehouseName: selectedDO.warehouseName,
-                warehouseCode: selectedDO.warehouseCode,
-                warehouseAddress: selectedDO.warehouseAddress,
-                client: selectedDO.client,
-                clientCode: selectedDO.clientCode,
-                clientAddress: selectedDO.clientAddress,
-                
-                // DO data
-                doBags: selectedDO.doBags,
-                doQuantity: selectedDO.doQuantity,
-                
-                // Outward specific data
-                outwardBags: obBags,
-                outwardQuantity: oQuantity,
-                vehicleNumber,
-                gatepass,
-                weighbridgeName,
-                weighbridgeSlipNo,
-                grossWeight: parseFloat(grossWeight) || 0,
-                tareWeight: parseFloat(tareWeight) || 0,
-                netWeight: parseFloat(netWeight) || 0,
-                totalBagsOutward: parseInt(totalBagsOutward) || 0,
-                
-                // Stack entries
-                stackEntries: stackEntries.map(stack => ({
-                  stackNo: stack.stackNo,
-                  bags: Number(stack.bags),
-                  balanceBags: Number(stack.balanceBags || 0)
-                })),
-                
-                // Balance and other data
-                balanceBags: newBalanceBags,
-                balanceQuantity: newBalanceQty,
-                attachmentUrls,
-                remark,
-                outwardStatus: 'pending',
-                createdAt: new Date().toISOString(),
-                createdBy: userRole
-              };
-
-              await addDoc(collection(db, 'outwards'), outwardData);
-              
-              setSubmitSuccess(true);
-              setIsUploading(false);
-              setShowAddModal(false);
-              
-              // Reset form
-              setSelectedDO(null);
-              setOutwardBags('');
-              setOutwardQty('');
-              setVehicleNumber('');
-              setGatepass('');
-              setWeighbridgeName('');
-              setWeighbridgeSlipNo('');
-              setGrossWeight('');
-              setTareWeight('');
-              setNetWeight('');
-              setTotalBagsOutward('');
-              setStackEntries([]);
-              setFileAttachments([]);
-              setRemark('');
-
-              // Reset success flag after a delay
-              setTimeout(() => {
-                setSubmitSuccess(false);
-              }, 3000);
-            } catch (error: any) {
-              console.error('Error submitting outward:', error);
-              setFormError(`An error occurred: ${error?.message || 'Unknown error'}. Please try again.`);
-              setIsUploading(false);
-            }
-          }} className="max-h-[calc(95vh-120px)] overflow-y-auto p-1 sm:p-2">
+          <form onSubmit={async (e) => { e.preventDefault(); await handleOutwardSubmit({ stayOpen: false }); }} className="max-h-[calc(95vh-120px)] overflow-y-auto p-1 sm:p-2">
             {formError && <div className="bg-red-100 p-2 sm:p-3 mb-4 text-red-600 rounded-md text-center font-medium text-sm sm:text-base">{formError}</div>}
             
             <div className="space-y-4 sm:space-y-5 pt-2 sm:pt-4">
               {/* DO Selection */}
-              <div className="bg-blue-50 p-3 sm:p-4 rounded-md border border-blue-200">
+              {!isEditMode && (
+              <div className="bg-orange-50 p-3 sm:p-4 rounded-md border border-orange-200">
                 <Label htmlFor="do-select" className="text-green-800 font-semibold text-base sm:text-lg mb-2 block">
                   Select Delivery Order
                 </Label>
@@ -998,7 +1227,7 @@ export default function OutwardPage() {
                       placeholder="Type to search by SR/WR No or DO Code..."
                       value={doSearch}
                       onChange={(e) => setDoSearch(e.target.value)}
-                      className="mb-1 pr-8 border-2 border-blue-300 focus:border-blue-500"
+                      className="mb-1 pr-8 border-2 border-orange-300 focus:border-orange-500"
                       autoFocus
                     />
                     {doSearch && (
@@ -1361,103 +1590,100 @@ export default function OutwardPage() {
                     <SelectTrigger id="do-select" className="bg-white">
                       <SelectValue placeholder="Select Delivery Order" />
                     </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      {filteredDOOptions
-                        .filter(option => {
-                          // Only show options with positive balance
-                          const balanceBags = option.balanceBags !== undefined ? 
-                            Number(option.balanceBags) : 
-                            (option.doBags !== undefined ? Number(option.doBags) : 0);
-                          return balanceBags > 0;
-                        })
-                        .map(option => {
-                          // Get the balance for display
-                          const balanceBags = option.balanceBags !== undefined ? 
-                            Number(option.balanceBags) : 
-                            (option.doBags !== undefined ? Number(option.doBags) : 0);
-                            
-                          return (
-                            <SelectItem 
-                              key={option.id} 
-                              value={option.id}
-                            >
-                              <span>
-                                {option.doCode} - {option.srwrNo}
-                                <span className="ml-2 text-green-700">
-                                  (Balance: {balanceBags} bags)
-                                </span>
-                              </span>
-                            </SelectItem>
-                          );
-                        })}
+                    <SelectContent className="max-h-[320px]">
+                      {groupedDOOptions.map(group => {
+                        const itemsWithBalance = group.items
+                          .filter(option => {
+                            const balanceBags = option.balanceBags !== undefined ? Number(option.balanceBags) : (option.doBags !== undefined ? Number(option.doBags) : 0);
+                            return balanceBags > 0;
+                          });
+                        if (itemsWithBalance.length === 0) return null;
+                        return (
+                          <SelectGroup key={group.srwrNo}>
+                            <SelectLabel className="text-orange-700">SR/WR: {group.srwrNo}</SelectLabel>
+                            {itemsWithBalance.map(option => {
+                              const balanceBags = option.balanceBags !== undefined ? Number(option.balanceBags) : (option.doBags !== undefined ? Number(option.doBags) : 0);
+                              return (
+                                <SelectItem key={option.id} value={option.id}>
+                                  <span>
+                                    DO: {option.doCode}
+                                    <span className="ml-2 text-green-700">(Balance: {balanceBags} bags)</span>
+                                  </span>
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectGroup>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
+              )}
 
               {/* Auto-populated Fields */}
-              {selectedDO && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 p-3 sm:p-4 bg-blue-50 rounded-md border border-blue-200">
+              {((!isEditMode && selectedDO) || (isEditMode && editingOutward)) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 p-3 sm:p-4 bg-orange-50 rounded-md border border-orange-200">
                   <div>
                     <Label className="text-green-800 font-medium text-sm sm:text-base">SR/WR NO</Label>
-                    <Input value={selectedDO.srwrNo || ''} readOnly className="bg-white border-blue-100 text-sm" />
+                    <Input value={(isEditMode ? editingOutward?.srwrNo : selectedDO?.srwrNo) || ''} readOnly className="bg-white border-orange-100 text-sm" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium text-sm sm:text-base">CAD NUMBER</Label>
-                    <Input value={selectedDO.cadNumber || ''} readOnly className="bg-white border-blue-100 text-sm" />
+                    <Input value={(isEditMode ? editingOutward?.cadNumber : selectedDO?.cadNumber) || ''} readOnly className="bg-white border-orange-100 text-sm" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium">STATE</Label>
-                    <Input value={selectedDO.state || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? editingOutward?.state : selectedDO?.state) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium">BRANCH</Label>
-                    <Input value={selectedDO.branch || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? editingOutward?.branch : selectedDO?.branch) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium">LOCATION</Label>
-                    <Input value={selectedDO.location || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? editingOutward?.location : selectedDO?.location) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium">WAREHOUSE NAME</Label>
-                    <Input value={selectedDO.warehouseName || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? editingOutward?.warehouseName : selectedDO?.warehouseName) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium">WAREHOUSE CODE</Label>
-                    <Input value={selectedDO.warehouseCode || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? editingOutward?.warehouseCode : selectedDO?.warehouseCode) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium">WAREHOUSE ADDRESS</Label>
-                    <Input value={selectedDO.warehouseAddress || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? editingOutward?.warehouseAddress : selectedDO?.warehouseAddress) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium">CLIENT NAME</Label>
-                    <Input value={selectedDO.client || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? editingOutward?.client : selectedDO?.client) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium">CLIENT CODE</Label>
-                    <Input value={selectedDO.clientCode || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? editingOutward?.clientCode : selectedDO?.clientCode) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   <div className="col-span-2">
                     <Label className="text-green-800 font-medium">CLIENT ADDRESS</Label>
-                    <Input value={selectedDO.clientAddress || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? editingOutward?.clientAddress : selectedDO?.clientAddress) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   
                   <div>
                     <Label className="text-green-800 font-medium">INWARD BAGS</Label>
-                    <Input value={selectedDO.totalBags || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? (editingOutward?.inwardBags || editingOutward?.totalBags) : selectedDO?.totalBags) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium">INWARD QUANTITY (MT)</Label>
-                    <Input value={selectedDO.totalQuantity || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? (editingOutward?.inwardQuantity || editingOutward?.totalQuantity) : selectedDO?.totalQuantity) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium">DO BAGS</Label>
-                    <Input value={selectedDO.doBags || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? editingOutward?.doBags : selectedDO?.doBags) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
                   <div>
                     <Label className="text-green-800 font-medium">DO QUANTITY (MT)</Label>
-                    <Input value={selectedDO.doQuantity || ''} readOnly className="bg-white border-blue-100" />
+                    <Input value={(isEditMode ? editingOutward?.doQuantity : selectedDO?.doQuantity) || ''} readOnly className="bg-white border-orange-100" />
                   </div>
 
                   {/* Outward entry input fields */}
@@ -1467,9 +1693,12 @@ export default function OutwardPage() {
                       id="outwardBags"
                       type="number"
                       value={outwardBags}
-                      onChange={(e) => setOutwardBags(e.target.value)}
+                      onChange={(e) => {
+                        setOutwardBags(e.target.value);
+                        setTotalBagsOutward(e.target.value);
+                      }}
                       required
-                      className="bg-white border-blue-200"
+                      className="bg-white border-orange-200"
                     />
                   </div>
                   <div>
@@ -1481,7 +1710,7 @@ export default function OutwardPage() {
                       value={outwardQty}
                       onChange={(e) => setOutwardQty(e.target.value)}
                       required
-                      className="bg-white border-blue-200"
+                      className="bg-white border-orange-200"
                     />
                   </div>
 
@@ -1493,7 +1722,7 @@ export default function OutwardPage() {
                         Math.max(0, Number(currentBalanceBags) - Number(outwardBags || 0)).toString() : 
                         currentBalanceBags?.toString() || ''} 
                       readOnly 
-                      className="bg-blue-50 border-blue-100"
+                      className="bg-orange-50 border-orange-100"
                     />
                   </div>
                   <div>
@@ -1503,13 +1732,13 @@ export default function OutwardPage() {
                         Math.max(0, Number(currentBalanceQty) - Number(outwardQty || 0)).toFixed(2) : 
                         currentBalanceQty?.toString() || ''} 
                       readOnly 
-                      className="bg-blue-50 border-blue-100"
+                      className="bg-orange-50 border-orange-100"
                     />
                   </div>
                   
                   {/* Outward entry details */}
                   <div className="sm:col-span-2 mt-4">
-                    <h3 className="text-orange-800 font-semibold mb-3 border-b border-blue-200 pb-1 text-sm sm:text-base">Outward Entry Details</h3>
+                    <h3 className="text-orange-800 font-semibold mb-3 border-b border-orange-200 pb-1 text-sm sm:text-base">Outward Entry Details</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                       <div>
                         <Label htmlFor="vehicleNumber" className="text-green-600 font-medium">VEHICLE NUMBER</Label>
@@ -1518,7 +1747,7 @@ export default function OutwardPage() {
                           // value={vehicleNumber}
                           onChange={(e) => setVehicleNumber(e.target.value)}
                           required
-                          className="bg-white border-blue-200"
+                          className="bg-white border-orange-200"
                           // placeholder="e.g. MH12AB1234"
                         />
                       </div>
@@ -1529,7 +1758,7 @@ export default function OutwardPage() {
                           // value={gatepass}
                           onChange={(e) => setGatepass(e.target.value)}
                           required
-                          className="bg-white border-blue-200"
+                          className="bg-white border-orange-200"
                           // placeholder="e.g. GP12345"
                         />
                       </div>
@@ -1540,7 +1769,7 @@ export default function OutwardPage() {
                           value={weighbridgeName}
                           onChange={(e) => setWeighbridgeName(e.target.value)}
                           required
-                          className="bg-white border-blue-200"
+                          className="bg-white border-orange-200"
                           // placeholder="e.g. City Weighbridge"
                         />
                       </div>
@@ -1551,7 +1780,7 @@ export default function OutwardPage() {
                           value={weighbridgeSlipNo}
                           onChange={(e) => setWeighbridgeSlipNo(e.target.value)}
                           required
-                          className="bg-white border-blue-200"
+                          className="bg-white border-orange-200"
                           // placeholder="e.g. WB98765"
                         />
                       </div>
@@ -1562,7 +1791,7 @@ export default function OutwardPage() {
                           value={grossWeight}
                           onChange={(e) => handleGrossWeightChange(e.target.value)}
                           required
-                          className="bg-white border-blue-200"
+                          className="bg-white border-orange-200"
                           // placeholder="e.g. 25.500"
                           type="text"
                         />
@@ -1574,7 +1803,7 @@ export default function OutwardPage() {
                           value={tareWeight}
                           onChange={(e) => handleTareWeightChange(e.target.value)}
                           required
-                          className="bg-white border-blue-200"
+                          className="bg-white border-orange-200"
                           // placeholder="e.g. 2.500"
                           type="text"
                         />
@@ -1585,7 +1814,7 @@ export default function OutwardPage() {
                           id="netWeight"
                           value={netWeight}
                           readOnly
-                          className="bg-gray-100 border-blue-200 text-gray-700"
+                          className="bg-gray-100 border-orange-200 text-gray-700"
                           placeholder="Auto calculated"
                           type="text"
                         />
@@ -1594,11 +1823,11 @@ export default function OutwardPage() {
                         <Label htmlFor="totalBagsOutward" className="text-green-600 font-medium">TOTAL BAGS OUTWARD</Label>
                         <Input
                           id="totalBagsOutward"
-                          value={totalBagsOutward}
-                          onChange={(e) => handleTotalBagsOutwardChange(e.target.value)}
+                          value={outwardBags}
+                          readOnly
                           required
-                          className="bg-white border-blue-200"
-                          // placeholder="e.g. 500"
+                          className="bg-white border-orange-200"
+                          placeholder="Auto filled from Outward Bags"
                           type="text"
                         />
                       </div>
@@ -1607,7 +1836,7 @@ export default function OutwardPage() {
                   
                   {/* Stack-wise Entry Details */}
                   <div className="col-span-2 mt-4">
-                    <h3 className="text-orange-800 font-semibold mb-3 border-b border-blue-200 pb-1">Stack-wise Entry Details</h3>
+                    <h3 className="text-orange-800 font-semibold mb-3 border-b border-orange-200 pb-1">Stack-wise Entry Details</h3>
                     
                     {/* Stack entries will be loaded dynamically based on inward data */}
                     <div className="mb-4">
@@ -1686,7 +1915,7 @@ export default function OutwardPage() {
                                     type="number"
                                     value={entry.balanceBags !== undefined ? entry.balanceBags : (entry.inwardBags || 0)} 
                                     readOnly
-                                    className="bg-blue-50 border-blue-200 text-green-800"
+                                    className="bg-orange-50 border-orange-200 text-green-800"
                                     title="Automatically calculated: Inward Bags - Outward Bags"
                                   />
                                 </div>
@@ -1709,7 +1938,7 @@ export default function OutwardPage() {
                             
                             {/* Balance information */}
                             {selectedDO && (
-                              <div className="bg-blue-50 p-3 rounded-md mt-2">
+                              <div className="bg-orange-50 p-3 rounded-md mt-2">
                                 <div className="text-sm font-medium mb-1">Balance after this outward:</div>
                                 <div className="grid grid-cols-2 gap-2">
                                   <div className="text-sm">
@@ -1724,7 +1953,7 @@ export default function OutwardPage() {
                                     Quantity: <span className="font-medium">
                                       {currentBalanceQty !== null && outwardQty
                                         ? Math.max(0, Number(currentBalanceQty) - Number(outwardQty)).toFixed(3)
-                                        : currentBalanceQty?.toFixed(3) || '0.000'
+                                        : (typeof currentBalanceQty === 'number' ? currentBalanceQty.toFixed(3) : '0.000')
                                       }
                                     </span> MT
                                   </div>
@@ -1771,7 +2000,7 @@ export default function OutwardPage() {
                     <Input
                       id="attachment"
                       type="file"
-                      className="cursor-pointer bg-white border-blue-200"
+                      className="cursor-pointer bg-white border-orange-200"
                       onChange={(e) => {
                         if (e.target.files) {
                           const filesArray = Array.from(e.target.files);
@@ -1780,15 +2009,33 @@ export default function OutwardPage() {
                           e.target.value = '';
                         }
                       }}
-                      required={fileAttachments.length === 0}
+                      required={(fileAttachments.length === 0) && ((existingAttachmentUrls || []).length === 0)}
                       multiple
                     />
-                    {fileAttachments.length > 0 && (
-                      <div className="mt-3 bg-blue-50 p-3 rounded-md border border-blue-100">
-                        <Label className="text-blue-800 font-medium mb-2 block">Selected Files:</Label>
+                    {(existingAttachmentUrls.length > 0 || fileAttachments.length > 0) && (
+                      <div className="mt-3 bg-orange-50 p-3 rounded-md border border-orange-100">
+                        <Label className="text-orange-800 font-medium mb-2 block">Selected Files:</Label>
                         <div className="space-y-2">
+                          {existingAttachmentUrls.map((url, idx) => (
+                            <div key={`exist-${idx}`} className="flex items-center justify-between bg-white p-2 rounded border border-orange-100">
+                              <a href={url} target="_blank" className="text-sm truncate text-blue-700 underline" rel="noreferrer">Existing File {idx + 1}</a>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-red-500"
+                                onClick={() => {
+                                  const next = [...existingAttachmentUrls];
+                                  next.splice(idx, 1);
+                                  setExistingAttachmentUrls(next);
+                                }}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          ))}
                           {fileAttachments.map((file, idx) => (
-                            <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-blue-100">
+                            <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-orange-100">
                               <span className="text-sm truncate">{file.name}</span>
                               <Button
                                 type="button"
@@ -1818,19 +2065,44 @@ export default function OutwardPage() {
                       value={remark}
                       onChange={(e) => setRemark(e.target.value)}
                       placeholder="Enter remarks..."
-                      className="bg-white border-blue-100"
+                      className="bg-white border-orange-100"
                     />
                   </div>
+
+                  {/* Session entries preview */}
+                  {sessionEntries.length > 0 && (
+                    <div className="col-span-2 mt-4">
+                      <h3 className="text-green-700 font-semibold mb-2">Vehicle entries added in this session</h3>
+                      <div className="space-y-2 bg-green-50 p-3 rounded border border-green-200">
+                        {sessionEntries.map((se, idx) => (
+                          <div key={se.id || idx} className="text-sm flex flex-wrap gap-3">
+                            <span className="font-medium text-green-800">{se.outwardCode}</span>
+                            <span>Vehicle: {se.vehicleNumber}</span>
+                            <span>Gatepass: {se.gatepass}</span>
+                            <span>Bags: {se.outwardBags}</span>
+                            <span>Qty: {se.outwardQuantity}</span>
+                            <span>Status: {normalizeStatusText(se.outwardStatus)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            <DialogFooter className="flex flex-col sm:flex-row gap-2 sm:gap-0 mt-6 sm:mt-8 pt-4 border-t border-blue-100">
-              <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 w-full sm:w-auto order-2 sm:order-1" disabled={isUploading}>
-                {isUploading ? 'Submitting...' : 'SUBMIT'}
+            <DialogFooter className="flex flex-col sm:flex-row gap-2 sm:gap-0 mt-6 sm:mt-8 pt-4 border-t border-orange-100">
+              <Button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white px-4 sm:px-6 w-full sm:w-auto order-2 sm:order-1" disabled={isUploading}>
+                {isUploading ? (isEditMode ? 'Updating...' : 'Submitting...') : (isEditMode ? 'UPDATE' : 'SUBMIT')}
               </Button>
+              {/* Add Entry button to keep modal open and continue with next vehicle */}
+              {!isEditMode && selectedDO && (
+                <Button type="button" onClick={() => handleOutwardSubmit({ stayOpen: true })} className="bg-green-600 hover:bg-green-700 text-white px-4 sm:px-6 w-full sm:w-auto order-3" disabled={isUploading}>
+                  Add Entry
+                </Button>
+              )}
               <DialogClose asChild>
-                <Button type="button" variant="outline" className="border-blue-200 text-blue-800 hover:bg-blue-50 w-full sm:w-auto order-1 sm:order-2">Cancel</Button>
+                <Button type="button" variant="outline" className="border-orange-200 text-orange-800 hover:bg-orange-50 w-full sm:w-auto order-1 sm:order-2">Cancel</Button>
               </DialogClose>
             </DialogFooter>
           </form>
@@ -1847,7 +2119,7 @@ export default function OutwardPage() {
             <form id="outward-details-form" className="max-h-[calc(95vh-120px)] overflow-y-auto p-1 sm:p-2">
               {/* CIR-style header */}
               <div className="text-center mb-2">
-                <img src="/Group 86.png" alt="Agrogreen Logo" className="w-16 sm:w-20 lg:w-24 h-16 sm:h-20 lg:h-24 rounded-full mx-auto mb-2" />
+                <Image src="/Group 86.png" alt="Agrogreen Logo" width={96} height={96} className="w-16 sm:w-20 lg:w-24 h-16 sm:h-20 lg:h-24 rounded-full mx-auto mb-2" />
                 <div className="text-lg sm:text-xl lg:text-2xl font-bold text-orange-500 tracking-wide mb-1">AGROGREEN WAREHOUSING PRIVATE LTD.</div>
                 <div className="text-sm sm:text-base lg:text-lg font-medium text-green-600 mb-2">603, 6th Floor, Princess Business Skyline, Indore, Madhya Pradesh - 452010</div>
                 <div className="text-base sm:text-lg lg:text-xl font-bold text-orange-500 mt-4 underline">Outward Details</div>
@@ -1890,6 +2162,42 @@ export default function OutwardPage() {
                   </div>
                 ))}
               </div>
+              {/* Vehicle-wise outward entries for this SR/WR */}
+              {groupedOutwards[selectedOutward.srwrNo] && groupedOutwards[selectedOutward.srwrNo].length > 0 && (
+                <div className="mt-6">
+                  <div className="font-bold text-orange-600 mb-2">Vehicle-wise Outward Entries</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border text-xs">
+                      <thead className="bg-orange-100">
+                        <tr>
+                          <th className="px-2 py-1 border">Date</th>
+                          <th className="px-2 py-1 border">Outward Code</th>
+                          <th className="px-2 py-1 border">Vehicle</th>
+                          <th className="px-2 py-1 border">Gatepass</th>
+                          <th className="px-2 py-1 border">Bags</th>
+                          <th className="px-2 py-1 border">Qty (MT)</th>
+                          <th className="px-2 py-1 border">Net Wt (MT)</th>
+                          <th className="px-2 py-1 border">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {groupedOutwards[selectedOutward.srwrNo].map((entry: any) => (
+                          <tr key={entry.id || entry.outwardCode} className="even:bg-gray-50">
+                            <td className="px-2 py-1 border text-center">{entry.createdAt ? new Date(entry.createdAt).toLocaleDateString('en-GB') : ''}</td>
+                            <td className="px-2 py-1 border text-center">{entry.outwardCode}</td>
+                            <td className="px-2 py-1 border text-center">{entry.vehicleNumber}</td>
+                            <td className="px-2 py-1 border text-center">{entry.gatepass}</td>
+                            <td className="px-2 py-1 border text-center">{entry.outwardBags}</td>
+                            <td className="px-2 py-1 border text-center">{entry.outwardQuantity}</td>
+                            <td className="px-2 py-1 border text-center">{entry.netWeight}</td>
+                            <td className="px-2 py-1 border text-center">{normalizeStatusText(entry.outwardStatus || 'pending')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
               {/* Stack Entries */}
               {selectedOutward.stackEntries && selectedOutward.stackEntries.length > 0 && (
                 <div style={{ marginTop: 24, gridColumn: '1 / -1' }}>
@@ -1939,11 +2247,17 @@ export default function OutwardPage() {
                   <>
                     <Button 
                       onClick={async () => {
+                        const remarkInput = prompt('Enter approval remark (required):');
+                        if (!remarkInput || !remarkInput.trim()) {
+                          alert('Approval remark is required.');
+                          return;
+                        }
                         setOutwardStatusUpdating(true);
                         try {
                           const outwardRef = doc(db, 'outwards', selectedOutward.id);
                           await updateDoc(outwardRef, {
                             outwardStatus: 'approved',
+                            statusRemark: remarkInput.trim(),
                             statusUpdatedBy: userRole,
                             statusUpdatedAt: new Date().toISOString()
                           });
@@ -1967,15 +2281,18 @@ export default function OutwardPage() {
                     </Button>
                     <Button 
                       onClick={async () => {
-                        const remarkInput = prompt('Enter rejection reason:');
-                        if (!remarkInput) return;
+                        const remarkInput = prompt('Enter rejection reason (required):');
+                        if (!remarkInput || !remarkInput.trim()) {
+                          alert('Rejection remark is required.');
+                          return;
+                        }
                         
                         setOutwardStatusUpdating(true);
                         try {
                           const outwardRef = doc(db, 'outwards', selectedOutward.id);
                           await updateDoc(outwardRef, {
                             outwardStatus: 'rejected',
-                            statusRemark: remarkInput,
+                            statusRemark: remarkInput.trim(),
                             statusUpdatedBy: userRole,
                             statusUpdatedAt: new Date().toISOString()
                           });
@@ -1999,11 +2316,17 @@ export default function OutwardPage() {
                     </Button>
                     <Button 
                       onClick={async () => {
+                        const remarkInput = prompt('Enter resubmission remark (required):');
+                        if (!remarkInput || !remarkInput.trim()) {
+                          alert('Resubmission remark is required.');
+                          return;
+                        }
                         setOutwardStatusUpdating(true);
                         try {
                           const outwardRef = doc(db, 'outwards', selectedOutward.id);
                           await updateDoc(outwardRef, {
                             outwardStatus: 'resubmitted',
+                            statusRemark: remarkInput.trim(),
                             statusUpdatedBy: userRole,
                             statusUpdatedAt: new Date().toISOString()
                           });
@@ -2032,12 +2355,13 @@ export default function OutwardPage() {
                 {selectedOutward.outwardStatus === 'approved' && (
                   <Button 
                     type="button" 
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 w-full sm:w-auto"
+                    className="bg-orange-600 hover:bg-orange-700 text-white px-4 sm:px-6 w-full sm:w-auto"
                     onClick={async () => {
                       try {
                         // Import required libraries
                         const html2canvas = (await import('html2canvas')).default;
                         const jsPDF = (await import('jspdf')).default;
+                        const entriesForSR = groupedOutwards[selectedOutward.srwrNo] || [selectedOutward];
                         
                         // Create a temporary container for the receipt
                         const tempContainer = document.createElement('div');
@@ -2066,7 +2390,6 @@ export default function OutwardPage() {
                             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 24px; margin-top: 32px;">
                               ${[
                                 { label: 'Outward Code', value: selectedOutward.outwardCode },
-                                { label: 'Status', value: normalizeStatusText(selectedOutward.outwardStatus || 'pending') },
                                 { label: 'SR/WR No.', value: selectedOutward.srwrNo },
                                 { label: 'DO Code', value: selectedOutward.doCode },
                                 { label: 'CAD Number', value: selectedOutward.cadNumber },
@@ -2079,6 +2402,13 @@ export default function OutwardPage() {
                                 { label: 'Client Name', value: selectedOutward.client },
                                 { label: 'Client Code', value: selectedOutward.clientCode },
                                 { label: 'Client Address', value: selectedOutward.clientAddress },
+                                // Newly added fields next to client address
+                                { label: 'Warehouse Type', value: selectedOutward.warehouseType || selectedOutward.typeOfWarehouse || '' },
+                                { label: 'Type of Business', value: selectedOutward.typeOfBusiness || selectedOutward.businessType || '' },
+                                { label: 'Commodity', value: selectedOutward.commodity || selectedOutward.commodityName || '' },
+                                { label: 'Variety', value: selectedOutward.variety || selectedOutward.varietyName || '' },
+                                { label: 'Inward Bags', value: selectedOutward.inwardBags || selectedOutward.totalBags || '' },
+                                { label: 'Inward Quantity (MT)', value: selectedOutward.inwardQuantity || selectedOutward.totalQuantity || '' },
                                 { label: 'DO Bags', value: selectedOutward.doBags },
                                 { label: 'DO Quantity (MT)', value: selectedOutward.doQuantity },
                                 { label: 'Outward Bags', value: selectedOutward.outwardBags },
@@ -2119,6 +2449,39 @@ export default function OutwardPage() {
                                         <td style="border: 1px solid #e0f2e9; padding: 8px; text-align: center;">${stack.stackNo}</td>
                                         <td style="border: 1px solid #e0f2e9; padding: 8px; text-align: center;">${stack.bags}</td>
                                         <td style="border: 1px solid #e0f2e9; padding: 8px; text-align: center;">${stack.balanceBags || 0}</td>
+                                      </tr>
+                                    `).join('')}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ` : ''}
+
+                            ${entriesForSR && entriesForSR.length > 0 ? `
+                              <!-- Vehicle-wise Outward Entries Section -->
+                              <div style="margin-top: 24px;">
+                                <div style="font-size: 18px; font-weight: 700; color: #e67c1f; margin-bottom: 12px; text-align: center;">Vehicle-wise Outward Entries</div>
+                                <table style="width: 100%; border-collapse: collapse; border: 1px solid #fde7d2; margin-bottom: 16px;">
+                                  <thead>
+                                    <tr style="background-color: #fff7ed;">
+                                      <th style="border: 1px solid #fde7d2; padding: 8px; color: #e67c1f; font-weight: 700;">Date</th>
+                                      <th style="border: 1px solid #fde7d2; padding: 8px; color: #e67c1f; font-weight: 700;">Outward Code</th>
+                                      <th style="border: 1px solid #fde7d2; padding: 8px; color: #e67c1f; font-weight: 700;">Vehicle</th>
+                                      <th style="border: 1px solid #fde7d2; padding: 8px; color: #e67c1f; font-weight: 700;">Gatepass</th>
+                                      <th style="border: 1px solid #fde7d2; padding: 8px; color: #e67c1f; font-weight: 700;">Bags</th>
+                                      <th style="border: 1px solid #fde7d2; padding: 8px; color: #e67c1f; font-weight: 700;">Qty (MT)</th>
+                                      <th style="border: 1px solid #fde7d2; padding: 8px; color: #e67c1f; font-weight: 700;">Net Wt (MT)</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    ${entriesForSR.map((entry: any, idx: number) => `
+                                      <tr style="background-color: ${idx % 2 === 0 ? '#fff' : '#f9fafb'};">
+                                        <td style="border: 1px solid #fde7d2; padding: 8px; text-align: center;">${entry.createdAt ? new Date(entry.createdAt).toLocaleDateString('en-GB') : ''}</td>
+                                        <td style="border: 1px solid #fde7d2; padding: 8px; text-align: center;">${entry.outwardCode || ''}</td>
+                                        <td style="border: 1px solid #fde7d2; padding: 8px; text-align: center;">${entry.vehicleNumber || ''}</td>
+                                        <td style="border: 1px solid #fde7d2; padding: 8px; text-align: center;">${entry.gatepass || ''}</td>
+                                        <td style="border: 1px solid #fde7d2; padding: 8px; text-align: center;">${entry.outwardBags || ''}</td>
+                                        <td style="border: 1px solid #fde7d2; padding: 8px; text-align: center;">${entry.outwardQuantity || ''}</td>
+                                        <td style="border: 1px solid #fde7d2; padding: 8px; text-align: center;">${entry.netWeight || ''}</td>
                                       </tr>
                                     `).join('')}
                                   </tbody>

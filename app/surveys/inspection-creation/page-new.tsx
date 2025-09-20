@@ -11,7 +11,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ArrowLeft, ClipboardCheck, Plus, Download, Eye, Edit, Trash2, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, getDocs, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
@@ -221,7 +221,7 @@ export default function InspectionCreationPage() {
     },
   ];
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [branchesSnapshot, banksSnapshot, inspectionsSnapshot, warehouseInspectionsSnapshot] = await Promise.all([
@@ -256,11 +256,11 @@ export default function InspectionCreationPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const filteredInspections = useMemo(() => {
     return inspections
@@ -717,7 +717,7 @@ useEffect(() => {
           <CardHeader>
             <div className="flex justify-between items-center">
               <CardTitle>Manage Inspections</CardTitle>
-              <CSVLink data={csvData} filename={"inspections.csv"} noHeader>
+              <CSVLink data={csvData} filename={"inspections.csv"}>
                 <Button variant="outline"><Download className="mr-2 h-4 w-4" /> Export CSV</Button>
               </CSVLink>
             </div>

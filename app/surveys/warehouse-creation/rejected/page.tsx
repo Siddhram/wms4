@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
@@ -105,7 +105,10 @@ const rejectedColumns = [
     header: "Business Type",
     cell: ({ row }: { row: Row<any> }) => (
       <span className="text-green-700 w-full flex justify-center">
-        {row.getValue("businessType")?.toUpperCase()}
+        {(() => {
+          const v = row.getValue("businessType");
+          return typeof v === 'string' ? v.toUpperCase() : '-';
+        })()}
       </span>
     ),
     meta: { align: 'center' },
@@ -175,7 +178,9 @@ const rejectedColumns = [
     header: "Created Date",
     cell: ({ row }: { row: Row<any> }) => {
       const date = row.getValue("createdAt");
-      const formattedDate = date ? new Date(date).toLocaleDateString() : '';
+      const formattedDate = (typeof date === 'string' || typeof date === 'number' || date instanceof Date)
+        ? new Date(date).toLocaleDateString()
+        : '';
       return (
         <span className="text-green-700 w-full flex justify-center">
           {formattedDate}
@@ -255,7 +260,7 @@ export default function RejectedWarehousePage() {
   const [businessTypeFilter, setBusinessTypeFilter] = useState('');
 
   // Load inspections data
-  const loadInspections = async () => {
+  const loadInspections = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -306,7 +311,7 @@ export default function RejectedWarehousePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   // Load data on component mount
   useEffect(() => {
@@ -345,7 +350,7 @@ export default function RejectedWarehousePage() {
       document.removeEventListener('viewRejectedDetails', handleViewDetails as EventListener);
       document.removeEventListener('viewRejectionRemarks', handleViewRejectionRemarks as EventListener);
     };
-  }, []);
+  }, [loadInspections, toast]);
 
   // Filter and sort inspections data
   const filteredAndSortedInspections = useMemo(() => {
@@ -450,7 +455,9 @@ export default function RejectedWarehousePage() {
       inspection.ifscCode,
       inspection.receiptType,
       // Format date to show only date part
-      inspection.createdAt ? new Date(inspection.createdAt).toLocaleDateString() : '',
+      inspection.createdAt && (typeof inspection.createdAt === 'string' || typeof inspection.createdAt === 'number')
+        ? new Date(inspection.createdAt as any).toLocaleDateString()
+        : '',
       inspection.rejectionRemarks || '',
       inspection.checkerRemarks || ''
     ]);

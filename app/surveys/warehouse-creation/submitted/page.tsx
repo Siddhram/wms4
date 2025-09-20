@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
@@ -42,7 +42,7 @@ interface InspectionData {
   bankName: string;
   ifscCode: string;
   receiptType: string;
-  createdAt: string;
+  createdAt: string | number | Date | null;
   warehouseInspectionData?: any;
   status?: string;
 }
@@ -104,7 +104,10 @@ const submittedColumns = [
     header: "Business Type",
     cell: ({ row }: { row: Row<any> }) => (
       <span className="text-green-700 w-full flex justify-center">
-        {row.getValue("businessType")?.toUpperCase()}
+        {(() => {
+          const v = row.getValue("businessType");
+          return typeof v === 'string' ? v.toUpperCase() : '-';
+        })()}
       </span>
     ),
     meta: { align: 'center' },
@@ -174,7 +177,9 @@ const submittedColumns = [
     header: "Created Date",
     cell: ({ row }: { row: Row<any> }) => {
       const date = row.getValue("createdAt");
-      const formattedDate = date ? new Date(date).toLocaleDateString() : '';
+      const formattedDate = (typeof date === 'string' || typeof date === 'number' || date instanceof Date)
+        ? new Date(date).toLocaleDateString()
+        : '';
       return (
         <span className="text-green-700 w-full flex justify-center">
           {formattedDate}
@@ -308,7 +313,7 @@ export default function SubmittedWarehousePage() {
   const [businessTypeFilter, setBusinessTypeFilter] = useState('');
 
   // Load inspections data
-  const loadInspections = async () => {
+  const loadInspections = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -357,7 +362,7 @@ export default function SubmittedWarehousePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   // Load data on component mount
   useEffect(() => {
@@ -415,7 +420,7 @@ export default function SubmittedWarehousePage() {
       document.removeEventListener('rejectWarehouse', handleRejectWarehouse as EventListener);
       document.removeEventListener('resubmitWarehouse', handleResubmitWarehouse as EventListener);
     };
-  }, []);
+  }, [loadInspections, toast]);
 
   // Filter and sort inspections data
   const filteredAndSortedInspections = useMemo(() => {
@@ -430,7 +435,7 @@ export default function SubmittedWarehousePage() {
         inspection.state.toLowerCase().includes(searchLower) ||
         inspection.branch.toLowerCase().includes(searchLower) ||
         inspection.location.toLowerCase().includes(searchLower) ||
-        inspection.businessType.toLowerCase().includes(searchLower) ||
+        (typeof inspection.businessType === 'string' && inspection.businessType.toLowerCase().includes(searchLower)) ||
         (inspection.warehouseName && inspection.warehouseName.toLowerCase().includes(searchLower)) ||
         inspection.bankState.toLowerCase().includes(searchLower) ||
         inspection.bankBranch.toLowerCase().includes(searchLower) ||
@@ -467,7 +472,11 @@ export default function SubmittedWarehousePage() {
   , [inspections]);
   
   const uniqueBusinessTypes = useMemo(() => 
-    Array.from(new Set(inspections.map(i => i.businessType).filter(Boolean)))
+    Array.from(new Set(
+      inspections
+        .map(i => (typeof i.businessType === 'string' ? i.businessType : ''))
+        .filter(Boolean)
+    ))
   , [inspections]);
 
   // Export to CSV function
@@ -511,19 +520,29 @@ export default function SubmittedWarehousePage() {
         inspection.state,
         inspection.branch,
         inspection.location,
-        inspection.businessType.toUpperCase(),
+        (typeof inspection.businessType === 'string' ? inspection.businessType.toUpperCase() : ''),
         inspection.warehouseName || '',
         inspection.bankState,
         inspection.bankBranch,
         inspection.bankName,
         inspection.ifscCode,
         inspection.receiptType,
-      // Format date to show only date part
-      inspection.createdAt ? new Date(inspection.createdAt).toLocaleDateString() : '',
-      inspection.warehouseInspectionData?.dateOfInspection ? 
-        new Date(inspection.warehouseInspectionData.dateOfInspection).toLocaleDateString() : '',
-      inspection.warehouseInspectionData?.oeDate ? 
-        new Date(inspection.warehouseInspectionData.oeDate).toLocaleDateString() : '',
+      // Format date to show only date part with type guards
+      (typeof inspection.createdAt === 'string' || typeof inspection.createdAt === 'number' || inspection.createdAt instanceof Date)
+        ? new Date(inspection.createdAt).toLocaleDateString()
+        : '',
+      (() => {
+        const v = inspection.warehouseInspectionData?.dateOfInspection;
+        return (typeof v === 'string' || typeof v === 'number' || v instanceof Date)
+          ? new Date(v).toLocaleDateString()
+          : '';
+      })(),
+      (() => {
+        const v = inspection.warehouseInspectionData?.oeDate;
+        return (typeof v === 'string' || typeof v === 'number' || v instanceof Date)
+          ? new Date(v).toLocaleDateString()
+          : '';
+      })(),
         inspection.warehouseInspectionData?.remarks || ''
     ]);
 

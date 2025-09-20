@@ -1,4 +1,5 @@
 import React from 'react';
+import Image from 'next/image';
 
 export default function PrintableOutwardReceipt({ outwardData }: { outwardData: any }) {
   // CIR-style layout
@@ -21,7 +22,7 @@ export default function PrintableOutwardReceipt({ outwardData }: { outwardData: 
     border: '1px solid #e0f2e9',
   };
 
-  // All fields in three-column grid
+  // All fields in three-column grid (aligned with Commodity Inward PDF ordering)
   const fields = [
     { label: 'Outward Code', value: outwardData.outwardCode },
     { label: 'SR/WR No.', value: outwardData.srwrNo },
@@ -36,6 +37,13 @@ export default function PrintableOutwardReceipt({ outwardData }: { outwardData: 
     { label: 'Client Name', value: outwardData.client },
     { label: 'Client Code', value: outwardData.clientCode },
     { label: 'Client Address', value: outwardData.clientAddress },
+    // Newly added fields next to client address and before inward details
+    { label: 'Warehouse Type', value: outwardData.warehouseType || outwardData.typeOfWarehouse || '' },
+    { label: 'Type of Business', value: outwardData.typeOfBusiness || outwardData.businessType || '' },
+    { label: 'Commodity', value: outwardData.commodity || outwardData.commodityName || '' },
+    { label: 'Variety', value: outwardData.variety || outwardData.varietyName || '' },
+    { label: 'Inward Bags', value: outwardData.inwardBags || outwardData.totalBags || '' },
+    { label: 'Inward Quantity (MT)', value: outwardData.inwardQuantity || outwardData.totalQuantity || '' },
     { label: 'DO Bags', value: outwardData.doBags },
     { label: 'DO Quantity (MT)', value: outwardData.doQuantity },
     { label: 'Outward Bags', value: outwardData.outwardBags },
@@ -68,7 +76,9 @@ export default function PrintableOutwardReceipt({ outwardData }: { outwardData: 
     >
       {/* Header with logo and address */}
       <div style={{ textAlign: 'center', marginBottom: 8 }}>
-        <img src="/Group 86.png" alt="Agrogreen Logo" style={{ width: 90, height: 90, borderRadius: '50%', margin: '0 auto 8px' }} />
+        <div style={{ width: 90, height: 90, borderRadius: '50%', overflow: 'hidden', margin: '0 auto 8px' }}>
+          <Image src="/Group 86.png" alt="Agrogreen Logo" width={90} height={90} />
+        </div>
         <div style={{ fontSize: 28, fontWeight: 700, color: '#e67c1f', letterSpacing: 0.5, marginBottom: 2 }}>AGROGREEN WAREHOUSING PRIVATE LTD.</div>
         <div style={{ fontSize: 18, fontWeight: 500, color: '#1aad4b', marginBottom: 8 }}>603, 6th Floor, Princess Business Skyline, Indore, Madhya Pradesh - 452010</div>
         <div style={{ fontSize: 20, fontWeight: 700, color: '#e67c1f', margin: '24px 0 0 0', textDecoration: 'underline' }}>Outward Details</div>
@@ -100,7 +110,7 @@ export default function PrintableOutwardReceipt({ outwardData }: { outwardData: 
               <tr style={{ backgroundColor: '#f6fef9' }}>
                 <th style={{ border: '1px solid #e0f2e9', padding: '8px', color: '#1aad4b', fontWeight: 700 }}>Stack No.</th>
                 <th style={{ border: '1px solid #e0f2e9', padding: '8px', color: '#1aad4b', fontWeight: 700 }}>Bags</th>
-                <th style={{ border: '1px solid #e0f2e9', padding: '8px', color: '#1aad4b', fontWeight: 700 }}>Quantity (MT)</th>
+                <th style={{ border: '1px solid #e0f2e9', padding: '8px', color: '#1aad4b', fontWeight: 700 }}>Balance Bags</th>
               </tr>
             </thead>
             <tbody>
@@ -108,7 +118,40 @@ export default function PrintableOutwardReceipt({ outwardData }: { outwardData: 
                 <tr key={index} style={{ backgroundColor: index % 2 === 0 ? '#fff' : '#f9f9f9' }}>
                   <td style={{ border: '1px solid #e0f2e9', padding: '8px', textAlign: 'center' }}>{stack.stackNo}</td>
                   <td style={{ border: '1px solid #e0f2e9', padding: '8px', textAlign: 'center' }}>{stack.bags}</td>
-                  <td style={{ border: '1px solid #e0f2e9', padding: '8px', textAlign: 'center' }}>{stack.quantity}</td>
+                  <td style={{ border: '1px solid #e0f2e9', padding: '8px', textAlign: 'center' }}>{stack.balanceBags ?? ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Optional Vehicle-wise Outward Entries (if provided on outwardData) */}
+      {Array.isArray((outwardData as any).entriesForSR) && (outwardData as any).entriesForSR.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#e67c1f', marginBottom: 12, textAlign: 'center' }}>Vehicle-wise Outward Entries</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #fde7d2', marginBottom: 16 }}>
+            <thead>
+              <tr style={{ backgroundColor: '#fff7ed' }}>
+                <th style={{ border: '1px solid #fde7d2', padding: '8px', color: '#e67c1f', fontWeight: 700 }}>Date</th>
+                <th style={{ border: '1px solid #fde7d2', padding: '8px', color: '#e67c1f', fontWeight: 700 }}>Outward Code</th>
+                <th style={{ border: '1px solid #fde7d2', padding: '8px', color: '#e67c1f', fontWeight: 700 }}>Vehicle</th>
+                <th style={{ border: '1px solid #fde7d2', padding: '8px', color: '#e67c1f', fontWeight: 700 }}>Gatepass</th>
+                <th style={{ border: '1px solid #fde7d2', padding: '8px', color: '#e67c1f', fontWeight: 700 }}>Bags</th>
+                <th style={{ border: '1px solid #fde7d2', padding: '8px', color: '#e67c1f', fontWeight: 700 }}>Qty (MT)</th>
+                <th style={{ border: '1px solid #fde7d2', padding: '8px', color: '#e67c1f', fontWeight: 700 }}>Net Wt (MT)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(outwardData as any).entriesForSR.map((entry: any, idx: number) => (
+                <tr key={entry.id || entry.outwardCode || idx} style={{ backgroundColor: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                  <td style={{ border: '1px solid #fde7d2', padding: '8px', textAlign: 'center' }}>{entry.createdAt ? new Date(entry.createdAt).toLocaleDateString('en-GB') : ''}</td>
+                  <td style={{ border: '1px solid #fde7d2', padding: '8px', textAlign: 'center' }}>{entry.outwardCode || ''}</td>
+                  <td style={{ border: '1px solid #fde7d2', padding: '8px', textAlign: 'center' }}>{entry.vehicleNumber || ''}</td>
+                  <td style={{ border: '1px solid #fde7d2', padding: '8px', textAlign: 'center' }}>{entry.gatepass || ''}</td>
+                  <td style={{ border: '1px solid #fde7d2', padding: '8px', textAlign: 'center' }}>{entry.outwardBags || ''}</td>
+                  <td style={{ border: '1px solid #fde7d2', padding: '8px', textAlign: 'center' }}>{entry.outwardQuantity || ''}</td>
+                  <td style={{ border: '1px solid #fde7d2', padding: '8px', textAlign: 'center' }}>{entry.netWeight || ''}</td>
                 </tr>
               ))}
             </tbody>

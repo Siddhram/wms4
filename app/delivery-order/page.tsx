@@ -371,6 +371,18 @@ export default function DeliveryOrderPage() {
       const doSnap = await getDocs(doCol);
   const allDOs = doSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
       
+      // Fetch all outwards to detect SR/WR with rejected outward entries
+      const outwardCol = collection(db, 'outwards');
+      const outwardSnap = await getDocs(outwardCol);
+      const allOutwards = outwardSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+      const srwrWithRejectedOutward = new Set<string>();
+      allOutwards.forEach((o: any) => {
+        const status = (o.outwardStatus || '').toString().toLowerCase().trim();
+        if ((status === 'rejected' || status === 'reject') && o.srwrNo) {
+          srwrWithRejectedOutward.add(o.srwrNo);
+        }
+      });
+      
       // Group DOs by SR/WR number for balance calculation
       const dosBySRWR: Record<string, any[]> = {};
       
@@ -427,11 +439,19 @@ export default function DeliveryOrderPage() {
         
         console.log(`RO ${srwrNo}: Final balance ${balanceBags} bags, ${balanceQuantity.toFixed(2)} quantity`);
         
-        // Add calculated balances to RO data
+        // Flags for inclusion due to rejections
+        const hasRejectedDO = allDOs.some((d: any) => 
+          d.srwrNo === srwrNo && (d.doStatus === 'rejected' || d.doStatus === 'reject')
+        );
+        const hasRejectedOutward = srwrNo ? srwrWithRejectedOutward.has(srwrNo) : false;
+        
+        // Add calculated balances and flags to RO data
         return {
           ...roData,
           balanceBags,
-          balanceQuantity
+          balanceQuantity,
+          hasRejectedDO,
+          hasRejectedOutward
         };
       })
       // Filter out ROs with zero balance, BUT include rejected DOs
@@ -439,13 +459,13 @@ export default function DeliveryOrderPage() {
         // Always include if balance is positive
         if (ro.balanceBags > 0) return true;
         
-        // Also include if there are any rejected DOs for this SR/WR
-        const rejectedDOs = deliveryOrders.filter((doItem: any) => 
-          doItem.srwrNo === ro.srwrNo && doItem.doStatus === 'rejected'
-        );
-        
-        if (rejectedDOs.length > 0) {
-          console.log(`Including ${ro.srwrNo} in dropdown due to ${rejectedDOs.length} rejected DO(s)`);
+        // Also include if there are any rejected DOs or rejected Outwards for this SR/WR
+        if (ro.hasRejectedDO) {
+          console.log(`Including ${ro.srwrNo} in dropdown due to rejected DO(s)`);
+          return true;
+        }
+        if (ro.hasRejectedOutward) {
+          console.log(`Including ${ro.srwrNo} in dropdown due to rejected outward(s)`);
           return true;
         }
         
@@ -730,27 +750,35 @@ export default function DeliveryOrderPage() {
           balanceBags = Math.max(0, balanceBags);
           balanceQuantity = Math.max(0, balanceQuantity);
           
-          // Add calculated balances to inward data
-          return {
-            ...inwardEntry,
-            balanceBags,
-            balanceQuantity
-          };
+          // Flags for inclusion due to rejections
+            const hasRejectedDO = allDOs.some((d: any) => 
+              d.srwrNo === srwrNo && (d.doStatus === 'rejected' || d.doStatus === 'reject')
+            );
+            const hasRejectedOutward = srwrNo ? srwrWithRejectedOutward.has(srwrNo) : false;
+
+            // Add calculated balances and flags to inward data
+            return {
+              ...inwardEntry,
+              balanceBags,
+              balanceQuantity,
+              hasRejectedDO,
+              hasRejectedOutward
+            };
         })
         // Filter out inward entries with zero balance, BUT include rejected DOs
-        .filter(entry => {
+          .filter(entry => {
           // Always include if balance is positive
           if (entry.balanceBags > 0) return true;
           
-          // Also include if there are any rejected DOs for this SR/WR
-          const rejectedDOs = deliveryOrders.filter((doItem: any) => 
-            doItem.srwrNo === entry.srwrNo && doItem.doStatus === 'rejected'
-          );
-          
-          if (rejectedDOs.length > 0) {
-            console.log(`Including inward ${entry.srwrNo} in dropdown due to ${rejectedDOs.length} rejected DO(s)`);
-            return true;
-          }
+            // Also include if there are any rejected DOs or rejected Outwards for this SR/WR
+            if (entry.hasRejectedDO) {
+              console.log(`Including inward ${entry.srwrNo} in dropdown due to rejected DO(s)`);
+              return true;
+            }
+            if (entry.hasRejectedOutward) {
+              console.log(`Including inward ${entry.srwrNo} in dropdown due to rejected outward(s)`);
+              return true;
+            }
           
           return false;
         });
@@ -1423,11 +1451,11 @@ export default function DeliveryOrderPage() {
                       <SelectContent className="max-h-[300px]">
                         {filteredROOptions
                           .filter((option: any) => {
-                            // Calculate and check if balance is positive
+                            // Calculate and check if balance is positive OR included due to a rejection
                             const balanceBags = option.balanceBags !== undefined ? 
                               Number(option.balanceBags) : 
                               (option.releaseBags !== undefined ? Number(option.releaseBags) : 0);
-                            return balanceBags > 0;
+                            return balanceBags > 0 || option.hasRejectedDO || option.hasRejectedOutward;
                           })
                           .map((option: any) => {
                             // Get the balance for display
@@ -1452,6 +1480,11 @@ export default function DeliveryOrderPage() {
                                   <span className="ml-2 text-green-700">
                                     (Balance: {balanceBags} bags)
                                   </span>
+                                  {(option.hasRejectedOutward || option.hasRejectedDO) && (
+                                    <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-pink-100 text-red-600 align-middle">
+                                      {option.hasRejectedOutward ? 'Rejected Outward' : 'Rejected DO'}
+                                    </span>
+                                  )}
                                 </span>
                               )}
                             </SelectItem>
@@ -1877,7 +1910,7 @@ export default function DeliveryOrderPage() {
                         {/* Show checker's remark */}
                         {selectedDO.statusRemark && (
                           <div className="mb-4 p-3 bg-green-50 rounded-md border border-green-200">
-                            <Label className="text-green-800 font-medium">Checker's Remark:</Label>
+                            <Label className="text-green-800 font-medium">Checker&apos;s Remark:</Label>
                             <div className="text-green-700 mt-1">{selectedDO.statusRemark}</div>
                           </div>
                         )}
@@ -1897,7 +1930,7 @@ export default function DeliveryOrderPage() {
                           <div className="text-red-700 font-medium mb-2">DO Status: REJECTED</div>
                           {selectedDO.statusRemark && (
                             <div>
-                              <Label className="text-red-800 font-medium">Checker's Remark:</Label>
+                              <Label className="text-red-800 font-medium">Checker&apos;s Remark:</Label>
                               <div className="text-red-700 mt-1">{selectedDO.statusRemark}</div>
                             </div>
                           )}
@@ -1911,7 +1944,7 @@ export default function DeliveryOrderPage() {
                           <div className="text-orange-700 font-medium mb-2 text-center">DO Status: RESUBMITTED</div>
                           {selectedDO.statusRemark && (
                             <div className="mb-3">
-                              <Label className="text-orange-800 font-medium">Checker's Remark:</Label>
+                              <Label className="text-orange-800 font-medium">Checker&apos;s Remark:</Label>
                               <div className="text-orange-700 mt-1">{selectedDO.statusRemark}</div>
                             </div>
                           )}

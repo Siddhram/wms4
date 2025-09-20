@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
@@ -156,7 +156,10 @@ const activatedColumns = [
     header: "Business Type",
     cell: ({ row }: { row: Row<any> }) => (
       <span className="text-green-700 w-full flex justify-center">
-        {row.getValue("businessType")?.toUpperCase()}
+        {(() => {
+          const v = row.getValue("businessType");
+          return typeof v === 'string' ? v.toUpperCase() : '-';
+        })()}
       </span>
     ),
     meta: { align: 'center' },
@@ -226,7 +229,9 @@ const activatedColumns = [
     header: "Created Date",
     cell: ({ row }: { row: Row<any> }) => {
       const date = row.getValue("createdAt");
-      const formattedDate = date ? new Date(date).toLocaleDateString() : '';
+      const formattedDate = (typeof date === 'string' || typeof date === 'number' || date instanceof Date)
+        ? new Date(date).toLocaleDateString()
+        : '';
       return (
         <span className="text-green-700 w-full flex justify-center">
           {formattedDate}
@@ -382,7 +387,7 @@ export default function ActivatedWarehousePage() {
   const [businessTypeFilter, setBusinessTypeFilter] = useState('');
 
   // Load inspections data
-  const loadInspections = async () => {
+  const loadInspections = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -431,7 +436,7 @@ export default function ActivatedWarehousePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   // Load data on component mount
   useEffect(() => {
@@ -505,7 +510,7 @@ export default function ActivatedWarehousePage() {
       document.removeEventListener('addMultipleInsurance', handleAddMultipleInsurance as EventListener);
       document.removeEventListener('closeWarehouse', handleCloseWarehouse as EventListener);
     };
-  }, []);
+  }, [loadInspections, toast]);
 
   // Filter and sort inspections data
   const filteredAndSortedInspections = useMemo(() => {
