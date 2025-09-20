@@ -38,10 +38,12 @@ const getStatusStyling = (status: string) => {
   return 'bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs font-medium inline-block';
 };
 import { useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
+import { DataTable } from '@/components/data-table';
+import { Search } from 'lucide-react';
 
 // Data interfaces matching the master data modules
 interface BranchLocation {
@@ -158,6 +160,9 @@ export default function InspectionCreationPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingInspectionId, setEditingInspectionId] = useState<string | null>(null);
   
+  // Search state
+  const [searchTerm, setSearchTerm] = useState('');
+  
   // Bank form state for adding new bank to existing warehouse
   const [bankFormData, setBankFormData] = useState({
     bankState: '',
@@ -173,6 +178,20 @@ export default function InspectionCreationPage() {
     loadBanksData();
     loadInspections();
     loadWarehouseInspections();
+    
+    // Add event listener for cross-module reflection
+    const handleInspectionUpdate = (event: CustomEvent) => {
+      // Reload data when other modules update inspection data
+      if (event.detail && event.detail.source !== 'inspection-creation') {
+        loadInspections();
+      }
+    };
+    
+    window.addEventListener('inspectionDataUpdated', handleInspectionUpdate as EventListener);
+    
+    return () => {
+      window.removeEventListener('inspectionDataUpdated', handleInspectionUpdate as EventListener);
+    };
   }, []);
 
   // Extract unique states from branches data
@@ -296,9 +315,169 @@ export default function InspectionCreationPage() {
     }
   }, [bankFormData.bank, availableBanks]);
 
+  // Filter and sort inspections data
+  const filteredAndSortedInspections = useMemo(() => {
+    let filtered = [...inspections];
+    
+    // Apply search filter
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(inspection =>
+        inspection.inspectionCode.toLowerCase().includes(searchLower) ||
+        inspection.warehouseCode.toLowerCase().includes(searchLower) ||
+        inspection.state.toLowerCase().includes(searchLower) ||
+        inspection.branch.toLowerCase().includes(searchLower) ||
+        inspection.location.toLowerCase().includes(searchLower) ||
+        inspection.businessType.toLowerCase().includes(searchLower) ||
+        (inspection.warehouseName && inspection.warehouseName.toLowerCase().includes(searchLower)) ||
+        inspection.bankState.toLowerCase().includes(searchLower) ||
+        inspection.bankBranch.toLowerCase().includes(searchLower) ||
+        inspection.bankName.toLowerCase().includes(searchLower) ||
+        inspection.ifscCode.toLowerCase().includes(searchLower) ||
+        inspection.receiptType.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    // Sort by inspection code in ascending order
+    filtered.sort((a, b) => a.inspectionCode.localeCompare(b.inspectionCode));
+    
+    return filtered;
+  }, [inspections, searchTerm]);
+
+  // Define columns for DataTable
+  const inspectionColumns = [
+    {
+      accessorKey: "inspectionCode",
+      header: "Inspection Code",
+      cell: ({ row }: { row: any }) => <span className="font-bold text-orange-800 w-full flex justify-center">{row.getValue("inspectionCode")}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "warehouseCode",
+      header: "Warehouse Code",
+      cell: ({ row }: { row: any }) => <span className="text-green-700 w-full flex justify-center">{row.getValue("warehouseCode")}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "state",
+      header: "State",
+      cell: ({ row }: { row: any }) => <span className="text-green-700 w-full flex justify-center">{row.getValue("state")}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "branch",
+      header: "Branch",
+      cell: ({ row }: { row: any }) => <span className="text-green-700 w-full flex justify-center">{row.getValue("branch")}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "location",
+      header: "Location",
+      cell: ({ row }: { row: any }) => <span className="text-green-700 w-full flex justify-center">{row.getValue("location")}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "businessType",
+      header: "Business Type",
+      cell: ({ row }: { row: any }) => <span className="text-green-700 w-full flex justify-center">{row.getValue("businessType").toUpperCase()}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "warehouseName",
+      header: "Warehouse Name",
+      cell: ({ row }: { row: any }) => <span className="text-green-700 w-full flex justify-center">{row.getValue("warehouseName") || ''}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "bankState",
+      header: "Bank State",
+      cell: ({ row }: { row: any }) => <span className="text-green-700 w-full flex justify-center">{row.getValue("bankState")}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "bankBranch",
+      header: "Bank Branch",
+      cell: ({ row }: { row: any }) => <span className="text-green-700 w-full flex justify-center">{row.getValue("bankBranch")}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "bankName",
+      header: "Bank Name",
+      cell: ({ row }: { row: any }) => <span className="text-green-700 w-full flex justify-center">{row.getValue("bankName")}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "ifscCode",
+      header: "IFSC Code",
+      cell: ({ row }: { row: any }) => <span className="text-green-700 w-full flex justify-center">{row.getValue("ifscCode")}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "receiptType",
+      header: "Receipt Type",
+      cell: ({ row }: { row: any }) => <span className="text-green-700 w-full flex justify-center">{row.getValue("receiptType")}</span>,
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Created Date",
+      cell: ({ row }: { row: any }) => {
+        const date = row.getValue("createdAt");
+        const formattedDate = date ? new Date(date).toLocaleDateString() : '';
+        return <span className="text-green-700 w-full flex justify-center">{formattedDate}</span>;
+      },
+      meta: { align: 'center' },
+    },
+    {
+      accessorKey: "actions",
+      header: "Actions",
+      cell: ({ row }: { row: any }) => {
+        const inspection = row.original;
+        return (
+          <div className="flex space-x-2 justify-center">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => handleEdit(inspection)}
+              className="border-orange-300 text-orange-600 hover:bg-orange-50"
+              title="Edit Inspection"
+            >
+              <Edit className="w-4 h-4" />
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => {
+                if (confirm(`Are you sure you want to delete inspection ${inspection.inspectionCode}? This action cannot be undone.`)) {
+                  handleDelete(inspection.id);
+                }
+              }}
+              className="border-red-300 text-red-600 hover:bg-red-50"
+              title="Delete Inspection"
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => handleAddBankClick(inspection)}
+              className="border-blue-300 text-blue-600 hover:bg-blue-50"
+              title="Add Bank"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+          </div>
+        );
+      },
+      meta: { align: 'center' },
+    },
+  ];
+
   // Export to CSV function
   const exportToCSV = () => {
-    if (inspections.length === 0) {
+    const dataToExport = searchTerm.trim() ? filteredAndSortedInspections : inspections;
+    
+    if (dataToExport.length === 0) {
       toast({
         title: "No Data",
         description: "No inspections available to export",
@@ -323,7 +502,10 @@ export default function InspectionCreationPage() {
       'Created Date'
     ];
 
-    const csvData = inspections.map(inspection => [
+    // Format date to show only date (not time) and sort by inspection code
+    const sortedData = [...dataToExport].sort((a, b) => a.inspectionCode.localeCompare(b.inspectionCode));
+    
+    const csvData = sortedData.map(inspection => [
       inspection.inspectionCode,
       inspection.warehouseCode,
       inspection.state,
@@ -336,9 +518,11 @@ export default function InspectionCreationPage() {
       inspection.bankName,
       inspection.ifscCode,
       inspection.receiptType,
-      inspection.createdAt
+      // Format date to show only date part
+      inspection.createdAt ? new Date(inspection.createdAt).toLocaleDateString() : ''
     ]);
 
+    // Create CSV content without extra blank rows
     const csvContent = [headers, ...csvData]
       .map(row => row.map(field => `"${field}"`).join(','))
       .join('\n');
@@ -347,7 +531,13 @@ export default function InspectionCreationPage() {
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `inspections_${new Date().toISOString().split('T')[0]}.csv`);
+    
+    // Use appropriate filename based on search context
+    const filename = searchTerm.trim() 
+      ? `inspections_filtered_${new Date().toISOString().split('T')[0]}.csv`
+      : `inspections_${new Date().toISOString().split('T')[0]}.csv`;
+    
+    link.setAttribute('download', filename);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -355,7 +545,7 @@ export default function InspectionCreationPage() {
 
     toast({
       title: "Export Successful",
-      description: `${inspections.length} inspections exported to CSV`,
+      description: `${dataToExport.length} inspections exported to CSV`,
     });
   };
 
@@ -583,6 +773,11 @@ export default function InspectionCreationPage() {
       newInspections.splice(originalIndex + 1, 0, savedInspection);
       setInspections(newInspections);
 
+      // Dispatch event for cross-module reflection
+      window.dispatchEvent(new CustomEvent('inspectionDataUpdated', { 
+        detail: { inspections: newInspections, action: 'addBank', newInspection: savedInspection, source: 'inspection-creation' } 
+      }));
+
       toast({
         title: "Success!",
         description: `New inspection ${newInspectionCode} added with different bank`,
@@ -730,11 +925,17 @@ export default function InspectionCreationPage() {
         await updateDoc(doc(db, 'inspections', editingInspectionId), updatedInspection);
         
         // Update local state
-        setInspections(prev => prev.map(inspection => 
+        const updatedInspections = inspections.map(inspection => 
           inspection.id === editingInspectionId 
             ? { ...inspection, ...updatedInspection }
             : inspection
-        ));
+        );
+        setInspections(updatedInspections);
+
+        // Dispatch event for cross-module reflection
+        window.dispatchEvent(new CustomEvent('inspectionDataUpdated', { 
+          detail: { inspections: updatedInspections, action: 'update', updatedId: editingInspectionId, source: 'inspection-creation' } 
+        }));
 
         toast({
           title: "Updated!",
@@ -772,7 +973,13 @@ export default function InspectionCreationPage() {
           createdAt: new Date().toLocaleDateString()
         };
         
-        setInspections(prev => [...prev, savedInspection]);
+        const updatedInspections = [...inspections, savedInspection];
+        setInspections(updatedInspections);
+
+        // Dispatch event for cross-module reflection
+        window.dispatchEvent(new CustomEvent('inspectionDataUpdated', { 
+          detail: { inspections: updatedInspections, action: 'create', newInspection: savedInspection, source: 'inspection-creation' } 
+        }));
 
         // If new warehouse, add to existing warehouses list
         if (formData.warehouseStatus === 'new' && formData.warehouseName) {
@@ -858,7 +1065,13 @@ export default function InspectionCreationPage() {
       await deleteDoc(doc(db, 'inspections', id));
       
       // Update local state
-      setInspections(prev => prev.filter(inspection => inspection.id !== id));
+      const updatedInspections = inspections.filter(inspection => inspection.id !== id);
+      setInspections(updatedInspections);
+      
+      // Dispatch event for cross-module reflection
+      window.dispatchEvent(new CustomEvent('inspectionDataUpdated', { 
+        detail: { inspections: updatedInspections, action: 'delete', deletedId: id, source: 'inspection-creation' } 
+      }));
       
       toast({
         title: "Deleted",
@@ -1134,123 +1347,73 @@ export default function InspectionCreationPage() {
           </div>
         </div>
 
+        {/* Search Bar */}
+        {inspections.length > 0 && (
+          <Card className="border-green-300">
+            <CardHeader className="bg-green-50">
+              <CardTitle className="text-green-700">Search & Filter</CardTitle>
+            </CardHeader>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-4">
+                <div className="relative flex-grow">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <Input
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search by inspection code, warehouse code, state, branch, location, business type, warehouse name, bank details..."
+                    className="border-green-300 focus:border-green-500 pl-10"
+                  />
+                </div>
+                {searchTerm && (
+                  <Button
+                    onClick={() => setSearchTerm('')}
+                    variant="outline"
+                    size="sm"
+                    className="border-gray-300 text-gray-600 hover:bg-gray-50"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+              
+              {/* Entry Count */}
+              <div className="mt-3 text-sm text-green-600">
+                {searchTerm ? (
+                  <>
+                    <span className="font-medium">
+                      {filteredAndSortedInspections.length} of {inspections.length} entries found for "{searchTerm}"
+                    </span>
+                  </>
+                ) : (
+                  <span className="font-medium">
+                    Total Entries: {inspections.length}
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Inspections Table */}
         {inspections.length > 0 && (
           <Card className="border-green-300">
             <CardHeader className="bg-green-50">
               <CardTitle className="text-green-700">Created Inspections</CardTitle>
               <CardDescription className="text-green-600">
-                All created inspection surveys with their details and actions.
+                All created inspection surveys with their details and actions. Sorted by inspection code in ascending order.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
-              <div 
-                className="overflow-x-auto relative"
-                style={{
-                  backgroundImage: `
-                    radial-gradient(circle at 25% 25%, rgba(34, 197, 94, 0.03) 0%, transparent 50%),
-                    radial-gradient(circle at 75% 75%, rgba(249, 115, 22, 0.03) 0%, transparent 50%),
-                    linear-gradient(135deg, rgba(34, 197, 94, 0.01) 0%, rgba(249, 115, 22, 0.01) 100%)
-                  `,
-                  backgroundSize: '400px 400px, 300px 300px, 100% 100%',
-                  backgroundPosition: '0% 0%, 100% 100%, 0% 0%',
-                  backgroundRepeat: 'no-repeat, no-repeat, no-repeat'
-                }}
-              >
-                <Table className="border-collapse">
-                  <TableHeader>
-                    <TableRow className="bg-orange-50 border-b-2 border-orange-200">
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Inspection Code</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Warehouse Code</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">State</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Branch</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Location</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Business Type</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Warehouse Name</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Bank State</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Bank Branch</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Bank Name</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">IFSC Code</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Receipt Type</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Created</TableHead>
-                      <TableHead className="text-orange-700 font-semibold text-center p-2 whitespace-nowrap">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {inspections.map((inspection) => (
-                      <TableRow key={inspection.id} className="hover:bg-green-50 border-b border-gray-200">
-                        <TableCell className="text-green-700 font-bold border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.inspectionCode}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.warehouseCode}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.state}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.branch}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.location}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.businessType.toUpperCase()}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.warehouseName}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.bankState}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.bankBranch}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.bankName}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.ifscCode}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.receiptType}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.createdAt}</TableCell>
-                        <TableCell className="text-center p-2">
-                          <div className="flex space-x-2 justify-center">
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => handleEdit(inspection)}
-                              className="border-orange-300 text-orange-600 hover:bg-orange-50"
-                              title="Edit Inspection"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  className="border-red-300 text-red-600 hover:bg-red-50"
-                                  title="Delete Inspection"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent className="border-red-200">
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle className="text-red-800">Delete Inspection</AlertDialogTitle>
-                                  <AlertDialogDescription className="text-gray-700">
-                                    Are you sure you want to delete inspection <strong>{inspection.inspectionCode}</strong>? 
-                                    This action cannot be undone and will permanently remove the inspection data.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel className="border-gray-300 text-gray-600 hover:bg-gray-50">
-                                    Cancel
-                                  </AlertDialogCancel>
-                                  <AlertDialogAction 
-                                    onClick={() => handleDelete(inspection.id)}
-                                    className="bg-red-500 hover:bg-red-600 text-white"
-                                  >
-                                    Delete
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => handleAddBankClick(inspection)}
-                              className="border-blue-300 text-blue-600 hover:bg-blue-50"
-                              title="Add Bank"
-                            >
-                              <Plus className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <DataTable
+                columns={inspectionColumns}
+                data={filteredAndSortedInspections}
+                wrapperClassName="border-green-300"
+                headClassName="bg-orange-100 text-orange-600 font-bold text-center"
+                cellClassName="text-green-800 text-center"
+                stickyHeader={true}
+                stickyFirstColumn={true}
+                showGridLines={true}
+              />
             </CardContent>
           </Card>
         )}
@@ -1464,7 +1627,7 @@ export default function InspectionCreationPage() {
                       </div>
                       <div>
                         <Label className="font-medium">Capacity (MT):</Label>
-                        <p className="text-gray-700 font-semibold text-green-600">
+                        <p className="text-green-600 font-semibold">
                           {selectedWarehouseInspection.warehouseCapacity}
                         </p>
                       </div>

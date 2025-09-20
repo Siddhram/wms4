@@ -216,6 +216,8 @@ export default function InwardPage() {
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [reservations, setReservations] = useState<any[]>([]);
+  const [availableReservations, setAvailableReservations] = useState<any[]>([]);
+  const [selectedReservation, setSelectedReservation] = useState<any>(null);
   const [commodities, setCommodities] = useState<any[]>([]);
   const [banks, setBanks] = useState<any[]>([]);
   const [insuranceData, setInsuranceData] = useState<any[]>([]);
@@ -238,6 +240,7 @@ export default function InwardPage() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [dataVersion, setDataVersion] = useState(0);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [isUploading, setIsUploading] = useState(false);
   const [fileAttachment, setFileAttachment] = useState<File | null>(null);
   const [selectedInsuranceIndex, setSelectedInsuranceIndex] = useState<number | null>(null);
@@ -265,21 +268,79 @@ export default function InwardPage() {
   const [yourInsurance, setYourInsurance] = useState<any>(null);
   const [hasPendingEntries, setHasPendingEntries] = useState(false);
 
-  // Filter insurance entries based on selected type
+  // Filter insurance entries based on selected type and commodity
   const filteredInsuranceEntries = useMemo(() => {
-    if (!selectedInsuranceType || selectedInsuranceType === 'all') {
-      return insuranceEntries;
+    let filtered = insuranceEntries;
+    
+    // Filter by insurance type
+    if (selectedInsuranceType && selectedInsuranceType !== 'all') {
+      filtered = filtered.filter(ins => ins.insuranceTakenBy === selectedInsuranceType);
     }
-    return insuranceEntries.filter(ins => ins.insuranceTakenBy === selectedInsuranceType);
-  }, [insuranceEntries, selectedInsuranceType]);
+    
+    // Further filter by commodity if commodity is selected
+    if (form.commodity) {
+      filtered = filtered.filter(ins => {
+        const insuranceCommodities = (ins.insuranceCommodity || '').split(',').map((c: string) => c.trim());
+        return insuranceCommodities.includes(form.commodity);
+      });
+    }
+    
+    return filtered;
+  }, [insuranceEntries, selectedInsuranceType, form.commodity]);
 
-  // Filter insurance entries for information section based on selected type
+  // Filter insurance entries for information section based on selected type and commodity
   const filteredInsuranceInfoEntries = useMemo(() => {
     if (!selectedInsuranceInfoType) {
       return [];
     }
-    return insuranceEntries.filter(ins => ins.insuranceTakenBy === selectedInsuranceInfoType);
-  }, [insuranceEntries, selectedInsuranceInfoType]);
+    
+    let filtered = insuranceEntries.filter(ins => ins.insuranceTakenBy === selectedInsuranceInfoType);
+    
+    // Further filter by commodity if commodity is selected
+    if (form.commodity) {
+      filtered = filtered.filter(ins => {
+        const insuranceCommodities = (ins.insuranceCommodity || '').split(',').map((c: string) => c.trim());
+        return insuranceCommodities.includes(form.commodity);
+      });
+    }
+    
+    return filtered;
+  }, [insuranceEntries, selectedInsuranceInfoType, form.commodity]);
+
+  // Filter and sort inward data
+  const filteredData = useMemo(() => {
+    let filtered = [...inwardData];
+    
+    // Apply search filter
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(item =>
+        (item.state || '').toLowerCase().includes(searchLower) ||
+        (item.branch || '').toLowerCase().includes(searchLower) ||
+        (item.location || '').toLowerCase().includes(searchLower) ||
+        (item.warehouseName || '').toLowerCase().includes(searchLower) ||
+        (item.clientName || '').toLowerCase().includes(searchLower) ||
+        (item.receiptType || '').toLowerCase().includes(searchLower) ||
+        (item.inwardCode || '').toLowerCase().includes(searchLower) ||
+        (item.commodity || '').toLowerCase().includes(searchLower) ||
+        (item.srWrNumber || '').toLowerCase().includes(searchLower)
+      );
+    }
+    
+    // Sort by inward code in ascending order (default) or descending
+    filtered.sort((a, b) => {
+      const aCode = (a.inwardCode || '').toString();
+      const bCode = (b.inwardCode || '').toString();
+      
+      if (sortDirection === 'asc') {
+        return aCode.localeCompare(bCode, undefined, { numeric: true, sensitivity: 'base' });
+      } else {
+        return bCode.localeCompare(aCode, undefined, { numeric: true, sensitivity: 'base' });
+      }
+    });
+    
+    return filtered;
+  }, [inwardData, searchTerm, sortDirection]);
 
   // Function to get receipt type from inspection collection
   const getReceiptTypeFromInspection = async (warehouseName: string): Promise<string> => {
@@ -1037,6 +1098,157 @@ export default function InwardPage() {
 
   // Combined form for display
   const form = { ...baseForm, ...currentEntryForm, totalValue: baseForm.totalValue };
+
+  // Cross-module reflection - dispatch events when data changes
+  const dispatchDataUpdate = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('inwardDataUpdated', {
+      detail: { timestamp: Date.now() }
+    }));
+  }, []);
+
+  // Handle SR/WR approval
+  const handleApproveSR = async (row: any) => {
+    if (!row || !hologramNumber.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter hologram number before approving.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const docRef = doc(db, 'inward', row.id);
+      await updateDoc(docRef, {
+        status: 'approved',
+        hologramNumber: hologramNumber,
+        srGenerationDate: new Date().toISOString(),
+        approvedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      setIsFormApproved(true);
+      setSrGenerationDate(new Date().toLocaleDateString());
+      
+      toast({
+        title: "Success",
+        description: `${row.receiptType} approved successfully.`,
+        variant: "default",
+      });
+
+      // Refresh data and dispatch update
+      setDataVersion(v => v + 1);
+      dispatchDataUpdate();
+    } catch (error) {
+      console.error('Error approving SR/WR:', error);
+      toast({
+        title: "Error",
+        description: "Failed to approve. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle SR/WR rejection
+  const handleRejectSR = async (row: any) => {
+    const reason = prompt("Please enter reason for rejection:");
+    if (!reason) return;
+
+    try {
+      const docRef = doc(db, 'inward', row.id);
+      await updateDoc(docRef, {
+        status: 'rejected',
+        rejectionReason: reason,
+        rejectedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      
+      toast({
+        title: "Success",
+        description: `${row.receiptType} rejected successfully.`,
+        variant: "default",
+      });
+
+      // Refresh data and close modal
+      setDataVersion(v => v + 1);
+      setShowSRForm(false);
+      dispatchDataUpdate();
+    } catch (error) {
+      console.error('Error rejecting SR/WR:', error);
+      toast({
+        title: "Error",
+        description: "Failed to reject. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle SR/WR resubmission
+  const handleResubmitSR = async (row: any) => {
+    const reason = prompt("Please enter reason for resubmission:");
+    if (!reason) return;
+
+    try {
+      const docRef = doc(db, 'inward', row.id);
+      await updateDoc(docRef, {
+        status: 'resubmited',
+        resubmissionReason: reason,
+        resubmittedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      
+      toast({
+        title: "Success",
+        description: `${row.receiptType} marked for resubmission.`,
+        variant: "default",
+      });
+
+      // Refresh data and close modal
+      setDataVersion(v => v + 1);
+      setShowSRForm(false);
+      dispatchDataUpdate();
+    } catch (error) {
+      console.error('Error marking for resubmission:', error);
+      toast({
+        title: "Error",
+        description: "Failed to mark for resubmission. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Fetch available reservations based on warehouse and client
+  const fetchAvailableReservations = useCallback(async (warehouseName: string, clientName: string) => {
+    if (!warehouseName || !clientName) {
+      setAvailableReservations([]);
+      setSelectedReservation(null);
+      return;
+    }
+
+    try {
+      const reservationCollection = collection(db, 'reservation');
+      const snapshot = await getDocs(reservationCollection);
+      const reservations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Filter reservations for the selected warehouse and client
+      const matchingReservations = reservations.filter(res => 
+        res.warehouse === warehouseName && res.client === clientName
+      );
+      
+      setAvailableReservations(matchingReservations);
+      
+      // Auto-select if only one reservation is available
+      if (matchingReservations.length === 1) {
+        setSelectedReservation(matchingReservations[0]);
+      } else {
+        setSelectedReservation(null);
+      }
+    } catch (error) {
+      console.error('Error fetching reservations:', error);
+      setAvailableReservations([]);
+      setSelectedReservation(null);
+    }
+  }, []);
 
   // Helper to format a JS Date or date string to DD-MM-YYYY
   const formatToDDMMYYYY = (d: Date | string | null) => {
@@ -1796,12 +2008,33 @@ export default function InwardPage() {
       });
       
       const missingFields = [];
+      
+      // Vehicle and Transport Information
       if (!entry.vehicleNumber) missingFields.push('Vehicle Number');
       if (!entry.getpassNumber) missingFields.push('Gatepass Number');
-        if (!entry.totalBags) missingFields.push('Total Bags (in Inward Entry)');
+      
+      // Weight Bridge Information
+      if (!entry.weightBridge) missingFields.push('Weighbridge Name');
+      if (!entry.weightBridgeSlipNumber) missingFields.push('Weighbridge Slip Number');
+      
+      // Weight Information
+      if (!entry.grossWeight) missingFields.push('Gross Weight');
+      if (!entry.tareWeight) missingFields.push('Tare Weight');
+      if (!entry.netWeight) missingFields.push('Net Weight');
+      if (!entry.averageWeight) missingFields.push('Average Weight');
+      
+      // Quantity Information
+      if (!entry.totalBags) missingFields.push('Total Bags (in Inward Entry)');
+      if (!entry.totalQuantity) missingFields.push('Total Quantity');
+      
+      // Lab Parameters
+      if (!entry.dateOfSampling) missingFields.push('Date of Sampling');
+      if (!entry.dateOfTesting) missingFields.push('Date of Testing');
+      
+      // Note: Base Receipt is intentionally not required as per user requirements
       
       if (missingFields.length > 0) {
-        alert(`Validation Error in Entry #${entry.entryNumber}:\nPlease fill in these fields: ${missingFields.join(', ')}`);
+        alert(`Validation Error in Entry #${entry.entryNumber}:\nPlease fill in these required fields: ${missingFields.join(', ')}`);
         return;
       }
 
@@ -2336,6 +2569,7 @@ export default function InwardPage() {
       
       handleModalClose();
       setDataVersion(v => v + 1);
+      dispatchDataUpdate(); // Notify other modules of data changes
     } catch (error: any) {
       console.error('Error saving inward entries to Firebase:', error);
       console.error('Error details:', {
@@ -3953,32 +4187,6 @@ export default function InwardPage() {
     setShowSRForm(false);
   };
 
-  const handleResubmitSR = async (sr: any) => {
-    if (!remarks.trim()) {
-      toast({
-        title: 'Remarks Required',
-        description: 'Please enter remarks before proceeding.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    
-    // Update status in Firestore
-    try {
-      const inwardCollection = collection(db, 'inward');
-      const q = query(inwardCollection, where('inwardId', '==', sr.inwardId));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        const docRef = doc(db, 'inward', querySnapshot.docs[0].id);
-        await updateDoc(docRef, { status: 'resubmited', remarks: remarks || '' });
-      }
-    } catch (error) {
-      console.error('Error updating status to resubmited:', error);
-    }
-    setShowSRForm(false);
-    // Open edit modal for this entry
-    handleEdit(sr);
-  };
 
   const isInsuranceExpired = (sr: any) => {
     const today = new Date();
@@ -5272,8 +5480,9 @@ export default function InwardPage() {
 
   return (
     <DashboardLayout>
-      {/* Module title and dashboard button row */}
-      <div className="flex items-center justify-between mt-4 mb-10 px-8">
+      <div className="min-h-screen flex flex-col">
+        {/* Module title and dashboard button row */}
+        <div className="flex items-center justify-between mt-4 mb-10 px-8">
         <Button className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-3 text-2xl font-semibold shadow-lg rounded-xl flex items-center gap-2" onClick={() => router.push('/dashboard')}>
           <span className="text-2xl">&#8592;</span> Dashboard
         </Button>
@@ -5304,8 +5513,10 @@ export default function InwardPage() {
         </Dialog>
       </div>
       
-      {/* Search and Export */}
-      <div className="px-8 mb-4">
+        {/* Main content area - flex-1 to push footer down */}
+        <div className="flex-1 overflow-auto">
+          {/* Search and Export */}
+          <div className="px-8 mb-4">
         <Card className="bg-green-50 border border-green-200">
           <CardHeader>
             <CardTitle className="text-green-800">Search & Export Options</CardTitle>
@@ -5405,6 +5616,11 @@ export default function InwardPage() {
               wrapperClassName="border-green-300"
               headClassName="text-center bg-orange-100 text-orange-600 font-bold"
               cellClassName="text-center"
+              stickyHeader={true}
+              stickyFirstColumn={true}
+              showGridLines={true}
+              pageSize={10}
+              showPagination={true}
             />
           </CardContent>
         </Card>
@@ -5453,6 +5669,10 @@ export default function InwardPage() {
               <div>
                 <Label className="block font-semibold mb-1">Warehouse Name</Label>
                 <Select value={form.warehouseName} onValueChange={async (warehouseName) => {
+                  // Fetch available reservations when warehouse changes
+                  if (warehouseName && form.client) {
+                    fetchAvailableReservations(warehouseName, form.client);
+                  }
                   setBaseForm(f => ({ 
                     ...f, 
                     warehouseName: warehouseName,
@@ -5608,7 +5828,13 @@ export default function InwardPage() {
             </div>
               <div>
                 <Label className="block font-semibold mb-1">Client Name</Label>
-                <Select value={form.client} onValueChange={v => setBaseForm(f => ({ ...f, client: v }))}>
+                <Select value={form.client} onValueChange={v => {
+                  setBaseForm(f => ({ ...f, client: v }));
+                  // Fetch available reservations when client changes
+                  if (form.warehouseName && v) {
+                    fetchAvailableReservations(form.warehouseName, v);
+                  }
+                }}>
                   <SelectTrigger><SelectValue placeholder="Select Client" /></SelectTrigger>
                   <SelectContent>
                     {clients.map((c: any) => <SelectItem key={c.firmName} value={c.firmName}>{c.firmName}</SelectItem>)}
@@ -5665,6 +5891,32 @@ export default function InwardPage() {
                     onChange={e => setBaseForm(f => ({ ...f, bankReceipt: e.target.value }))} 
                     placeholder="Enter Base Receipt Number"
                   />
+                </div>
+                <div>
+                  <Label className="block font-semibold mb-1">File Attachment <span className="text-red-500">*</span></Label>
+                  <Input
+                    type="file"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setFileAttachment(file);
+                      }
+                    }}
+                    accept="image/*,.pdf,.doc,.docx"
+                    className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                  {fileAttachment && (
+                    <p className="text-sm text-green-600 mt-1">
+                      Selected: {fileAttachment.name}
+                    </p>
+                  )}
+                  {isEditMode && form.attachmentUrl && (
+                    <p className="text-sm text-blue-600 mt-1">
+                      <a href={form.attachmentUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                        View current attachment
+                      </a>
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -5781,34 +6033,57 @@ export default function InwardPage() {
             </div>
 
             {/* Reservation/Billing Information */}
-            {form.businessType !== 'cm' && form.billingStatus && (
+            {form.businessType !== 'cm' && availableReservations.length > 0 && (
               <div className="border-t pt-4">
                 <h3 className="text-lg font-semibold mb-4 text-orange-700">Reservation & Billing Information</h3>
+                
+                {/* Reservation Selection */}
+                {availableReservations.length > 1 && (
+                  <div className="mb-4">
+                    <Label className="block font-semibold mb-2">Select Reservation</Label>
+                    <Select 
+                      value={selectedReservation?.id || ''} 
+                      onValueChange={reservationId => {
+                        const selected = availableReservations.find(res => res.id === reservationId);
+                        setSelectedReservation(selected);
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Choose from available reservations" /></SelectTrigger>
+                      <SelectContent>
+                        {availableReservations.map((res: any) => (
+                          <SelectItem key={res.id} value={res.id}>
+                            {res.reservationId} - {res.billingStatus} - Rate: {res.reservationRate}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
                     <Label className="block font-semibold mb-1">Billing Status</Label>
-                    <Input value={form.billingStatus} readOnly placeholder="Auto-filled" />
+                    <Input value={selectedReservation?.billingStatus || ''} readOnly placeholder="Auto-filled" />
                   </div>
                 </div>
 
-                {form.billingStatus === 'reservation' && (
+                {selectedReservation?.billingStatus === 'reservation' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label className="block font-semibold mb-1">Reservation Rate</Label>
-                      <Input value={form.reservationRate} readOnly placeholder="Auto-filled" />
+                      <Input value={selectedReservation?.reservationRate || ''} readOnly placeholder="Auto-filled" />
                     </div>
                     <div>
                       <Label className="block font-semibold mb-1">Reservation Quantity</Label>
-                      <Input value={form.reservationQty} readOnly placeholder="Auto-filled" />
+                      <Input value={selectedReservation?.reservationQty || ''} readOnly placeholder="Auto-filled" />
                     </div>
                     <div>
                       <Label className="block font-semibold mb-1">Reservation Start Date</Label>
-                      <Input value={form.reservationStart} readOnly placeholder="Auto-filled" />
+                      <Input value={selectedReservation?.reservationStart || ''} readOnly placeholder="Auto-filled" />
                     </div>
                     <div>
                       <Label className="block font-semibold mb-1">Reservation End Date</Label>
-                      <Input value={form.reservationEnd} readOnly placeholder="Auto-filled" />
+                      <Input value={selectedReservation?.reservationEnd || ''} readOnly placeholder="Auto-filled" />
                     </div>
                   </div>
                 )}
@@ -5840,19 +6115,19 @@ export default function InwardPage() {
                   </div>
                 )}
 
-                {form.billingStatus === 'post-reservation' && (
+                {selectedReservation?.billingStatus === 'post-reservation' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label className="block font-semibold mb-1">Billing Cycle</Label>
-                      <Input value={form.billingCycle} readOnly placeholder="Auto-filled" />
+                      <Input value={selectedReservation?.billingCycle || ''} readOnly placeholder="Auto-filled" />
                     </div>
                     <div>
                       <Label className="block font-semibold mb-1">Billing Type</Label>
-                      <Input value={form.billingType} readOnly placeholder="Auto-filled" />
+                      <Input value={selectedReservation?.billingType || ''} readOnly placeholder="Auto-filled" />
                     </div>
                     <div>
                       <Label className="block font-semibold mb-1">Rate</Label>
-                      <Input value={form.billingRate} readOnly placeholder="Auto-filled" />
+                      <Input value={selectedReservation?.billingRate || ''} readOnly placeholder="Auto-filled" />
                     </div>
                   </div>
                 )}
@@ -7370,6 +7645,18 @@ export default function InwardPage() {
                   return (
                     <div className="flex gap-4 mt-4 justify-end">
                       <Button
+                        onClick={() => handleRejectSR(selectedRowForSR)}
+                        className="bg-red-600 hover:bg-red-700 text-white"
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        onClick={() => handleResubmitSR(selectedRowForSR)}
+                        className="bg-yellow-600 hover:bg-yellow-700 text-white"
+                      >
+                        Resubmit
+                      </Button>
+                      <Button
                         onClick={() => handleApproveSR(selectedRowForSR)}
                         disabled={isInsuranceExpired(selectedRowForSR)}
                         className="bg-green-600 hover:bg-green-700 text-white"
@@ -8194,6 +8481,8 @@ export default function InwardPage() {
           </DialogContent>
         </Dialog>
       )}
+        </div>
+      </div>
     </DashboardLayout>
   );
 }

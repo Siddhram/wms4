@@ -105,6 +105,10 @@ export default function DeliveryOrderPage() {
   const [selectedDO, setSelectedDO] = React.useState(null as any);
   const [remark, setRemark] = React.useState('');
   const [doStatusUpdating, setDOStatusUpdating] = React.useState(false);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const pageSize = 10;
 
   // Fetch all deliveryOrders for the table
   React.useEffect(() => {
@@ -430,8 +434,23 @@ export default function DeliveryOrderPage() {
           balanceQuantity
         };
       })
-      // Filter out ROs with zero balance
-  .filter((ro: any) => ro.balanceBags > 0);
+      // Filter out ROs with zero balance, BUT include rejected DOs
+      .filter((ro: any) => {
+        // Always include if balance is positive
+        if (ro.balanceBags > 0) return true;
+        
+        // Also include if there are any rejected DOs for this SR/WR
+        const rejectedDOs = deliveryOrders.filter((doItem: any) => 
+          doItem.srwrNo === ro.srwrNo && doItem.doStatus === 'rejected'
+        );
+        
+        if (rejectedDOs.length > 0) {
+          console.log(`Including ${ro.srwrNo} in dropdown due to ${rejectedDOs.length} rejected DO(s)`);
+          return true;
+        }
+        
+        return false;
+      });
       
       console.log(`Found ${roData.length} ROs with positive balance`);
       
@@ -718,8 +737,23 @@ export default function DeliveryOrderPage() {
             balanceQuantity
           };
         })
-        // Filter out inward entries with zero balance
-        .filter(entry => entry.balanceBags > 0);
+        // Filter out inward entries with zero balance, BUT include rejected DOs
+        .filter(entry => {
+          // Always include if balance is positive
+          if (entry.balanceBags > 0) return true;
+          
+          // Also include if there are any rejected DOs for this SR/WR
+          const rejectedDOs = deliveryOrders.filter((doItem: any) => 
+            doItem.srwrNo === entry.srwrNo && doItem.doStatus === 'rejected'
+          );
+          
+          if (rejectedDOs.length > 0) {
+            console.log(`Including inward ${entry.srwrNo} in dropdown due to ${rejectedDOs.length} rejected DO(s)`);
+            return true;
+          }
+          
+          return false;
+        });
       
       console.log(`Found ${inwardData.length} inward entries with positive balance`);
       
@@ -990,6 +1024,12 @@ export default function DeliveryOrderPage() {
   const handleDOStatusChange = async (newStatus: string) => {
     if (!selectedDO) return;
     
+    // Validate that remark is provided for checker actions
+    if (!remark.trim()) {
+      alert('Remark is required for checker actions (approve/reject/resubmit).');
+      return;
+    }
+    
     try {
       setDOStatusUpdating(true);
       
@@ -1026,7 +1066,16 @@ export default function DeliveryOrderPage() {
             ← Dashboard
           </Button>
           <h1 className="text-3xl font-bold text-orange-600 text-center flex-1">Delivery Order</h1>
-          <Button onClick={() => setShowAddModal(true)} className="bg-green-500 hover:bg-green-600 text-white">
+          <Button onClick={() => {
+            setShowAddModal(true);
+            // Clear filters when opening the modal
+            setRoSearch('');
+            setSelectedRO(null);
+            setDoBags('');
+            setDoQty('');
+            setFileAttachments([]);
+            setFormError(null);
+          }} className="bg-green-500 hover:bg-green-600 text-white">
             <Plus className="h-4 w-4 mr-2" /> Add DO
           </Button>
         </div>
@@ -1059,11 +1108,10 @@ export default function DeliveryOrderPage() {
                   </button>
                 )}
               </div>
-              {searchTerm && (
-                <div className="ml-3 text-sm text-gray-600">
-                  {filteredDOs.length} of {latestDOs.length} entries
-                </div>
-              )}
+              <div className="ml-3 text-sm text-gray-600">
+                Total entries: {filteredDOs.length}
+                {searchTerm && ` (filtered from ${latestDOs.length})`}
+              </div>
             </div>
             <Button onClick={handleExportCSV} className="bg-blue-500 hover:bg-blue-600 text-white">
               <Download className="h-4 w-4 mr-2" /> Export CSV
@@ -1090,11 +1138,10 @@ export default function DeliveryOrderPage() {
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-[1400px] border text-sm w-full">
-              <thead className="bg-orange-100">
+              <thead className="bg-orange-100 sticky top-0 z-10">
                 <tr>
-                  <th className="px-2 py-1 border"></th>
-                  <th className="px-2 py-1 border">DO Code</th>
-                  <th className="px-2 py-1 border">SR/WR No.</th>
+                  <th className="px-2 py-1 border sticky left-0 bg-orange-100 z-20"></th>
+                  <th className="px-2 py-1 border sticky left-[60px] bg-orange-100 z-20">SR/WR No.</th>
                   <th className="px-2 py-1 border">State</th>
                   <th className="px-2 py-1 border">Branch</th>
                   <th className="px-2 py-1 border">Location</th>
@@ -1116,9 +1163,15 @@ export default function DeliveryOrderPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredDOs.length === 0 ? (
+                {(() => {
+                  // Calculate pagination
+                  const startIndex = (currentPage - 1) * pageSize;
+                  const endIndex = startIndex + pageSize;
+                  const paginatedDOs = filteredDOs.slice(startIndex, endIndex);
+                  
+                  return paginatedDOs.length === 0 ? (
                   <tr>
-                    <td colSpan={21} className="px-2 py-8 text-center text-gray-500">
+                    <td colSpan={20} className="px-2 py-8 text-center text-gray-500">
                       {deliveryOrders.length === 0 
                         ? "No delivery orders found. Click 'Add DO' to create your first entry."
                         : "No delivery orders match your search criteria. Try adjusting your search terms."
@@ -1126,10 +1179,10 @@ export default function DeliveryOrderPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredDOs.map((do_item: any) => (
+                  paginatedDOs.map((do_item: any) => (
                   <React.Fragment key={do_item.doCode}>
                     <tr className="even:bg-gray-50">
-                      <td className="px-2 py-1 border">
+                      <td className="px-2 py-1 border sticky left-0 bg-white z-10">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -1141,8 +1194,7 @@ export default function DeliveryOrderPage() {
                           {expandedRows[do_item.srwrNo] ? '▼' : '▶'}
                         </Button>
                       </td>
-                      <td className="px-2 py-1 border">{do_item.doCode || ''}</td>
-                      <td className="px-2 py-1 border" style={{ minWidth: '180px' }}>
+                      <td className="px-2 py-1 border sticky left-[60px] bg-white z-10" style={{ minWidth: '180px' }}>
                         <div className="flex items-center justify-start">
                           {do_item.isDirectDO ? (
                             <span className="inline-block w-3 h-3 rounded-full bg-orange-500 mr-2" title="Direct DO (No Bank Details)"></span>
@@ -1188,7 +1240,7 @@ export default function DeliveryOrderPage() {
                     </tr>
                     {expandedRows[do_item.srwrNo] && groupedDOs[do_item.srwrNo] && groupedDOs[do_item.srwrNo].length > 0 && (
                       <tr>
-                        <td colSpan={21} className="p-0">
+                        <td colSpan={20} className="p-0">
                           <div className="bg-gray-50 p-4">
                             <div className="text-sm font-medium mb-2">Previous Delivery Orders for this SR/WR</div>
                             <div className="overflow-x-auto">
@@ -1239,14 +1291,56 @@ export default function DeliveryOrderPage() {
                     )}
                   </React.Fragment>
                 ))
-                )}
+                );
+                })()}
               </tbody>
             </table>
           </div>
+          
+          {/* Pagination Controls */}
+          {filteredDOs.length > pageSize && (
+            <div className="flex justify-between items-center mt-4 px-4">
+              <div className="text-sm text-gray-600">
+                Showing {Math.min((currentPage - 1) * pageSize + 1, filteredDOs.length)} to {Math.min(currentPage * pageSize, filteredDOs.length)} of {filteredDOs.length} entries
+              </div>
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-gray-600">
+                  Page {currentPage} of {Math.ceil(filteredDOs.length / pageSize)}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredDOs.length / pageSize), prev + 1))}
+                  disabled={currentPage === Math.ceil(filteredDOs.length / pageSize)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Add DO Dialog */}
-        <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+        <Dialog open={showAddModal} onOpenChange={(open) => {
+          setShowAddModal(open);
+          // Clear filters when closing the modal
+          if (!open) {
+            setRoSearch('');
+            setSelectedRO(null);
+            setDoBags('');
+            setDoQty('');
+            setFileAttachments([]);
+            setFormError(null);
+          }
+        }}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <div>
               <DialogTitle className="text-xl text-center text-orange-600 font-bold">
@@ -1458,7 +1552,7 @@ export default function DeliveryOrderPage() {
                       <Input
                         id="doQty"
                         type="number"
-                        step="0.01"
+                        step="0.001"
                         value={doQty}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDoQty(e.target.value)}
                         required
@@ -1592,13 +1686,7 @@ export default function DeliveryOrderPage() {
                   </div>
                 </div>
                 
-                {/* CIR-style header */}
-                <div style={{ textAlign: 'center', marginBottom: 8 }}>
-                  <Image src="/Group 86.png" alt="Agrogreen Logo" width={90} height={90} style={{ borderRadius: '50%', margin: '0 auto 8px' }} />
-                  <div style={{ fontSize: 28, fontWeight: 700, color: '#e67c1f', letterSpacing: 0.5, marginBottom: 2 }}>AGROGREEN WAREHOUSING PRIVATE LTD.</div>
-                  <div style={{ fontSize: 18, fontWeight: 500, color: '#1aad4b', marginBottom: 8 }}>603, 6th Floor, Princess Business Skyline, Indore, Madhya Pradesh - 452010</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: '#e67c1f', margin: '24px 0 0 0', textDecoration: 'underline' }}>DO Details</div>
-                </div>
+                {/* Removed duplicate header - using the React component header above instead */}
                 
                 {/* Three-column grid for fields */}
                 <div
@@ -1779,28 +1867,109 @@ export default function DeliveryOrderPage() {
                     </Button>
                   </div>
                 )}
-                {/* Previous DO entries table removed for PDF generation */}
-                {selectedDO.doStatus !== 'approved' && (
-                  <div className="mt-6 pt-4 border-t border-green-200">
-                    <Label className="text-green-800 font-medium">Update Status with Remark</Label>
-                    <Input value={remark} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRemark(e.target.value)} placeholder="Enter remark..." className="mt-2 border-green-100" />
-                    <div className="flex gap-4 mt-4 justify-end">
-                      <Button type="button" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleDOStatusChange('approved')} disabled={doStatusUpdating}>Approve</Button>
-                      <Button type="button" className="bg-red-600 hover:bg-red-700 text-white" onClick={() => handleDOStatusChange('rejected')} disabled={doStatusUpdating}>Reject</Button>
-                      <Button type="button" className="bg-orange-500 hover:bg-orange-600 text-white" onClick={() => handleDOStatusChange('resubmitted')} disabled={doStatusUpdating}>Resubmit</Button>
-                    </div>
-                  </div>
-                )}
-                {selectedDO.doStatus === 'approved' && (
-                  <div className="mt-6 pt-4 border-t border-green-200">
-                    <div className="flex items-center justify-center gap-2 text-green-700">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                      </svg>
-                      <span className="font-medium">This delivery order has been approved</span>
-                    </div>
-                  </div>
-                )}
+                {/* DO Status Workflow Implementation */}
+                {(() => {
+                  const status = selectedDO.doStatus;
+                  
+                  if (status === 'approved') {
+                    return (
+                      <div className="mt-6 pt-4 border-t border-green-200">
+                        {/* Show checker's remark */}
+                        {selectedDO.statusRemark && (
+                          <div className="mb-4 p-3 bg-green-50 rounded-md border border-green-200">
+                            <Label className="text-green-800 font-medium">Checker's Remark:</Label>
+                            <div className="text-green-700 mt-1">{selectedDO.statusRemark}</div>
+                          </div>
+                        )}
+                        
+                        {/* Only show generate receipt button */}
+                        <div className="text-center">
+                          <Button className="bg-green-600 hover:bg-green-700 text-white">
+                            Generate Receipt
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  } else if (status === 'rejected') {
+                    return (
+                      <div className="mt-6 pt-4 border-t border-red-200">
+                        <div className="p-3 bg-red-50 rounded-md border border-red-200 text-center">
+                          <div className="text-red-700 font-medium mb-2">DO Status: REJECTED</div>
+                          {selectedDO.statusRemark && (
+                            <div>
+                              <Label className="text-red-800 font-medium">Checker's Remark:</Label>
+                              <div className="text-red-700 mt-1">{selectedDO.statusRemark}</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  } else if (status === 'resubmitted') {
+                    return (
+                      <div className="mt-6 pt-4 border-t border-orange-200">
+                        <div className="p-3 bg-orange-50 rounded-md border border-orange-200">
+                          <div className="text-orange-700 font-medium mb-2 text-center">DO Status: RESUBMITTED</div>
+                          {selectedDO.statusRemark && (
+                            <div className="mb-3">
+                              <Label className="text-orange-800 font-medium">Checker's Remark:</Label>
+                              <div className="text-orange-700 mt-1">{selectedDO.statusRemark}</div>
+                            </div>
+                          )}
+                          <div className="text-center">
+                            <Button 
+                              className="bg-orange-600 hover:bg-orange-700 text-white"
+                              onClick={() => {
+                                // TODO: Implement edit functionality for resubmitted DO
+                                alert('Edit functionality for resubmitted DO will be implemented');
+                              }}
+                            >
+                              Edit DO
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  } else {
+                    // Pending status - show approve/reject/resubmit buttons
+                    return (
+                      <div className="mt-6 pt-4 border-t border-green-200">
+                        <Label className="text-green-800 font-medium">Update Status with Remark</Label>
+                        <Input 
+                          value={remark} 
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRemark(e.target.value)} 
+                          placeholder="Enter remark..." 
+                          className="mt-2 border-green-100" 
+                        />
+                        <div className="flex gap-4 mt-4 justify-end">
+                          <Button 
+                            type="button" 
+                            className="bg-green-600 hover:bg-green-700 text-white" 
+                            onClick={() => handleDOStatusChange('approved')} 
+                            disabled={doStatusUpdating}
+                          >
+                            Approve
+                          </Button>
+                          <Button 
+                            type="button" 
+                            className="bg-red-600 hover:bg-red-700 text-white" 
+                            onClick={() => handleDOStatusChange('rejected')} 
+                            disabled={doStatusUpdating}
+                          >
+                            Reject
+                          </Button>
+                          <Button 
+                            type="button" 
+                            className="bg-orange-500 hover:bg-orange-600 text-white" 
+                            onClick={() => handleDOStatusChange('resubmitted')} 
+                            disabled={doStatusUpdating}
+                          >
+                            Resubmit
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  }
+                })()}
               </div>
             )}
           </DialogContent>

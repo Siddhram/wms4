@@ -3,14 +3,12 @@
 import DashboardLayout from '@/components/dashboard-layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
@@ -19,9 +17,14 @@ import {
   Download,
   Eye,
   Search,
-  Filter,
-  X
+  X,
+  ArrowLeft,
+  RefreshCw,
+  AlertTriangle,
+  Plus
 } from "lucide-react";
+import { DataTable } from '@/components/data-table';
+import type { Row } from '@tanstack/react-table';
 import WarehouseInspectionForm from '../inspection-form';
 
 // Interface for inspection data

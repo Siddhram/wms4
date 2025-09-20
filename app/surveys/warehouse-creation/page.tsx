@@ -3,6 +3,9 @@
 import DashboardLayout from '@/components/dashboard-layout';
 import { Card, CardContent } from "@/components/ui/card";
 import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import {
   Clock,
   FileText,
@@ -13,81 +16,133 @@ import {
   RefreshCw
 } from "lucide-react";
 
-const warehouseStatusModules = [
-  {
-    id: "pending",
-    title: "Pending",
-    icon: Clock,
-    color: "text-yellow-500",
-    bgColor: "bg-yellow-50",
-    borderColor: "border-yellow-200",
-    description: "Warehouses awaiting initial review",
-    count: 5
-  },
-  {
-    id: "submitted",
-    title: "Submitted",
-    icon: FileText,
-    color: "text-blue-500",
-    bgColor: "bg-blue-50",
-    borderColor: "border-blue-200",
-    description: "Warehouses submitted for approval",
-    count: 3
-  },
-  {
-    id: "activated",
-    title: "Activated",
-    icon: CheckCircle,
-    color: "text-green-500",
-    bgColor: "bg-green-50",
-    borderColor: "border-green-200",
-    description: "Active and operational warehouses",
-    count: 8
-  },
-  {
-    id: "rejected",
-    title: "Rejected",
-    icon: XCircle,
-    color: "text-red-500",
-    bgColor: "bg-red-50",
-    borderColor: "border-red-200",
-    description: "Warehouses requiring corrections",
-    count: 2
-  },
-  {
-    id: "resubmitted",
-    title: "Resubmitted",
-    icon: RotateCcw,
-    color: "text-purple-500",
-    bgColor: "bg-purple-50",
-    borderColor: "border-purple-200",
-    description: "Warehouses resubmitted after corrections",
-    count: 1
-  },
-  {
-    id: "closed",
-    title: "Closed",
-    icon: Archive,
-    color: "text-gray-500",
-    bgColor: "bg-gray-50",
-    borderColor: "border-gray-200",
-    description: "Decommissioned warehouse facilities",
-    count: 4
-  },
-  {
-    id: "reactivate",
-    title: "Reactivate",
-    icon: RefreshCw,
-    color: "text-teal-500",
-    bgColor: "bg-teal-50",
-    borderColor: "border-teal-200",
-    description: "Warehouses pending reactivation",
-    count: 2
-  }
-];
-
 export default function WarehouseCreationPage() {
   const router = useRouter();
+  const [statusCounts, setStatusCounts] = useState({
+    pending: 0,
+    submitted: 0,
+    activated: 0,
+    rejected: 0,
+    resubmitted: 0,
+    closed: 0,
+    reactivate: 0
+  });
+
+  // Load status counts
+  useEffect(() => {
+    const loadStatusCounts = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, 'inspections'));
+        const counts = {
+          pending: 0,
+          submitted: 0,
+          activated: 0,
+          rejected: 0,
+          resubmitted: 0,
+          closed: 0,
+          reactivate: 0
+        };
+
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          const status = data.status || 'pending';
+          if (counts.hasOwnProperty(status)) {
+            counts[status as keyof typeof counts]++;
+          }
+        });
+
+        setStatusCounts(counts);
+      } catch (error) {
+        console.error('Error loading status counts:', error);
+      }
+    };
+
+    loadStatusCounts();
+
+    // Add event listener for cross-module updates
+    const handleInspectionUpdate = () => {
+      loadStatusCounts();
+    };
+
+    window.addEventListener('inspectionDataUpdated', handleInspectionUpdate);
+
+    return () => {
+      window.removeEventListener('inspectionDataUpdated', handleInspectionUpdate);
+    };
+  }, []);
+
+  const warehouseStatusModules = [
+    {
+      id: "pending",
+      title: "Pending",
+      icon: Clock,
+      color: "text-yellow-500",
+      bgColor: "bg-yellow-50",
+      borderColor: "border-yellow-200",
+      description: "Warehouses awaiting initial review",
+      count: statusCounts.pending
+    },
+    {
+      id: "submitted",
+      title: "Submitted",
+      icon: FileText,
+      color: "text-blue-500",
+      bgColor: "bg-blue-50",
+      borderColor: "border-blue-200",
+      description: "Warehouses submitted for approval",
+      count: statusCounts.submitted
+    },
+    {
+      id: "activated",
+      title: "Activated",
+      icon: CheckCircle,
+      color: "text-green-500",
+      bgColor: "bg-green-50",
+      borderColor: "border-green-200",
+      description: "Active and operational warehouses",
+      count: statusCounts.activated
+    },
+    {
+      id: "rejected",
+      title: "Rejected",
+      icon: XCircle,
+      color: "text-red-500",
+      bgColor: "bg-red-50",
+      borderColor: "border-red-200",
+      description: "Warehouses requiring corrections",
+      count: statusCounts.rejected
+    },
+    {
+      id: "resubmitted",
+      title: "Resubmitted",
+      icon: RotateCcw,
+      color: "text-purple-500",
+      bgColor: "bg-purple-50",
+      borderColor: "border-purple-200",
+      description: "Warehouses resubmitted after corrections",
+      count: statusCounts.resubmitted
+    },
+    {
+      id: "closed",
+      title: "Closed",
+      icon: Archive,
+      color: "text-gray-500",
+      bgColor: "bg-gray-50",
+      borderColor: "border-gray-200",
+      description: "Decommissioned warehouse facilities",
+      count: statusCounts.closed
+    },
+    {
+      id: "reactivate",
+      title: "Reactivate",
+      icon: RefreshCw,
+      color: "text-teal-500",
+      bgColor: "bg-teal-50",
+      borderColor: "border-teal-200",
+      description: "Warehouses pending reactivation",
+      count: statusCounts.reactivate
+    }
+  ];
 
   const handleCardClick = (moduleId: string) => {
     router.push(`/surveys/warehouse-creation/${moduleId}`);

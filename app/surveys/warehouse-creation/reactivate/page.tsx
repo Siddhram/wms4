@@ -3,26 +3,26 @@
 import DashboardLayout from '@/components/dashboard-layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, query, where, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
 import {
   RefreshCw,
   Download,
   Eye,
-  Lock,
   Search,
-  Filter,
-  X
+  X,
+  ArrowLeft,
+  CheckCircle,
+  AlertCircle
 } from "lucide-react";
+import { DataTable } from '@/components/data-table';
+import type { Row } from '@tanstack/react-table';
 import WarehouseInspectionForm from '../inspection-form';
 
 // Interface for inspection data
@@ -42,41 +42,290 @@ interface InspectionData {
   ifscCode: string;
   receiptType: string;
   createdAt: string;
-  warehouseInspectionData?: {
-    remarks?: string;
-  };
+  warehouseInspectionData?: any;
+  status?: string;
 }
+
+// Define columns for DataTable
+const reactivateColumns = [
+  {
+    accessorKey: "inspectionCode",
+    header: "Inspection Code",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="font-bold text-orange-800 w-full flex justify-center">
+        {row.getValue("inspectionCode")}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "warehouseCode",
+    header: "Warehouse Code",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="text-green-700 w-full flex justify-center">
+        {row.getValue("warehouseCode")}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "state",
+    header: "State",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="text-green-700 w-full flex justify-center">
+        {row.getValue("state")}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "branch",
+    header: "Branch",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="text-green-700 w-full flex justify-center">
+        {row.getValue("branch")}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "location",
+    header: "Location",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="text-green-700 w-full flex justify-center">
+        {row.getValue("location")}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "businessType",
+    header: "Business Type",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="text-green-700 w-full flex justify-center">
+        {row.getValue("businessType")?.toUpperCase()}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "warehouseName",
+    header: "Warehouse Name",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="text-green-700 w-full flex justify-center">
+        {row.getValue("warehouseName") || '-'}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "bankState",
+    header: "Bank State",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="text-green-700 w-full flex justify-center">
+        {row.getValue("bankState")}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "bankBranch",
+    header: "Bank Branch",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="text-green-700 w-full flex justify-center">
+        {row.getValue("bankBranch")}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "bankName",
+    header: "Bank Name",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="text-green-700 w-full flex justify-center">
+        {row.getValue("bankName")}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "ifscCode",
+    header: "IFSC Code",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="text-green-700 w-full flex justify-center">
+        {row.getValue("ifscCode")}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "receiptType",
+    header: "Receipt Type",
+    cell: ({ row }: { row: Row<any> }) => (
+      <span className="text-green-700 w-full flex justify-center">
+        {row.getValue("receiptType")}
+      </span>
+    ),
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "createdAt",
+    header: "Created Date",
+    cell: ({ row }: { row: Row<any> }) => {
+      const date = row.getValue("createdAt");
+      const formattedDate = date ? new Date(date).toLocaleDateString() : '';
+      return (
+        <span className="text-green-700 w-full flex justify-center">
+          {formattedDate}
+        </span>
+      );
+    },
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "dateOfInspection",
+    header: "Date of Inspection",
+    cell: ({ row }: { row: Row<any> }) => {
+      const inspection = row.original;
+      const inspectionDate = inspection.warehouseInspectionData?.dateOfInspection;
+      const formattedDate = inspectionDate ? new Date(inspectionDate).toLocaleDateString() : '';
+      const hasDate = !!inspectionDate;
+      return (
+        <div className="w-full flex justify-center items-center space-x-1">
+          <span className={`${hasDate ? 'text-green-700' : 'text-red-600'}`}>
+            {formattedDate || 'Missing'}
+          </span>
+          {!hasDate && <AlertCircle className="w-4 h-4 text-red-600" />}
+        </div>
+      );
+    },
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "oeDate",
+    header: "OE Date",
+    cell: ({ row }: { row: Row<any> }) => {
+      const inspection = row.original;
+      const oeDate = inspection.warehouseInspectionData?.oeDate;
+      const formattedDate = oeDate ? new Date(oeDate).toLocaleDateString() : '';
+      const hasDate = !!oeDate;
+      return (
+        <div className="w-full flex justify-center items-center space-x-1">
+          <span className={`${hasDate ? 'text-green-700' : 'text-red-600'}`}>
+            {formattedDate || 'Missing'}
+          </span>
+          {!hasDate && <AlertCircle className="w-4 h-4 text-red-600" />}
+        </div>
+      );
+    },
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "insuranceStatus",
+    header: "Insurance Status",
+    cell: ({ row }: { row: Row<any> }) => {
+      const inspection = row.original;
+      const insuranceEntries = inspection.warehouseInspectionData?.insuranceEntries || [];
+      const hasInsurance = insuranceEntries.length > 0;
+      const hasValidInsurance = insuranceEntries.some((entry: any) => 
+        entry.insuranceStartDate && entry.insuranceEndDate && entry.insuranceCompany
+      );
+      
+      return (
+        <div className="w-full flex justify-center items-center space-x-1">
+          {hasValidInsurance ? (
+            <span className="text-green-700">Valid</span>
+          ) : hasInsurance ? (
+            <span className="text-orange-600">Incomplete</span>
+          ) : (
+            <>
+              <span className="text-red-600">Missing</span>
+              <AlertCircle className="w-4 h-4 text-red-600" />
+            </>
+          )}
+        </div>
+      );
+    },
+    meta: { align: 'center' },
+  },
+  {
+    accessorKey: "actions",
+    header: "Actions",
+    cell: ({ row }: { row: Row<any> }) => {
+      const inspection = row.original;
+      const hasRequiredDates = inspection.warehouseInspectionData?.dateOfInspection && 
+                              inspection.warehouseInspectionData?.oeDate;
+      const insuranceEntries = inspection.warehouseInspectionData?.insuranceEntries || [];
+      const hasValidInsurance = insuranceEntries.some((entry: any) => 
+        entry.insuranceStartDate && entry.insuranceEndDate && entry.insuranceCompany
+      );
+      
+      return (
+        <div className="flex space-x-2 justify-center">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => {
+              const event = new CustomEvent('viewReactivateDetails', { detail: inspection });
+              document.dispatchEvent(event);
+            }}
+            className="border-blue-300 text-blue-600 hover:bg-blue-50"
+            title="View/Edit Details"
+          >
+            <Eye className="w-4 h-4" />
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => {
+              const event = new CustomEvent('reactivateWarehouse', { detail: inspection });
+              document.dispatchEvent(event);
+            }}
+            className={`border-teal-300 text-teal-600 hover:bg-teal-50 ${
+              (!hasRequiredDates || !hasValidInsurance) ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+            title={hasRequiredDates && hasValidInsurance ? "Reactivate Warehouse" : "Complete required fields first"}
+            disabled={!hasRequiredDates || !hasValidInsurance}
+          >
+            <CheckCircle className="w-4 h-4" />
+          </Button>
+        </div>
+      );
+    },
+    meta: { align: 'center' },
+  },
+];
 
 export default function ReactivateWarehousePage() {
   const router = useRouter();
   const { toast } = useToast();
-  const [inspections, setInspections] = useState<InspectionData[]>([]);
-  const [showInspectionForm, setShowInspectionForm] = useState(false);
-  const [selectedInspection, setSelectedInspection] = useState<InspectionData | null>(null);
   
-  // Filter states
+  const [inspections, setInspections] = useState<InspectionData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedInspection, setSelectedInspection] = useState<InspectionData | null>(null);
+  const [showInspectionForm, setShowInspectionForm] = useState(false);
+  
+  // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterState, setFilterState] = useState('all');
-  const [filterBranch, setFilterBranch] = useState('all');
-  const [filterLocation, setFilterLocation] = useState('all');
-  const [filterBusinessType, setFilterBusinessType] = useState('all');
-  const [filterReceiptType, setFilterReceiptType] = useState('all');
-  const [showFilters, setShowFilters] = useState(false);
+  const [stateFilter, setStateFilter] = useState('');
+  const [branchFilter, setBranchFilter] = useState('');
+  const [businessTypeFilter, setBusinessTypeFilter] = useState('');
 
-  // Load inspections from Firebase
-  useEffect(() => {
-    loadInspections();
-  }, []);
-
+  // Load inspections data
   const loadInspections = async () => {
+    setLoading(true);
+    setError(null);
     try {
       const querySnapshot = await getDocs(collection(db, 'inspections'));
       const inspectionData: InspectionData[] = [];
       
+      console.log('Loading reactivate inspections, total docs:', querySnapshot.size);
+      
       querySnapshot.forEach((doc) => {
         const data = doc.data();
         
-        // Only include documents with 'reactivate' status
+        // Only include inspections with 'reactivate' status
         if (data.status === 'reactivate') {
           inspectionData.push({
             id: doc.id,
@@ -94,107 +343,195 @@ export default function ReactivateWarehousePage() {
             ifscCode: data.ifscCode || '',
             receiptType: data.receiptType || '',
             createdAt: data.createdAt || '',
-            warehouseInspectionData: data.warehouseInspectionData || {}
+            warehouseInspectionData: data.warehouseInspectionData || {},
+            status: data.status
           });
         }
       });
       
-      // Filter for reactivate status - status filtering is now done in forEach loop above
+      console.log('Found reactivate inspections:', inspectionData.length);
       setInspections(inspectionData);
     } catch (error) {
       console.error('Error loading inspections:', error);
+      setError('Failed to load inspections');
       toast({
         title: "Error",
         description: "Failed to load inspections",
         variant: "destructive",
       });
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Get unique values for filter dropdowns
-  const uniqueStates = useMemo(() => Array.from(new Set(inspections.map(i => i.state || '').filter(Boolean))), [inspections]);
-  const uniqueBranches = useMemo(() => Array.from(new Set(inspections.map(i => i.branch || '').filter(Boolean))), [inspections]);
-  const uniqueLocations = useMemo(() => Array.from(new Set(inspections.map(i => i.location || '').filter(Boolean))), [inspections]);
-  const uniqueBusinessTypes = useMemo(() => Array.from(new Set(inspections.map(i => i.businessType || '').filter(Boolean))), [inspections]);
-  const uniqueReceiptTypes = useMemo(() => Array.from(new Set(inspections.map(i => i.receiptType || '').filter(Boolean))), [inspections]);
+  // Load data on component mount
+  useEffect(() => {
+    loadInspections();
+    
+    // Add event listeners for actions and cross-module reflection
+    const handleInspectionUpdate = (event: CustomEvent) => {
+      if (event.detail && event.detail.source !== 'reactivate-warehouse') {
+        loadInspections();
+      }
+    };
+    
+    const handleViewDetails = (event: CustomEvent) => {
+      setSelectedInspection(event.detail);
+      setShowInspectionForm(true);
+    };
 
-  // Filter data based on search term and filters
-  const filteredInspections = useMemo(() => {
-    let filtered = inspections;
+    const handleReactivateWarehouse = (event: CustomEvent) => {
+      const inspection = event.detail;
+      
+      // Validate required date fields
+      const hasRequiredDates = inspection.warehouseInspectionData?.dateOfInspection && 
+                              inspection.warehouseInspectionData?.oeDate;
+      
+      if (!hasRequiredDates) {
+        toast({
+          title: "Cannot Reactivate",
+          description: "Date of Inspection and OE Date are required before reactivation. Please update the form.",
+          variant: "destructive",
+        });
+        return;
+      }
 
-    // Apply search term filter
-    if (searchTerm) {
-      const lowerSearchTerm = searchTerm.toLowerCase();
+      // Validate insurance details
+      const insuranceEntries = inspection.warehouseInspectionData?.insuranceEntries || [];
+      const hasValidInsurance = insuranceEntries.some((entry: any) => 
+        entry.insuranceStartDate && entry.insuranceEndDate && entry.insuranceCompany
+      );
+
+      if (!hasValidInsurance) {
+        toast({
+          title: "Cannot Reactivate",
+          description: "Valid insurance details are required before reactivation. Please add proper insurance information.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // TODO: Implement proper reactivation logic
+      toast({
+        title: "Feature Coming Soon",
+        description: "Warehouse reactivation functionality will be implemented with proper validation.",
+      });
+      console.log('Reactivating warehouse:', inspection);
+    };
+    
+    window.addEventListener('inspectionDataUpdated', handleInspectionUpdate as EventListener);
+    document.addEventListener('viewReactivateDetails', handleViewDetails as EventListener);
+    document.addEventListener('reactivateWarehouse', handleReactivateWarehouse as EventListener);
+    
+    return () => {
+      window.removeEventListener('inspectionDataUpdated', handleInspectionUpdate as EventListener);
+      document.removeEventListener('viewReactivateDetails', handleViewDetails as EventListener);
+      document.removeEventListener('reactivateWarehouse', handleReactivateWarehouse as EventListener);
+    };
+  }, []);
+
+  // Filter and sort inspections data
+  const filteredAndSortedInspections = useMemo(() => {
+    let filtered = [...inspections];
+    
+    // Apply search filter
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase();
       filtered = filtered.filter(inspection => 
-        inspection.inspectionCode?.toLowerCase().includes(lowerSearchTerm) ||
-        inspection.warehouseCode?.toLowerCase().includes(lowerSearchTerm) ||
-        inspection.warehouseName?.toLowerCase().includes(lowerSearchTerm) ||
-        inspection.state?.toLowerCase().includes(lowerSearchTerm) ||
-        inspection.branch?.toLowerCase().includes(lowerSearchTerm) ||
-        inspection.location?.toLowerCase().includes(lowerSearchTerm) ||
-        inspection.businessType?.toLowerCase().includes(lowerSearchTerm) ||
-        inspection.bankName?.toLowerCase().includes(lowerSearchTerm) ||
-        inspection.receiptType?.toLowerCase().includes(lowerSearchTerm)
+        inspection.inspectionCode.toLowerCase().includes(searchLower) ||
+        inspection.warehouseCode.toLowerCase().includes(searchLower) ||
+        inspection.state.toLowerCase().includes(searchLower) ||
+        inspection.branch.toLowerCase().includes(searchLower) ||
+        inspection.location.toLowerCase().includes(searchLower) ||
+        inspection.businessType.toLowerCase().includes(searchLower) ||
+        (inspection.warehouseName && inspection.warehouseName.toLowerCase().includes(searchLower)) ||
+        inspection.bankState.toLowerCase().includes(searchLower) ||
+        inspection.bankBranch.toLowerCase().includes(searchLower) ||
+        inspection.bankName.toLowerCase().includes(searchLower) ||
+        inspection.ifscCode.toLowerCase().includes(searchLower) ||
+        inspection.receiptType.toLowerCase().includes(searchLower)
       );
     }
-
-    // Apply individual filters
-    if (filterState && filterState !== 'all') {
-      filtered = filtered.filter(inspection => (inspection.state || '') === filterState);
+    
+    // Apply filters
+    if (stateFilter) {
+      filtered = filtered.filter(inspection => inspection.state === stateFilter);
     }
-    if (filterBranch && filterBranch !== 'all') {
-      filtered = filtered.filter(inspection => (inspection.branch || '') === filterBranch);
+    if (branchFilter) {
+      filtered = filtered.filter(inspection => inspection.branch === branchFilter);
     }
-    if (filterLocation && filterLocation !== 'all') {
-      filtered = filtered.filter(inspection => (inspection.location || '') === filterLocation);
+    if (businessTypeFilter) {
+      filtered = filtered.filter(inspection => inspection.businessType === businessTypeFilter);
     }
-    if (filterBusinessType && filterBusinessType !== 'all') {
-      filtered = filtered.filter(inspection => (inspection.businessType || '') === filterBusinessType);
-    }
-    if (filterReceiptType && filterReceiptType !== 'all') {
-      filtered = filtered.filter(inspection => (inspection.receiptType || '') === filterReceiptType);
-    }
+    
+    // Sort by inspection code in ascending order
+    filtered.sort((a, b) => a.inspectionCode.localeCompare(b.inspectionCode));
 
     return filtered;
-  }, [inspections, searchTerm, filterState, filterBranch, filterLocation, filterBusinessType, filterReceiptType]);
+  }, [inspections, searchTerm, stateFilter, branchFilter, businessTypeFilter]);
 
-  // Clear all filters
-  const clearFilters = () => {
-    setSearchTerm('');
-    setFilterState('all');
-    setFilterBranch('all');
-    setFilterLocation('all');
-    setFilterBusinessType('all');
-    setFilterReceiptType('all');
-  };
+  // Get unique values for filter dropdowns
+  const uniqueStates = useMemo(() => 
+    Array.from(new Set(inspections.map(i => i.state).filter(Boolean)))
+  , [inspections]);
+  
+  const uniqueBranches = useMemo(() => 
+    Array.from(new Set(inspections.map(i => i.branch).filter(Boolean)))
+  , [inspections]);
+  
+  const uniqueBusinessTypes = useMemo(() => 
+    Array.from(new Set(inspections.map(i => i.businessType).filter(Boolean)))
+  , [inspections]);
 
-  // Check if any filters are active
-  const hasActiveFilters = searchTerm || 
-    (filterState && filterState !== 'all') || 
-    (filterBranch && filterBranch !== 'all') || 
-    (filterLocation && filterLocation !== 'all') || 
-    (filterBusinessType && filterBusinessType !== 'all') || 
-    (filterReceiptType && filterReceiptType !== 'all');
-
-  const getWarehouseStatus = (warehouseCode: string): 'pending' | 'submitted' | 'activated' | 'rejected' | 'resubmitted' | 'closed' | 'reactivate' => {
-    // Simple logic to determine status - you can modify this based on your business logic
-    // For demo purposes, showing empty results for non-pending statuses
-    return 'pending'; // This will show no results for reactivate status
-  };
-
+  // Export to CSV function
   const exportToCSV = () => {
-    // Use filtered data for CSV export
-    const dataToExport = hasActiveFilters ? filteredInspections : inspections;
+    const dataToExport = filteredAndSortedInspections;
+    
+    if (dataToExport.length === 0) {
+      toast({
+        title: "No Data",
+        description: "No reactivate inspections available to export",
+        variant: "destructive",
+      });
+      return;
+    }
     
     const headers = [
-      'Inspection Code', 'Warehouse Code', 'State', 'Branch', 'Location', 
-      'Business Type', 'Warehouse Name', 'Bank State', 'Bank Branch', 
-      'Bank Name', 'IFSC Code', 'Receipt Type', 'Created Date', 'Remarks'
+      'Inspection Code',
+      'Warehouse Code', 
+      'State',
+      'Branch',
+      'Location',
+      'Business Type',
+      'Warehouse Name',
+      'Bank State',
+      'Bank Branch',
+      'Bank Name',
+      'IFSC Code',
+      'Receipt Type',
+      'Created Date',
+      'Date of Inspection',
+      'OE Date',
+      'Insurance Status',
+      'Ready for Reactivation'
     ];
+
+    // Sort by inspection code in ascending order
+    const sortedData = [...dataToExport].sort((a, b) => a.inspectionCode.localeCompare(b.inspectionCode));
     
-    const csvContent = [
-      headers.join(',') + '\n',
-      ...dataToExport.map(inspection => [
+    const csvData = sortedData.map(inspection => {
+      const hasRequiredDates = inspection.warehouseInspectionData?.dateOfInspection && 
+                              inspection.warehouseInspectionData?.oeDate;
+      const insuranceEntries = inspection.warehouseInspectionData?.insuranceEntries || [];
+      const hasValidInsurance = insuranceEntries.some((entry: any) => 
+        entry.insuranceStartDate && entry.insuranceEndDate && entry.insuranceCompany
+      );
+      
+      let insuranceStatus = 'Missing';
+      if (hasValidInsurance) insuranceStatus = 'Valid';
+      else if (insuranceEntries.length > 0) insuranceStatus = 'Incomplete';
+      
+      return [
         inspection.inspectionCode,
         inspection.warehouseCode,
         inspection.state,
@@ -207,205 +544,138 @@ export default function ReactivateWarehousePage() {
         inspection.bankName,
         inspection.ifscCode,
         inspection.receiptType,
-        inspection.createdAt,
-        inspection.warehouseInspectionData?.remarks || ''
-      ].join(','))
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `reactivate-warehouse-inspections-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-  };
+        // Format date to show only date part
+        inspection.createdAt ? new Date(inspection.createdAt).toLocaleDateString() : '',
+        inspection.warehouseInspectionData?.dateOfInspection ? 
+          new Date(inspection.warehouseInspectionData.dateOfInspection).toLocaleDateString() : 'Missing',
+        inspection.warehouseInspectionData?.oeDate ? 
+          new Date(inspection.warehouseInspectionData.oeDate).toLocaleDateString() : 'Missing',
+        insuranceStatus,
+        (hasRequiredDates && hasValidInsurance) ? 'Yes' : 'No'
+      ];
+    });
 
-  const handleDelete = async (id: string) => {
-    // This would typically delete from Firebase, but for now just show a message
+    // Create CSV content without extra blank rows
+    const csvContent = [headers, ...csvData]
+      .map(row => row.map(field => `"${field}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    
+    const filename = `reactivate_warehouses_${new Date().toISOString().split('T')[0]}.csv`;
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
     toast({
-      title: "Delete",
-      description: "Delete functionality would be implemented here",
+      title: "Export Successful",
+      description: `${dataToExport.length} reactivate warehouses exported to CSV`,
     });
   };
 
-  const handleViewDetails = (inspection: InspectionData) => {
-    setSelectedInspection(inspection);
-    setShowInspectionForm(true);
-  };
-
-  const handleClose = async (inspection: InspectionData) => {
-    try {
-      const inspectionsRef = collection(db, 'inspections');
-      const q = query(inspectionsRef, where('inspectionCode', '==', inspection.inspectionCode));
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const docRef = doc(db, 'inspections', querySnapshot.docs[0].id);
-        await updateDoc(docRef, {
-          status: 'closed',
-          lastUpdated: new Date().toISOString(),
-          closedAt: new Date().toISOString()
-        });
-        
-        toast({
-          title: "Warehouse Closed",
-          description: `Warehouse ${inspection.warehouseCode} has been moved to closed status.`,
-        });
-        
-        // Reload the data
-        loadInspections();
-      } else {
-        toast({
-          title: "Error",
-          description: "Could not find the warehouse record to update.",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error('Error closing warehouse:', error);
-      toast({
-        title: "Error",
-        description: "Failed to close warehouse",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const convertInspectionToFormData = (inspection: InspectionData) => {
-    // Get the saved warehouse inspection data from the inspection record
-    const warehouseData = inspection.warehouseInspectionData || {};
+  // Handle status change
+  const handleStatusChange = () => {
+    setShowInspectionForm(false);
+    setSelectedInspection(null);
+    loadInspections();
     
-    // Return the saved form data with fallbacks to inspection data
-    return {
-      // Use saved warehouse inspection data if available, otherwise fallback to inspection data
-      ...warehouseData,
-      
-      // Override with inspection-specific data
-      warehouseName: inspection.warehouseName || (warehouseData as any).warehouseName || '',
-      warehouseCode: inspection.warehouseCode || (warehouseData as any).warehouseCode || '',
-      status: 'reactivate', // Always reactivate for this page
-      
-      // Bank details from inspection (these are the specific bank for this inspection)
-      bankState: inspection.bankState || (warehouseData as any).bankState || '',
-      bankBranch: inspection.bankBranch || (warehouseData as any).bankBranch || '',
-      bankName: inspection.bankName || (warehouseData as any).bankName || '',
-      ifscCode: inspection.ifscCode || (warehouseData as any).ifscCode || '',
-      
-      // Location details from inspection
-      state: inspection.state || (warehouseData as any).state || '',
-      branch: inspection.branch || (warehouseData as any).branch || '',
-      location: inspection.location || (warehouseData as any).location || '',
-      businessType: inspection.businessType || (warehouseData as any).businessType || '',
-      receiptType: inspection.receiptType || (warehouseData as any).receiptType || '',
-      
-      // Include creation info
-      createdAt: inspection.createdAt || (warehouseData as any).createdAt || '',
-      inspectionCode: inspection.inspectionCode || inspection.id || '',
-      
-      // Ensure arrays and objects have defaults
-      nameOfBank: (warehouseData as any).nameOfBank || [],
-      attachedFiles: (warehouseData as any).attachedFiles || [],
-      
-      // Ensure boolean defaults
-      warehouseFitCertification: (warehouseData as any).warehouseFitCertification || false,
-      
-      // Ensure date fields are properly handled - convert strings to Date objects
-      dateOfInspection: (warehouseData as any).dateOfInspection ? new Date((warehouseData as any).dateOfInspection) : null,
-      validityOfInsurance: (warehouseData as any).validityOfInsurance ? new Date((warehouseData as any).validityOfInsurance) : null,
-      expiryDate: (warehouseData as any).expiryDate ? new Date((warehouseData as any).expiryDate) : null,
-      oeDate: (warehouseData as any).oeDate ? new Date((warehouseData as any).oeDate) : null
-    };
+    // Dispatch event for cross-module reflection
+    window.dispatchEvent(new CustomEvent('inspectionDataUpdated', { 
+      detail: { source: 'reactivate-warehouse', action: 'statusChange' } 
+    }));
   };
+
+  // Clear all filters
+  const clearAllFilters = () => {
+    setSearchTerm('');
+    setStateFilter('');
+    setBranchFilter('');
+    setBusinessTypeFilter('');
+  };
+
+  const hasActiveFilters = searchTerm || stateFilter || branchFilter || businessTypeFilter;
 
   return (
     <DashboardLayout>
       <div className="space-y-8">
-        {/* Header with Back Button and Centered Title */}
+        {/* Header with Dashboard Button and Centered Title */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <button 
-              onClick={() => router.back()}
-              className="inline-block text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
+              onClick={() => router.push('/surveys/warehouse-creation')}
+              className="inline-flex items-center text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
             >
-              ← Warehouse Creation
+              <ArrowLeft className="w-5 h-5 mr-2" />
+              Warehouse Creation
             </button>
           </div>
           
           {/* Centered Title with Light Orange Background */}
           <div className="flex-1 text-center">
             <h1 className="text-3xl font-bold tracking-tight text-orange-600 inline-block border-b-4 border-green-500 pb-2 px-6 py-3 bg-orange-100 rounded-lg">
-              <RefreshCw className="inline mr-2 h-8 w-8 text-teal-500" />
-              Reactivate Warehouses
+              Reactivate Warehouses ({inspections.length})
             </h1>
           </div>
           
           {/* Export Button */}
           <div className="flex space-x-2">
-            {(hasActiveFilters ? filteredInspections.length > 0 : inspections.length > 0) && (
+            {filteredAndSortedInspections.length > 0 && (
               <Button 
                 onClick={exportToCSV}
                 className="bg-blue-500 hover:bg-blue-600 text-white"
               >
                 <Download className="mr-2 h-4 w-4" />
-                Export CSV {hasActiveFilters && `(${filteredInspections.length})`}
+                Export CSV
               </Button>
             )}
           </div>
         </div>
 
-        {/* Status Description */}
-        <div className="bg-teal-50 border border-teal-200 rounded-lg p-6">
-          <div className="flex items-center space-x-3">
-            <RefreshCw className="w-6 h-6 text-teal-500" />
-            <div>
-              <h3 className="text-lg font-medium text-teal-900">Reactivate Warehouses</h3>
-              <p className="text-teal-700 mt-1">
-                Warehouses that are pending reactivation after being closed or decommissioned.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Search and Filters */}
-        <Card className="bg-green-50 border border-green-200">
-          <CardHeader>
-            <CardTitle className="text-green-800">Search & Filter Options</CardTitle>
+        {/* Search and Filter Section */}
+        <Card className="border-green-300">
+          <CardHeader className="bg-green-50">
+            <CardTitle className="text-green-700">Search & Filter</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="p-4 space-y-4">
             {/* Search Bar */}
-            <div className="flex items-center gap-2">
-              <Search className="text-gray-500" />
-              <Label htmlFor="search-input" className="font-semibold text-gray-700">Search:</Label>
+            <div className="flex items-center gap-4">
+              <div className="relative flex-grow">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <Input
-                id="search-input"
-                placeholder="Search by inspection code, warehouse code, warehouse name, state, branch, location, business type, bank name, or receipt type..."
-                className="flex-1"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search by inspection code, warehouse code, state, branch, location, business type, warehouse name, bank details..."
+                  className="border-green-300 focus:border-green-500 pl-10"
               />
+              </div>
+              {hasActiveFilters && (
               <Button
+                  onClick={clearAllFilters}
                 variant="outline"
                 size="sm"
-                onClick={() => setShowFilters(!showFilters)}
-                className="border-green-300 text-green-700 hover:bg-green-100"
+                  className="border-gray-300 text-gray-600 hover:bg-gray-50"
               >
-                <Filter className="mr-2 h-4 w-4" />
-                {showFilters ? 'Hide' : 'Show'} Filters
+                  <X className="w-4 h-4 mr-1" />
+                  Clear All
               </Button>
+              )}
             </div>
 
-            {/* Advanced Filters */}
-            {showFilters && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4 border-t border-green-200">
-                <div>
-                  <Label className="block font-medium mb-1 text-green-700">State</Label>
-                  <Select value={filterState} onValueChange={setFilterState}>
+            {/* Filter Dropdowns */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label className="text-green-600 font-medium">State</Label>
+                <Select value={stateFilter} onValueChange={setStateFilter}>
                     <SelectTrigger className="border-green-300">
                       <SelectValue placeholder="All States" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All States</SelectItem>
+                    <SelectItem value="">All States</SelectItem>
                       {uniqueStates.map(state => (
                         <SelectItem key={state} value={state}>{state}</SelectItem>
                       ))}
@@ -413,14 +683,14 @@ export default function ReactivateWarehousePage() {
                   </Select>
                 </div>
 
-                <div>
-                  <Label className="block font-medium mb-1 text-green-700">Branch</Label>
-                  <Select value={filterBranch} onValueChange={setFilterBranch}>
+              <div className="space-y-2">
+                <Label className="text-green-600 font-medium">Branch</Label>
+                <Select value={branchFilter} onValueChange={setBranchFilter}>
                     <SelectTrigger className="border-green-300">
                       <SelectValue placeholder="All Branches" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Branches</SelectItem>
+                    <SelectItem value="">All Branches</SelectItem>
                       {uniqueBranches.map(branch => (
                         <SelectItem key={branch} value={branch}>{branch}</SelectItem>
                       ))}
@@ -428,252 +698,115 @@ export default function ReactivateWarehousePage() {
                   </Select>
                 </div>
 
-                <div>
-                  <Label className="block font-medium mb-1 text-green-700">Location</Label>
-                  <Select value={filterLocation} onValueChange={setFilterLocation}>
+              <div className="space-y-2">
+                <Label className="text-green-600 font-medium">Business Type</Label>
+                <Select value={businessTypeFilter} onValueChange={setBusinessTypeFilter}>
                     <SelectTrigger className="border-green-300">
-                      <SelectValue placeholder="All Locations" />
+                    <SelectValue placeholder="All Types" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Locations</SelectItem>
-                      {uniqueLocations.map(location => (
-                        <SelectItem key={location} value={location}>{location}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label className="block font-medium mb-1 text-green-700">Business Type</Label>
-                  <Select value={filterBusinessType} onValueChange={setFilterBusinessType}>
-                    <SelectTrigger className="border-green-300">
-                      <SelectValue placeholder="All Business Types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Business Types</SelectItem>
+                    <SelectItem value="">All Types</SelectItem>
                       {uniqueBusinessTypes.map(type => (
                         <SelectItem key={type} value={type}>{type.toUpperCase()}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-
-                <div>
-                  <Label className="block font-medium mb-1 text-green-700">Receipt Type</Label>
-                  <Select value={filterReceiptType} onValueChange={setFilterReceiptType}>
-                    <SelectTrigger className="border-green-300">
-                      <SelectValue placeholder="All Receipt Types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Receipt Types</SelectItem>
-                      {uniqueReceiptTypes.map(type => (
-                        <SelectItem key={type} value={type}>{type}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
 
-                <div className="flex items-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={clearFilters}
-                    disabled={!hasActiveFilters}
-                    className="border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
-                  >
-                    <X className="mr-2 h-4 w-4" />
-                    Clear Filters
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Active Filters Summary */}
-            {hasActiveFilters && (
-              <div className="flex items-center gap-2 pt-2 border-t border-green-200">
-                <span className="text-sm font-medium text-green-700">Active Filters:</span>
-                {searchTerm && (
-                  <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                    Search: "{searchTerm}"
-                  </Badge>
-                )}
-                {filterState && filterState !== 'all' && (
-                  <Badge variant="secondary" className="bg-green-100 text-green-800">
-                    State: {filterState}
-                  </Badge>
-                )}
-                {filterBranch && filterBranch !== 'all' && (
-                  <Badge variant="secondary" className="bg-green-100 text-green-800">
-                    Branch: {filterBranch}
-                  </Badge>
-                )}
-                {filterLocation && filterLocation !== 'all' && (
-                  <Badge variant="secondary" className="bg-green-100 text-green-800">
-                    Location: {filterLocation}
-                  </Badge>
-                )}
-                {filterBusinessType && filterBusinessType !== 'all' && (
-                  <Badge variant="secondary" className="bg-green-100 text-green-800">
-                    Business Type: {filterBusinessType.toUpperCase()}
-                  </Badge>
-                )}
-                {filterReceiptType && filterReceiptType !== 'all' && (
-                  <Badge variant="secondary" className="bg-green-100 text-green-800">
-                    Receipt Type: {filterReceiptType}
-                  </Badge>
-                )}
-                <span className="text-sm text-green-600">
-                  ({filteredInspections.length} of {inspections.length} results)
+            {/* Entry Count */}
+            <div className="text-sm text-green-600">
+              {hasActiveFilters ? (
+                <span className="font-medium">
+                  {filteredAndSortedInspections.length} of {inspections.length} entries found
+                  {searchTerm && ` for "${searchTerm}"`}
                 </span>
+              ) : (
+                <span className="font-medium">
+                  Total Entries: {inspections.length}
+                </span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Important Notice */}
+        <Card className="border-teal-300 bg-teal-50">
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-2">
+              <RefreshCw className="w-5 h-5 text-teal-600" />
+              <p className="text-teal-700 font-medium">
+                Important: These warehouses are pending reactivation. Ensure all required date fields and insurance details are complete before proceeding with reactivation.
+              </p>
               </div>
-            )}
           </CardContent>
         </Card>
 
         {/* Inspections Table */}
-        {filteredInspections.length > 0 ? (
+        {loading ? (
+          <Card className="border-green-300">
+            <CardContent className="p-8 text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+              <p className="mt-2 text-gray-600">Loading reactivate warehouses...</p>
+            </CardContent>
+          </Card>
+        ) : error ? (
+          <Card className="border-red-300">
+            <CardContent className="p-8 text-center text-red-600">
+              <p>{error}</p>
+              <Button 
+                onClick={loadInspections} 
+                className="mt-4"
+                variant="outline"
+              >
+                Try Again
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
           <Card className="border-green-300">
             <CardHeader className="bg-green-50">
               <CardTitle className="text-green-700">
                 Reactivate Warehouse Inspections
                 {hasActiveFilters && (
                   <span className="text-sm font-normal text-green-600 ml-2">
-                    (Filtered: {filteredInspections.length} of {inspections.length})
+                    (Filtered: {filteredAndSortedInspections.length} of {inspections.length})
                   </span>
                 )}
               </CardTitle>
               <CardDescription className="text-green-600">
-                All reactivation-pending warehouse inspection surveys with their details and actions.
+                All reactivate warehouse inspection surveys with validation checks sorted by inspection code in ascending order.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
-              <div 
-                className="overflow-x-auto relative"
-                style={{
-                  backgroundImage: `
-                    radial-gradient(circle at 25% 25%, rgba(34, 197, 94, 0.03) 0%, transparent 50%),
-                    radial-gradient(circle at 75% 75%, rgba(249, 115, 22, 0.03) 0%, transparent 50%),
-                    linear-gradient(135deg, rgba(34, 197, 94, 0.01) 0%, rgba(249, 115, 22, 0.01) 100%)
-                  `,
-                  backgroundSize: '400px 400px, 300px 300px, 100% 100%',
-                  backgroundPosition: '0% 0%, 100% 100%, 0% 0%',
-                  backgroundRepeat: 'no-repeat, no-repeat, no-repeat'
-                }}
-              >
-                <Table className="border-collapse">
-                  <TableHeader>
-                    <TableRow className="bg-orange-50 border-b-2 border-orange-200">
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Inspection Code</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Warehouse Code</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">State</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Branch</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Location</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Business Type</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Warehouse Name</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Bank State</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Bank Branch</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Bank Name</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">IFSC Code</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Receipt Type</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Created</TableHead>
-                      <TableHead className="text-orange-700 font-semibold border-r border-orange-300 text-center p-2 whitespace-nowrap">Remarks</TableHead>
-                      <TableHead className="text-orange-700 font-semibold text-center p-2 whitespace-nowrap">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredInspections.map((inspection) => (
-                      <TableRow key={inspection.id} className="hover:bg-green-50 border-b border-gray-200">
-                        <TableCell className="text-green-700 font-bold border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.inspectionCode}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.warehouseCode}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.state}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.branch}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.location}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.businessType.toUpperCase()}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.warehouseName}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.bankState}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.bankBranch}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.bankName}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.ifscCode}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.receiptType}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 whitespace-nowrap">{inspection.createdAt}</TableCell>
-                        <TableCell className="text-green-700 border-r border-gray-300 text-center p-2 max-w-xs">
-                          <div className="truncate" title={inspection.warehouseInspectionData?.remarks || ''}>
-                            {inspection.warehouseInspectionData?.remarks || '-'}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center p-2">
-                          <div className="flex space-x-2 justify-center">
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => handleViewDetails(inspection)}
-                              className="border-blue-300 text-blue-600 hover:bg-blue-50"
-                              title="View Details"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => handleClose(inspection)}
-                              className="border-red-300 text-red-600 hover:bg-red-50"
-                              title="Close Warehouse"
-                            >
-                              <Lock className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <DataTable
+                columns={reactivateColumns}
+                data={filteredAndSortedInspections}
+                wrapperClassName="border-green-300"
+                headClassName="bg-orange-100 text-orange-600 font-bold text-center"
+                cellClassName="text-green-800 text-center"
+                stickyHeader={true}
+                stickyFirstColumn={true}
+                showGridLines={true}
+                isLoading={loading}
+                error={error || undefined}
+              />
             </CardContent>
           </Card>
-        ) : (
-          <div className="text-center py-12">
-            <RefreshCw className="w-16 h-16 text-teal-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
-              {hasActiveFilters ? 'No Results Found' : 'No Reactivation Pending Inspections'}
-            </h3>
-            <p className="text-gray-500">
-              {hasActiveFilters 
-                ? 'Try adjusting your search criteria or filters to find more results.'
-                : 'There are currently no warehouse inspections pending reactivation.'
-              }
-            </p>
-            {hasActiveFilters && (
-              <Button
-                variant="outline"
-                onClick={clearFilters}
-                className="mt-4 border-green-300 text-green-700 hover:bg-green-100"
-              >
-                <X className="mr-2 h-4 w-4" />
-                Clear All Filters
-              </Button>
-            )}
-          </div>
         )}
 
-        {/* Warehouse Inspection Form Dialog */}
-        <Dialog open={showInspectionForm} onOpenChange={setShowInspectionForm}>
-          <DialogContent className="max-w-full max-h-[90vh] overflow-y-auto p-0">
-            {selectedInspection && (
+        {/* Inspection Form Dialog */}
+        {showInspectionForm && selectedInspection && (
               <WarehouseInspectionForm 
                 onClose={() => {
                   setShowInspectionForm(false);
-                  loadInspections(); // Reload data after closing form
-                }}
-                initialData={convertInspectionToFormData(selectedInspection)}
-                mode="view"
-                onStatusChange={(warehouseCode, newStatus) => {
-                  // Reload the inspections data after status change
-                  loadInspections();
-                }}
-              />
-            )}
-          </DialogContent>
-        </Dialog>
+              setSelectedInspection(null);
+            }}
+            initialData={selectedInspection}
+            mode="edit"
+            onStatusChange={handleStatusChange}
+          />
+        )}
       </div>
     </DashboardLayout>
   );

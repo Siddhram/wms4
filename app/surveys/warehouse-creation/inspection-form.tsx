@@ -50,6 +50,25 @@ interface AssociatedBank {
   ifscCode: string;
 }
 
+interface CommodityData {
+  id: string;
+  commodityId: string;
+  commodityName: string;
+  varieties: {
+    varietyId: string;
+    varietyName: string;
+    locationName: string;
+    branchName: string;
+    rate: number;
+  }[];
+}
+
+interface CommodityMultiSelectProps {
+  selectedCommodities: CommodityData[];
+  onSelectionChange: (commodities: CommodityData[]) => void;
+  className?: string;
+}
+
 interface ClientData {
   id?: string;
   clientId: string;
@@ -136,6 +155,117 @@ function getInsuranceAlertStatus(insurance: any): 'none' | 'expiring' | 'expired
   if (diffDays < 0) return 'expired';
   if (diffDays <= 10) return 'expiring';
   return 'none';
+}
+
+// CommodityMultiSelect Component
+function CommodityMultiSelect({ selectedCommodities, onSelectionChange, className }: CommodityMultiSelectProps) {
+  const [commodities, setCommodities] = useState<CommodityData[]>([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const loadCommodities = async () => {
+      setLoading(true);
+      try {
+        const querySnapshot = await getDocs(collection(db, 'commodities'));
+        const commoditiesData = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          varieties: doc.data().varieties || []
+        })) as CommodityData[];
+        setCommodities(commoditiesData);
+      } catch (error) {
+        console.error('Error loading commodities:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCommodities();
+  }, []);
+
+  const handleCommodityToggle = (commodity: CommodityData) => {
+    const isSelected = selectedCommodities.some(c => c.id === commodity.id);
+    if (isSelected) {
+      onSelectionChange(selectedCommodities.filter(c => c.id !== commodity.id));
+    } else {
+      onSelectionChange([...selectedCommodities, commodity]);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full justify-between ${className}`}
+      >
+        <span>
+          {selectedCommodities.length === 0
+            ? "Select commodities..."
+            : `${selectedCommodities.length} commodities selected`}
+        </span>
+        <ChevronDown className="h-4 w-4" />
+      </Button>
+      
+      {isOpen && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+          {loading ? (
+            <div className="p-4 text-center">Loading commodities...</div>
+          ) : commodities.length === 0 ? (
+            <div className="p-4 text-center text-gray-500">No commodities available</div>
+          ) : (
+            <div className="p-2">
+              {commodities.map((commodity) => {
+                const isSelected = selectedCommodities.some(c => c.id === commodity.id);
+                return (
+                  <div
+                    key={commodity.id}
+                    className="flex items-center space-x-2 p-2 hover:bg-gray-100 cursor-pointer rounded"
+                    onClick={() => handleCommodityToggle(commodity)}
+                  >
+                    <Checkbox checked={isSelected} />
+                    <div className="flex-1">
+                      <div className="font-medium text-orange-600">
+                        {commodity.commodityName}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        ID: {commodity.commodityId}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+      
+      {selectedCommodities.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {selectedCommodities.map((commodity) => (
+            <div
+              key={commodity.id}
+              className="inline-flex items-center px-2 py-1 bg-orange-100 text-orange-800 text-sm rounded-md"
+            >
+              {commodity.commodityName}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectionChange(selectedCommodities.filter(c => c.id !== commodity.id));
+                }}
+                className="ml-1 text-orange-600 hover:text-orange-800"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function WarehouseInspectionForm({ 
@@ -256,6 +386,7 @@ export default function WarehouseInspectionForm({
     // Legacy single insurance fields (keeping for backward compatibility)
     insuranceTakenBy: '',
     insuranceCommodity: '',
+    selectedCommodities: [] as CommodityData[],
     clientName: '',
     clientAddress: '',
     selectedBankName: '',
@@ -350,6 +481,7 @@ export default function WarehouseInspectionForm({
   const [agrogreenInsuranceData, setAgrogreenInsuranceData] = useState<any[]>([]);
   const [selectedAgrogreenInsurances, setSelectedAgrogreenInsurances] = useState<any[]>([]);
   const [additionalInsuranceClientData, setAdditionalInsuranceClientData] = useState<{[key: string]: any[]}>({});
+  const [commodityInsuranceData, setCommodityInsuranceData] = useState<any[]>([]);
 
   // Insurance popup state
   const [showInsurancePopup, setShowInsurancePopup] = useState(false);
@@ -722,6 +854,62 @@ export default function WarehouseInspectionForm({
 
     loadClientInsuranceData();
   }, [formData.clientName, formData.insuranceTakenBy]);
+
+  // Load insurance data based on selected commodities
+  const loadInsuranceForCommodities = useCallback(async (commodities: CommodityData[]) => {
+    if (commodities.length === 0) {
+      setCommodityInsuranceData([]);
+      return;
+    }
+
+    try {
+      console.log('Loading insurance for commodities:', commodities.map(c => c.commodityName));
+      
+      // Get insurance data based on insurance managed by selection
+      if (formData.insuranceTakenBy === 'client' && formData.clientName) {
+        const clientQuery = query(collection(db, 'clients'), where('firmName', '==', formData.clientName));
+        const clientDocs = await getDocs(clientQuery);
+        
+        if (!clientDocs.empty) {
+          const clientData = clientDocs.docs[0].data();
+          const insurances = clientData.insurances || [];
+          
+          // Filter insurances based on selected commodities
+          const commodityNames = commodities.map(c => c.commodityName.toLowerCase());
+          const filteredInsurances = insurances.filter((insurance: any) => 
+            commodityNames.some(name => 
+              insurance.commodity && insurance.commodity.toLowerCase().includes(name)
+            )
+          );
+          
+          setCommodityInsuranceData(filteredInsurances);
+        }
+      } else if (formData.insuranceTakenBy === 'agrogreen') {
+        const agrogreenQuery = query(collection(db, 'agrogreen-insurance'));
+        const agrogreenDocs = await getDocs(agrogreenQuery);
+        
+        const insurances: any[] = [];
+        agrogreenDocs.forEach(doc => {
+          const data = doc.data();
+          if (data.insurances && Array.isArray(data.insurances)) {
+            insurances.push(...data.insurances);
+          }
+        });
+        
+        // Filter insurances based on selected commodities
+        const commodityNames = commodities.map(c => c.commodityName.toLowerCase());
+        const filteredInsurances = insurances.filter((insurance: any) => 
+          commodityNames.some(name => 
+            insurance.commodity && insurance.commodity.toLowerCase().includes(name)
+          )
+        );
+        
+        setCommodityInsuranceData(filteredInsurances);
+      }
+    } catch (error) {
+      console.error('Error loading insurance for commodities:', error);
+    }
+  }, [formData.insuranceTakenBy, formData.clientName]);
 
   // Load initial client insurance data when form is opened with existing data
   useEffect(() => {
@@ -1271,6 +1459,11 @@ export default function WarehouseInspectionForm({
         missingFields.push(field.replace(/([A-Z])/g, ' $1').toLowerCase());
       }
     });
+
+    // Validate contact number is exactly 10 digits
+    if (formData.contactNumber && formData.contactNumber.length !== 10) {
+      missingFields.push('contact number must be exactly 10 digits');
+    }
 
     // Check conditional fields
     if (formData.typeOfWarehouse === 'others' && !formData.customWarehouseType) {
@@ -3290,7 +3483,7 @@ export default function WarehouseInspectionForm({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="insuranceCommodity">Commodity</Label>
+                <Label htmlFor="insuranceCommodity">Commodity <span className="text-red-500">*</span></Label>
                 <Input
                   id="insuranceCommodity"
                   value={formData.insuranceCommodity}
@@ -4917,7 +5110,15 @@ export default function WarehouseInspectionForm({
                   id="contactNumber"
                   type="tel"
                   value={formData.contactNumber}
-                  onChange={(e) => setFormData(prev => ({ ...prev, contactNumber: e.target.value }))}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/\D/g, ''); // Only allow digits
+                    if (value.length <= 10) {
+                      setFormData(prev => ({ ...prev, contactNumber: value }));
+                    }
+                  }}
+                  pattern="[0-9]{10}"
+                  maxLength={10}
+                  placeholder="Enter 10-digit contact number"
                   className="text-orange-600"
                   required
                 />

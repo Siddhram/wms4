@@ -97,6 +97,14 @@ export default function ReleaseOrderPage() {
   const [selectedRO, setSelectedRO] = React.useState(null as any | null);
   const [remark, setRemark] = React.useState('');
   const [roStatusUpdating, setROStatusUpdating] = React.useState(false);
+  const [dataVersion, setDataVersion] = React.useState(0);
+
+  // Cross-module reflection - dispatch events when data changes
+  const dispatchDataUpdate = React.useCallback(() => {
+    window.dispatchEvent(new CustomEvent('roDataUpdated', {
+      detail: { timestamp: Date.now() }
+    }));
+  }, []);
 
   // Fetch all releaseOrders for the table
   React.useEffect(() => {
@@ -118,7 +126,7 @@ export default function ReleaseOrderPage() {
       setReleaseOrders(data);
     };
     fetchROs();
-  }, [submitSuccess, roStatusUpdating]);
+  }, [submitSuccess, roStatusUpdating, dataVersion]);
 
   // Helper to get balance from DB if not present in row
   const getBalanceBags = (row: any) => {
@@ -150,28 +158,43 @@ export default function ReleaseOrderPage() {
   // Only show latest per group in main table
   const latestROs = Object.values(groupedROs).map(group => group[0]);
   
-  // Filter RO entries based on search term
+  // Filter and sort RO entries with comprehensive search and ascending RO code order
   const filteredROs = React.useMemo(() => {
-    if (!searchTerm) return latestROs;
+    let filtered = [...latestROs];
     
-    const searchLower = searchTerm.toLowerCase();
-    return latestROs.filter(ro => {
-      const srwrNo = (ro.srwrNo || '').toLowerCase();
-      const state = (ro.state || '').toLowerCase();
-      const branch = (ro.branch || '').toLowerCase();
-      const location = (ro.location || '').toLowerCase();
-      const warehouseName = (ro.warehouseName || '').toLowerCase();
-      const warehouseCode = (ro.warehouseCode || '').toLowerCase();
-      const clientName = (ro.client || '').toLowerCase();
-      
-      return srwrNo.includes(searchLower) ||
-             state.includes(searchLower) ||
-             branch.includes(searchLower) ||
-             location.includes(searchLower) ||
-             warehouseName.includes(searchLower) ||
-             warehouseCode.includes(searchLower) ||
-             clientName.includes(searchLower);
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(ro => {
+        const roCode = (ro.roCode || '').toLowerCase();
+        const srwrNo = (ro.srwrNo || '').toLowerCase();
+        const state = (ro.state || '').toLowerCase();
+        const branch = (ro.branch || '').toLowerCase();
+        const location = (ro.location || '').toLowerCase();
+        const warehouseName = (ro.warehouseName || '').toLowerCase();
+        const warehouseCode = (ro.warehouseCode || '').toLowerCase();
+        const clientName = (ro.client || '').toLowerCase();
+        const roStatus = (ro.roStatus || '').toLowerCase();
+        
+        return roCode.includes(searchLower) ||
+               srwrNo.includes(searchLower) ||
+               state.includes(searchLower) ||
+               branch.includes(searchLower) ||
+               location.includes(searchLower) ||
+               warehouseName.includes(searchLower) ||
+               warehouseCode.includes(searchLower) ||
+               clientName.includes(searchLower) ||
+               roStatus.includes(searchLower);
+      });
+    }
+    
+    // Sort by RO code in ascending order
+    filtered.sort((a, b) => {
+      const aCode = (a.roCode || '').toString();
+      const bCode = (b.roCode || '').toString();
+      return aCode.localeCompare(bCode, undefined, { numeric: true, sensitivity: 'base' });
     });
+    
+    return filtered;
   }, [searchTerm, latestROs]);
 
   // Columns for main table
@@ -542,6 +565,8 @@ export default function ReleaseOrderPage() {
       setReleaseBags('');
       setReleaseQty('');
       setFileAttachments([]);
+      setDataVersion(v => v + 1);
+      dispatchDataUpdate();
     } catch (error) {
       setFormError('Failed to save Release Order.');
     }
@@ -549,6 +574,14 @@ export default function ReleaseOrderPage() {
 
   const handleROStatusChange = async (status: string) => {
     if (!selectedRO) return;
+    
+    // Validate that remark is provided for checker actions
+    if (!remark.trim()) {
+      alert('Remark is required for checker actions (approve/reject/resubmit).');
+      setROStatusUpdating(false);
+      return;
+    }
+    
     setROStatusUpdating(true);
     try {
       // Get a reference to the existing document
@@ -562,6 +595,8 @@ export default function ReleaseOrderPage() {
       setShowRODetails(false);
       setRemark('');
       setSelectedRO(null);
+      setDataVersion(v => v + 1);
+      dispatchDataUpdate();
     } catch (err) {
       console.error('Error updating RO status:', err);
       alert('Failed to update RO status');
@@ -612,7 +647,7 @@ export default function ReleaseOrderPage() {
               <div className="relative">
                 <Input
                   id="search-input"
-                  placeholder="Search by SR/WR No, State, Branch, Location..."
+                  placeholder="Search by RO Code, SR/WR No, State, Branch, Location, Warehouse, Client, Status..."
                   className="w-full pr-8"
                   value={searchTerm}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
@@ -630,11 +665,9 @@ export default function ReleaseOrderPage() {
                   </button>
                 )}
               </div>
-              {searchTerm && (
-                <div className="mt-2 text-sm text-gray-600 text-center lg:text-left">
-                  {filteredROs.length} of {latestROs.length} entries
-                </div>
-              )}
+              <div className="mt-2 text-sm text-gray-600 text-center lg:text-left">
+                Total Entries: {filteredROs.length}
+              </div>
             </div>
             <Button
               onClick={handleExportCSV}
@@ -743,7 +776,7 @@ export default function ReleaseOrderPage() {
                 </div>
                 <div>
                   <Label className="text-sm sm:text-base">RELEASE QTY (MT)</Label>
-                  <Input value={releaseQty} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReleaseQty(e.target.value)} type="number" min="0" required className="text-sm" />
+                  <Input value={releaseQty} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReleaseQty(e.target.value)} type="number" min="0" step="0.001" required className="text-sm" />
                 </div>
                 <div className="sm:col-span-2">
                   <Label className="text-sm sm:text-base">Attachments (JPG, JPEG, PNG, PDF, DOCX)</Label>
@@ -767,6 +800,7 @@ export default function ReleaseOrderPage() {
                         <th className="px-1 sm:px-2 py-1 border text-orange-500 text-xs">Release Qty</th>
                         <th className="px-1 sm:px-2 py-1 border text-orange-500 text-xs">Balance Bags</th>
                         <th className="px-1 sm:px-2 py-1 border text-orange-500 text-xs">Balance Qty</th>
+                        <th className="px-1 sm:px-2 py-1 border text-orange-500 text-xs">Attachment</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -778,6 +812,15 @@ export default function ReleaseOrderPage() {
                           <td className="px-1 sm:px-2 py-1 border text-center text-xs">{ro.releaseQuantity}</td>
                           <td className="px-1 sm:px-2 py-1 border text-center text-xs">{ro.balanceBags}</td>
                           <td className="px-1 sm:px-2 py-1 border text-center text-xs">{ro.balanceQuantity}</td>
+                          <td className="px-1 sm:px-2 py-1 border text-center text-xs">
+                            {ro.attachmentUrl ? (
+                              <a href={ro.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+                                View
+                              </a>
+                            ) : (
+                              <span className="text-gray-400">No file</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1249,6 +1292,7 @@ export default function ReleaseOrderPage() {
                             <th className="px-1 sm:px-2 py-1 border text-orange-500 text-xs">Release Qty</th>
                             <th className="px-1 sm:px-2 py-1 border text-orange-500 text-xs">Balance Bags</th>
                             <th className="px-1 sm:px-2 py-1 border text-orange-500 text-xs">Balance Qty</th>
+                            <th className="px-1 sm:px-2 py-1 border text-orange-500 text-xs">Attachment</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1260,6 +1304,15 @@ export default function ReleaseOrderPage() {
                               <td className="px-1 sm:px-2 py-1 border text-center text-xs">{ro.releaseQuantity}</td>
                               <td className="px-1 sm:px-2 py-1 border text-center text-xs">{ro.balanceBags}</td>
                               <td className="px-1 sm:px-2 py-1 border text-center text-xs">{ro.balanceQuantity}</td>
+                              <td className="px-1 sm:px-2 py-1 border text-center text-xs">
+                                {ro.attachmentUrl ? (
+                                  <a href={ro.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+                                    View
+                                  </a>
+                                ) : (
+                                  <span className="text-gray-400">No file</span>
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
