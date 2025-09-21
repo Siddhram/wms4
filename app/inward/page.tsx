@@ -268,45 +268,6 @@ export default function InwardPage() {
   const [yourInsurance, setYourInsurance] = useState<any>(null);
   const [hasPendingEntries, setHasPendingEntries] = useState(false);
 
-  // Filter insurance entries based on selected type and commodity
-  const filteredInsuranceEntries = useMemo(() => {
-    let filtered = insuranceEntries;
-    
-    // Filter by insurance type
-    if (selectedInsuranceType && selectedInsuranceType !== 'all') {
-      filtered = filtered.filter(ins => ins.insuranceTakenBy === selectedInsuranceType);
-    }
-    
-    // Further filter by commodity if commodity is selected
-    if (form.commodity) {
-      filtered = filtered.filter(ins => {
-        const insuranceCommodities = (ins.insuranceCommodity || '').split(',').map((c: string) => c.trim());
-        return insuranceCommodities.includes(form.commodity);
-      });
-    }
-    
-    return filtered;
-  }, [insuranceEntries, selectedInsuranceType, form.commodity]);
-
-  // Filter insurance entries for information section based on selected type and commodity
-  const filteredInsuranceInfoEntries = useMemo(() => {
-    if (!selectedInsuranceInfoType) {
-      return [];
-    }
-    
-    let filtered = insuranceEntries.filter(ins => ins.insuranceTakenBy === selectedInsuranceInfoType);
-    
-    // Further filter by commodity if commodity is selected
-    if (form.commodity) {
-      filtered = filtered.filter(ins => {
-        const insuranceCommodities = (ins.insuranceCommodity || '').split(',').map((c: string) => c.trim());
-        return insuranceCommodities.includes(form.commodity);
-      });
-    }
-    
-    return filtered;
-  }, [insuranceEntries, selectedInsuranceInfoType, form.commodity]);
-
   // Filter and sort inward data
   const filteredData = useMemo(() => {
     let filtered = [...inwardData];
@@ -1099,6 +1060,45 @@ export default function InwardPage() {
   // Combined form for display
   const form = { ...baseForm, ...currentEntryForm, totalValue: baseForm.totalValue };
 
+  // Filter insurance entries based on selected type and commodity
+  const filteredInsuranceEntries = useMemo(() => {
+    let filtered = insuranceEntries;
+    
+    // Filter by insurance type
+    if (selectedInsuranceType && selectedInsuranceType !== 'all') {
+      filtered = filtered.filter(ins => ins.insuranceTakenBy === selectedInsuranceType);
+    }
+    
+    // Further filter by commodity if commodity is selected
+    if (baseForm.commodity) {
+      filtered = filtered.filter(ins => {
+        const insuranceCommodities = (ins.insuranceCommodity || '').split(',').map((c: string) => c.trim());
+        return insuranceCommodities.includes(baseForm.commodity);
+      });
+    }
+    
+    return filtered;
+  }, [insuranceEntries, selectedInsuranceType, baseForm.commodity]);
+
+  // Filter insurance entries for information section based on selected type and commodity
+  const filteredInsuranceInfoEntries = useMemo(() => {
+    if (!selectedInsuranceInfoType) {
+      return [];
+    }
+    
+    let filtered = insuranceEntries.filter(ins => ins.insuranceTakenBy === selectedInsuranceInfoType);
+    
+    // Further filter by commodity if commodity is selected
+    if (baseForm.commodity) {
+      filtered = filtered.filter(ins => {
+        const insuranceCommodities = (ins.insuranceCommodity || '').split(',').map((c: string) => c.trim());
+        return insuranceCommodities.includes(baseForm.commodity);
+      });
+    }
+    
+    return filtered;
+  }, [insuranceEntries, selectedInsuranceInfoType, baseForm.commodity]);
+
   // Cross-module reflection - dispatch events when data changes
   const dispatchDataUpdate = useCallback(() => {
     window.dispatchEvent(new CustomEvent('inwardDataUpdated', {
@@ -1391,8 +1391,8 @@ export default function InwardPage() {
 
   // Run check when warehouse or client is selected
   useEffect(() => {
-    checkReservationAndInsurance(form.warehouseName, form.client).catch(err => console.error(err));
-  }, [form.warehouseName, form.client, checkReservationAndInsurance]);
+    checkReservationAndInsurance(baseForm.warehouseName, baseForm.client).catch(err => console.error(err));
+  }, [baseForm.warehouseName, baseForm.client, checkReservationAndInsurance]);
 
   // Calculate insurance balance amounts
   useEffect(() => {
