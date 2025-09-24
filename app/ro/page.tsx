@@ -615,9 +615,9 @@ export default function ReleaseOrderPage() {
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mt-4 mb-6 lg:mb-10 px-4 lg:px-8 gap-4">
         <Button 
           className="bg-orange-500 hover:bg-orange-600 text-white px-4 lg:px-8 py-3 text-lg lg:text-2xl font-semibold shadow-lg rounded-xl flex items-center justify-center gap-2 w-full lg:w-auto" 
-          onClick={() => router.push('/dashboard')}
+          onClick={() => router.push('/reports')}
         >
-          <span className="text-lg lg:text-2xl">&#8592;</span> Dashboard
+          <span className="text-lg lg:text-2xl">&#8592;</span> Reports
         </Button>
         <div className="flex-1 text-center order-first lg:order-none">
           <h1 className="text-xl lg:text-3xl font-extrabold tracking-tight text-orange-600 inline-block border-b-4 border-[#1aad4b] pb-2 px-4 lg:px-10 py-1 bg-orange-50 rounded-xl shadow" style={{ letterSpacing: '0.02em' }}>

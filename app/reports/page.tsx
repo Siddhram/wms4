@@ -18,7 +18,7 @@ const reportModules = [
 
   {
     id: "inward",
-    title: "Inward Reports",
+    title: "Stock Reports",
     icon: Package,
     color: "text-yellow-500",
     bgColor: "bg-yellow-50",

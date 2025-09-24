@@ -733,269 +733,241 @@ export default function DeliveryOrderReportsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <button 
-              onClick={() => router.push('/dashboard')}
+              onClick={() => router.push('/reports')}
               className="inline-flex items-center text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Dashboard
+              Reports
             </button>
-            <Button 
-              onClick={fetchDOData}
-              variant="outline"
-              className="inline-flex items-center"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Refresh Data
-            </Button>
           </div>
           
           <div className="text-center flex flex-col items-center">
             {/* Logo */}
-            <div className="w-36 h-10 relative mb-3 bg-white rounded-lg px-2 py-1">
-              {/* <Image 
-                src="/AGlogo.webp" 
-                alt="AgroGreen Logo" 
-                fill
-                className="object-contain"
-                priority
-              /> */}
-            </div>
+          
             <h1 className="text-3xl font-bold tracking-tight text-orange-600 inline-block border-b-4 border-green-500 pb-2 px-6 py-3 bg-orange-100 rounded-lg">
               Delivery Order Reports
             </h1>
-            <p className="text-muted-foreground">Generate and view delivery order transaction reports</p>
+            <p className="text-sm text-gray-600 mt-1">Track delivery order transactions</p>
           </div>
           
-          <div className="flex space-x-2">
-            <Button onClick={exportToCSV} disabled={filteredData.length === 0}>
+          <div className="flex items-center justify-end w-48">
+            <Button 
+              onClick={exportToCSV} 
+              disabled={filteredData.length === 0}
+              className="bg-blue-500 hover:bg-blue-600 text-white"
+            >
               <Download className="h-4 w-4 mr-2" />
               Export CSV
             </Button>
           </div>
         </div>
 
-        {/* Search & Filter Options */}
+        {/* Controls */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Search className="h-5 w-5" />
-              Search & Filter Options
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Search Bar */}
-              <div className="flex items-center space-x-2">
-                <Search className="h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search across all fields..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="flex-1"
-                />
+          <CardHeader className="pb-4">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">Filters & Controls</CardTitle>
+              <div className="flex space-x-2">
                 <Button
-                  variant="outline"
                   onClick={() => setShowFilters(!showFilters)}
+                  variant="outline"
+                  size="sm"
                 >
                   <Filter className="h-4 w-4 mr-2" />
-                  {showFilters ? 'Hide Filters' : 'Show Filters'}
+                  {showFilters ? 'Hide' : 'Show'} Filters
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <Eye className="h-4 w-4 mr-2" />
+                      Columns ({visibleColumns.length})
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-56 max-h-96 overflow-y-auto">
+                    <DropdownMenuLabel>Toggle Columns</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {allColumns.map(column => (
+                      <DropdownMenuCheckboxItem
+                        key={column.key}
+                        checked={visibleColumns.includes(column.key)}
+                        onCheckedChange={() => toggleColumn(column.key)}
+                      >
+                        {column.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent>
+            {/* Search and Date Range */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div>
+                <Label htmlFor="search">Search</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                  <Input
+                    id="search"
+                    placeholder="Search all fields..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                  {searchTerm && (
+                    <button
+                      onClick={() => setSearchTerm('')}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="start-date">Start Date</Label>
+                <Input
+                  id="start-date"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="end-date">End Date</Label>
+                <Input
+                  id="end-date"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <Button 
+                  onClick={fetchDOData} 
+                  className="mt-6 w-full"
+                  disabled={loading}
+                >
+                  {loading ? 'Loading...' : 'Apply Filters'}
                 </Button>
               </div>
+            </div>
 
-              {/* Filters */}
-              {showFilters && (
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-4 border-t">
-                  {/* Date Range Filter */}
-                  <div>
-                    <Label htmlFor="startDate">Start Date</Label>
-                    <Input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => handleDateChange('start', e.target.value)}
-                      max={endDate}
-                      className="mt-1"
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="endDate">End Date</Label>
-                    <Input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => handleDateChange('end', e.target.value)}
-                      min={startDate}
-                      max={(() => {
-                        if (startDate) {
-                          const maxDate = new Date(startDate);
-                          maxDate.setMonth(maxDate.getMonth() + 6);
-                          return maxDate.toISOString().split('T')[0];
-                        }
-                        return '';
-                      })()}
-                      className="mt-1"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Max 6 months range</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="statusFilter">Status</Label>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Statuses</SelectItem>
-                        {uniqueStatuses.map(status => (
-                          <SelectItem key={status} value={status}>{status}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="warehouseFilter">Warehouse</Label>
-                    <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Warehouses</SelectItem>
-                        {uniqueWarehouses.map(warehouse => (
-                          <SelectItem key={warehouse} value={warehouse}>{warehouse}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="clientFilter">Client</Label>
-                    <Select value={clientFilter} onValueChange={setClientFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Clients</SelectItem>
-                        {uniqueClients.map(client => (
-                          <SelectItem key={client} value={client}>{client}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+            {/* Additional Filters */}
+            {showFilters && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-4 border-t">
+                <div>
+                  <Label htmlFor="warehouse-filter">Warehouse</Label>
+                  <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All warehouses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All warehouses</SelectItem>
+                      {uniqueWarehouses.map(warehouse => (
+                        <SelectItem key={warehouse} value={warehouse}>
+                          {warehouse}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
-
-              {/* Additional Filters Row */}
-              {showFilters && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
-                  <div>
-                    <Label htmlFor="stateFilter">State</Label>
-                    <Select value={stateFilter} onValueChange={setStateFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All States</SelectItem>
-                        {uniqueStates.map(state => (
-                          <SelectItem key={state} value={state}>{state}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="flex items-end">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="w-full">
-                          <Eye className="h-4 w-4 mr-2" />
-                          Column Visibility
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Toggle Columns</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {allColumns.map((column) => (
-                          <DropdownMenuCheckboxItem
-                            key={column.key}
-                            checked={visibleColumns.includes(column.key)}
-                            onCheckedChange={() => toggleColumn(column.key)}
-                          >
-                            {column.label}
-                          </DropdownMenuCheckboxItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                <div>
+                  <Label htmlFor="client-filter">Client</Label>
+                  <Select value={clientFilter} onValueChange={setClientFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All clients" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All clients</SelectItem>
+                      {uniqueClients.map(client => (
+                        <SelectItem key={client} value={client}>
+                          {client}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
-
-              {/* Active Filters Summary */}
-              {hasActiveFilters && (
-                <div className="flex items-center justify-between pt-4 border-t">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm font-medium text-gray-700">Active Filters:</span>
-                    {searchTerm && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-                        Search: {searchTerm}
-                        <button onClick={() => setSearchTerm('')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {warehouseFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-orange-100 text-orange-800">
-                        Warehouse: {warehouseFilter}
-                        <button onClick={() => setWarehouseFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {stateFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-teal-100 text-teal-800">
-                        State: {stateFilter}
-                        <button onClick={() => setStateFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {statusFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-purple-100 text-purple-800">
-                        Status: {statusFilter}
-                        <button onClick={() => setStatusFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {clientFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-orange-100 text-orange-800">
-                        Client: {clientFilter}
-                        <button onClick={() => setClientFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-
-                  </div>
-                  <Button variant="outline" onClick={clearFilters} size="sm">
-                    Clear All Filters
+                <div>
+                  <Label htmlFor="state-filter">State</Label>
+                  <Select value={stateFilter} onValueChange={setStateFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All states" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All states</SelectItem>
+                      {uniqueStates.map(state => (
+                        <SelectItem key={state} value={state}>
+                          {state}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end">
+                  <Button 
+                    onClick={() => {
+                      setSearchTerm('');
+                      setWarehouseFilter('all');
+                      setClientFilter('all');
+                      setStateFilter('all');
+                      setStatusFilter('all');
+                    }}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    Clear Filters
                   </Button>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* Results Summary */}
+        {/* Results Summary & Active Filters */}
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-600">
             Showing {filteredData.length} of {doData.length} records
             {hasActiveFilters && ` (filtered)`}
             {startDate && endDate && ` | Date Range: ${startDate} to ${endDate}`}
           </div>
-          {hasActiveFilters && (
-            <Button variant="outline" onClick={clearFilters} size="sm">
-              Clear Filters
-            </Button>
-          )}
+          
+          {/* Active Filter Badges */}
+          <div className="flex items-center space-x-2">
+            {warehouseFilter !== 'all' && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-orange-100 text-orange-800">
+                Warehouse: {warehouseFilter}
+                <button onClick={() => setWarehouseFilter('all')} className="ml-1">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {clientFilter !== 'all' && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-orange-100 text-orange-800">
+                Client: {clientFilter}
+                <button onClick={() => setClientFilter('all')} className="ml-1">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {stateFilter !== 'all' && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-teal-100 text-teal-800">
+                State: {stateFilter}
+                <button onClick={() => setStateFilter('all')} className="ml-1">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {searchTerm && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
+                Search: "{searchTerm}"
+                <button onClick={() => setSearchTerm('')} className="ml-1">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Data Table */}

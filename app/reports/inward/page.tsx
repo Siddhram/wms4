@@ -370,39 +370,34 @@ export default function InwardReportsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <button 
-              onClick={() => router.push('/dashboard')}
+              onClick={() => router.push('/reports')}
               className="inline-flex items-center text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Dashboard
+              Reports
             </button>
-            <Button 
-              onClick={fetchInwardData}
-              variant="outline"
-              className="inline-flex items-center"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Refresh Data
-            </Button>
+      
           </div>
           
           <div className="text-center flex flex-col items-center">
             {/* Logo */}
-            <div className="w-36 h-10 relative mb-3 bg-white rounded-lg px-2 py-1">
-              <Image
-                src="/AGlogo.webp" 
-                alt="AG Logo"
-                fill
-                className="object-contain"
-              />
-            </div>
+          
             <h1 className="text-3xl font-bold tracking-tight text-orange-600 inline-block border-b-4 border-green-500 pb-2 px-6 py-3 bg-orange-100 rounded-lg">
-              Inward Reports
+              Stock Reports
             </h1>
             <p className="text-sm text-gray-600 mt-1">Comprehensive inward data analysis</p>
           </div>
           
-          <div className="w-48"></div> {/* Spacer for balance */}
+          <div className="flex items-center justify-end w-48">
+            <Button 
+              onClick={exportToCSV} 
+              disabled={filteredData.length === 0}
+              className="bg-blue-500 hover:bg-blue-600 text-white"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+          </div>
         </div>
 
         {/* Controls */}
@@ -419,10 +414,7 @@ export default function InwardReportsPage() {
                   <Filter className="h-4 w-4 mr-2" />
                   {showFilters ? 'Hide' : 'Show'} Filters
                 </Button>
-                <Button onClick={exportToCSV} disabled={filteredData.length === 0}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Export CSV
-                </Button>
+
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm">
@@ -449,26 +441,8 @@ export default function InwardReportsPage() {
           </CardHeader>
 
           <CardContent>
-            {/* Date Range */}
+            {/* Search and Date Range */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                  <div>
-                <Label htmlFor="start-date">Start Date</Label>
-                    <Input
-                  id="start-date"
-                      type="date"
-                      value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                <Label htmlFor="end-date">End Date</Label>
-                    <Input
-                  id="end-date"
-                      type="date"
-                      value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                />
-                  </div>
                   <div>
                 <Label htmlFor="search">Search</Label>
                 <div className="relative">
@@ -490,6 +464,24 @@ export default function InwardReportsPage() {
                   )}
                 </div>
               </div>
+                  <div>
+                <Label htmlFor="start-date">Start Date</Label>
+                    <Input
+                  id="start-date"
+                      type="date"
+                      value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                <Label htmlFor="end-date">End Date</Label>
+                    <Input
+                  id="end-date"
+                      type="date"
+                      value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+                  </div>
               <div>
                 <Button 
                   onClick={fetchInwardData} 

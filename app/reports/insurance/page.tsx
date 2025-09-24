@@ -419,11 +419,11 @@ export default function InsuranceReportsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <button 
-              onClick={() => router.push('/dashboard')}
+              onClick={() => router.push('/reports')}
               className="inline-flex items-center text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Dashboard
+              Reports
             </button>
           </div>
           
