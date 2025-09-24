@@ -308,9 +308,9 @@ export default function SubmittedWarehousePage() {
   
   // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
-  const [stateFilter, setStateFilter] = useState('');
-  const [branchFilter, setBranchFilter] = useState('');
-  const [businessTypeFilter, setBusinessTypeFilter] = useState('');
+  const [stateFilter, setStateFilter] = useState('all-states');
+  const [branchFilter, setBranchFilter] = useState('all-branches');
+  const [businessTypeFilter, setBusinessTypeFilter] = useState('all-types');
 
   // Load inspections data
   const loadInspections = useCallback(async () => {
@@ -446,13 +446,13 @@ export default function SubmittedWarehousePage() {
     }
     
     // Apply filters
-    if (stateFilter) {
+    if (stateFilter && stateFilter !== 'all-states') {
       filtered = filtered.filter(inspection => inspection.state === stateFilter);
     }
-    if (branchFilter) {
+    if (branchFilter && branchFilter !== 'all-branches') {
       filtered = filtered.filter(inspection => inspection.branch === branchFilter);
     }
-    if (businessTypeFilter) {
+    if (businessTypeFilter && businessTypeFilter !== 'all-types') {
       filtered = filtered.filter(inspection => inspection.businessType === businessTypeFilter);
     }
     
@@ -584,12 +584,15 @@ export default function SubmittedWarehousePage() {
   // Clear all filters
   const clearAllFilters = () => {
     setSearchTerm('');
-    setStateFilter('');
-    setBranchFilter('');
-    setBusinessTypeFilter('');
+    setStateFilter('all-states');
+    setBranchFilter('all-branches');
+    setBusinessTypeFilter('all-types');
   };
 
-  const hasActiveFilters = searchTerm || stateFilter || branchFilter || businessTypeFilter;
+  const hasActiveFilters = searchTerm || 
+    (stateFilter && stateFilter !== 'all-states') || 
+    (branchFilter && branchFilter !== 'all-branches') || 
+    (businessTypeFilter && businessTypeFilter !== 'all-types');
 
   return (
     <DashboardLayout>
@@ -666,7 +669,7 @@ export default function SubmittedWarehousePage() {
                       <SelectValue placeholder="All States" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All States</SelectItem>
+                      <SelectItem value="all-states">All States</SelectItem>
                       {uniqueStates.map(state => (
                         <SelectItem key={state} value={state}>{state}</SelectItem>
                       ))}
@@ -681,7 +684,7 @@ export default function SubmittedWarehousePage() {
                       <SelectValue placeholder="All Branches" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Branches</SelectItem>
+                      <SelectItem value="all-branches">All Branches</SelectItem>
                       {uniqueBranches.map(branch => (
                         <SelectItem key={branch} value={branch}>{branch}</SelectItem>
                       ))}
@@ -696,7 +699,7 @@ export default function SubmittedWarehousePage() {
                     <SelectValue placeholder="All Types" />
                     </SelectTrigger>
                     <SelectContent>
-                    <SelectItem value="">All Types</SelectItem>
+                    <SelectItem value="all-types">All Types</SelectItem>
                       {uniqueBusinessTypes.map(type => (
                         <SelectItem key={type} value={type}>{type.toUpperCase()}</SelectItem>
                       ))}

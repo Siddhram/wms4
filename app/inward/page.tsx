@@ -5751,7 +5751,7 @@ export default function InwardPage() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
                 <div>
                   <Label className="block font-semibold mb-1">Base Receipt</Label>
                   <Input 
@@ -5759,32 +5759,6 @@ export default function InwardPage() {
                     onChange={e => setBaseForm(f => ({ ...f, bankReceipt: e.target.value }))} 
                     placeholder="Enter Base Receipt Number"
                   />
-                </div>
-                <div>
-                  <Label className="block font-semibold mb-1">File Attachment <span className="text-red-500">*</span></Label>
-                  <Input
-                    type="file"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setFileAttachment(file);
-                      }
-                    }}
-                    accept="image/*,.pdf,.doc,.docx"
-                    className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                  />
-                  {fileAttachment && (
-                    <p className="text-sm text-green-600 mt-1">
-                      Selected: {fileAttachment.name}
-                    </p>
-                  )}
-                  {isEditMode && form.attachmentUrl && (
-                    <p className="text-sm text-blue-600 mt-1">
-                      <a href={form.attachmentUrl} target="_blank" rel="noopener noreferrer" className="underline">
-                        View current attachment
-                      </a>
-                    </p>
-                  )}
                 </div>
               </div>
             </div>
