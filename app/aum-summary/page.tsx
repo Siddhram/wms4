@@ -161,7 +161,7 @@ export default function AUMSummaryPage() {
                 headClassName="bg-orange-100 text-orange-600 font-bold text-center"
                 cellClassName="text-green-800 text-center"
                 stickyHeader={true}
-                stickyFirstColumn={true}
+                stickyFirstColumn={false}
                 showGridLines={true}
               />
             </div>

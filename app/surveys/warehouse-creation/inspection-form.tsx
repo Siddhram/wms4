@@ -471,6 +471,7 @@ export default function WarehouseInspectionForm({
   const [warehouses, setWarehouses] = useState<WarehouseData[]>([]);
   const [banksData, setBanksData] = useState<BankData[]>([]);
   const [clientsData, setClientsData] = useState<ClientData[]>([]);
+  const [commoditiesData, setCommoditiesData] = useState<CommodityData[]>([]);
   const [availableBankStates, setAvailableBankStates] = useState<string[]>([]);
   const [availableBankBranches, setAvailableBankBranches] = useState<string[]>([]);
   const [availableBanks, setAvailableBanks] = useState<{name: string, ifsc: string}[]>([]);
@@ -479,6 +480,7 @@ export default function WarehouseInspectionForm({
   const [clientInsuranceData, setClientInsuranceData] = useState<any[]>([]);
   const [selectedClientInsurances, setSelectedClientInsurances] = useState<any[]>([]);
   const [agrogreenInsuranceData, setAgrogreenInsuranceData] = useState<any[]>([]);
+  const [selectedInsurancePolicy, setSelectedInsurancePolicy] = useState<string>('');
   const [selectedAgrogreenInsurances, setSelectedAgrogreenInsurances] = useState<any[]>([]);
   const [additionalInsuranceClientData, setAdditionalInsuranceClientData] = useState<{[key: string]: any[]}>({});
   const [commodityInsuranceData, setCommodityInsuranceData] = useState<any[]>([]);
@@ -605,6 +607,71 @@ export default function WarehouseInspectionForm({
     }
   }, []);
 
+  const loadCommoditiesData = useCallback(async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'commodities'));
+      const commodities = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        varieties: doc.data().varieties || []
+      })) as CommodityData[];
+      setCommoditiesData(commodities);
+    } catch (error) {
+      console.error('Error loading commodities:', error);
+    }
+  }, []);
+
+  const fetchClientInsurances = useCallback(async (clientName: string) => {
+    const combinedInsurances: any[] = [];
+
+    const normalizeInsurance = (insurance: any, sourceDocumentId: string, sourceCollection: string) => ({
+      ...insurance,
+      insuranceCommodity: insurance?.insuranceCommodity || insurance?.commodity || insurance?.commodityName || '',
+      commodity: insurance?.commodity || insurance?.commodityName || insurance?.insuranceCommodity || '',
+      sourceDocumentId,
+      sourceCollection,
+    });
+
+    try {
+      const clientQuery = query(collection(db, 'clients'), where('firmName', '==', clientName));
+      const clientSnapshot = await getDocs(clientQuery);
+      if (!clientSnapshot.empty) {
+        const clientDoc = clientSnapshot.docs[0];
+        const clientData = clientDoc.data() as any;
+        const clientInsurances = clientData.insurances || [];
+        combinedInsurances.push(
+          ...clientInsurances.map((insurance: any) =>
+            normalizeInsurance(insurance, clientDoc.id, 'clients')
+          )
+        );
+      }
+
+      const insuranceQuery = query(collection(db, 'insurance'), where('clientName', '==', clientName));
+      const insuranceSnapshot = await getDocs(insuranceQuery);
+      combinedInsurances.push(
+        ...insuranceSnapshot.docs.map(doc =>
+          normalizeInsurance(doc.data(), doc.id, 'insurance')
+        )
+      );
+    } catch (error) {
+      console.error('Error fetching client insurances:', error);
+    }
+
+    const uniqueMap = new Map<string, any>();
+    combinedInsurances.forEach((insurance, index) => {
+      const key =
+        insurance.insuranceCode ||
+        insurance.firePolicyNumber ||
+        `${insurance.sourceCollection}-${insurance.sourceDocumentId || index}` ||
+        `${insurance.sourceCollection}-${index}`;
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, insurance);
+      }
+    });
+
+    return Array.from(uniqueMap.values());
+  }, []);
+
   // Fetch associated banks for a given warehouse code
   const fetchAssociatedBanks = useCallback(async (warehouseCode: string) => {
     try {
@@ -653,7 +720,8 @@ export default function WarehouseInspectionForm({
     loadWarehouses();
     loadBanksData();
     loadClientsData();
-  }, [loadWarehouses, loadBanksData, loadClientsData]);
+    loadCommoditiesData();
+  }, [loadWarehouses, loadBanksData, loadClientsData, loadCommoditiesData]);
 
   // Initialize form with existing data if provided (only once)
   useEffect(() => {
@@ -709,16 +777,42 @@ export default function WarehouseInspectionForm({
         createdAt: safeCreateDate(entry.createdAt) || new Date()
       }));
       
+      // Determine the source of form data - prioritize warehouseInspectionData
+      const formDataSource = initialData.warehouseInspectionData && Object.keys(initialData.warehouseInspectionData).length > 0
+        ? initialData.warehouseInspectionData
+        : initialData;
+      
+      // Convert date fields properly
+      const processedFormData = { ...formDataSource };
+      
+      // List of date fields that need conversion
+      const dateFields = [
+        'dateOfInspection', 'oeDate', 'firePolicyStartDate', 'firePolicyEndDate',
+        'burglaryPolicyStartDate', 'burglaryPolicyEndDate', 'lastClaimDate'
+      ];
+      
+      // Convert date fields from strings/objects to Date objects
+      dateFields.forEach(field => {
+        if (processedFormData[field]) {
+          processedFormData[field] = safeCreateDate(processedFormData[field]);
+        }
+      });
+      
       setFormData(prev => ({
         ...prev,
-        ...initialData,
+        // Use the processed form data with converted dates
+        ...processedFormData,
+        // Always preserve core inspection fields from top level
+        inspectionCode: initialData.inspectionCode || formDataSource.inspectionCode || prev.inspectionCode,
+        warehouseCode: initialData.warehouseCode || formDataSource.warehouseCode || prev.warehouseCode,
+        warehouseName: initialData.warehouseName || formDataSource.warehouseName || prev.warehouseName,
         // Preserve attachedFiles if they exist in current state
-        attachedFiles: initialData.attachedFiles || prev.attachedFiles || [],
+        attachedFiles: formDataSource.attachedFiles || initialData.attachedFiles || prev.attachedFiles || [],
         // Handle insurance entries from existing data with proper date conversion
         insuranceEntries: processedInsuranceEntries
       }));
       // Initialize editable warehouse name
-      setEditableWarehouseName(initialData.warehouseName || '');
+      setEditableWarehouseName(initialData.warehouseName || formDataSource.warehouseName || '');
       
       // If in view mode and we have a warehouse name, fetch associated banks
       if (mode === 'view' && initialData.warehouseName && initialData.warehouseCode) {
@@ -822,27 +916,10 @@ export default function WarehouseInspectionForm({
       if (formData.clientName && formData.insuranceTakenBy === 'client') {
         try {
           console.log('Loading insurance data for client:', formData.clientName);
-          const clientDoc = await getDocs(query(collection(db, 'clients'), where('firmName', '==', formData.clientName)));
-          console.log('Client document found:', !clientDoc.empty);
-          if (!clientDoc.empty) {
-            const clientData = clientDoc.docs[0].data() as any;
-            const clientDocId = clientDoc.docs[0].id; // Get the document ID
-            console.log('Client data:', clientData);
-            const insurances = clientData.insurances || [];
-            console.log('Insurance data found:', insurances);
-            
-            // Add document ID and collection info to each insurance policy
-            const insurancesWithDocId = insurances.map((insurance: any) => ({
-              ...insurance,
-              sourceDocumentId: clientDocId,
-              sourceCollection: 'clients'
-            }));
-            
-            setClientInsuranceData(insurancesWithDocId);
-          } else {
-            console.log('No client document found for:', formData.clientName);
-            setClientInsuranceData([]);
-          }
+          const combinedInsurances = await fetchClientInsurances(formData.clientName);
+          
+          console.log('Combined insurance data found:', combinedInsurances);
+          setClientInsuranceData(combinedInsurances);
         } catch (error) {
           console.error('Error loading client insurance data:', error);
           setClientInsuranceData([]);
@@ -853,7 +930,7 @@ export default function WarehouseInspectionForm({
     };
 
     loadClientInsuranceData();
-  }, [formData.clientName, formData.insuranceTakenBy]);
+  }, [formData.clientName, formData.insuranceTakenBy, fetchClientInsurances]);
 
   // Load insurance data based on selected commodities
   const loadInsuranceForCommodities = useCallback(async (commodities: CommodityData[]) => {
@@ -3484,15 +3561,113 @@ export default function WarehouseInspectionForm({
 
               <div className="space-y-2">
                 <Label htmlFor="insuranceCommodity">Commodity <span className="text-red-500">*</span></Label>
-                <Input
-                  id="insuranceCommodity"
+                <Select
                   value={formData.insuranceCommodity}
-                  onChange={(e) => setFormData(prev => ({ ...prev, insuranceCommodity: e.target.value }))}
-                  className="text-orange-600"
-                  placeholder="Enter commodity name"
-                />
+                  onValueChange={async (value) => {
+                    setFormData(prev => ({ ...prev, insuranceCommodity: value }));
+                    setSelectedInsurancePolicy(''); // Reset policy selection when commodity changes
+                    
+                    // If client is already selected, re-filter and auto-fill based on new commodity
+                    if (formData.clientName && clientInsuranceData.length > 0) {
+                      const filteredInsurances = clientInsuranceData.filter((ins: any) => 
+                        ins.commodity && ins.commodity.toLowerCase() === value.toLowerCase()
+                      );
+                      
+                      console.log('Re-filtered main form insurances for commodity:', value, filteredInsurances);
+                      
+                      // Auto-fill with the first matching insurance if available
+                      if (filteredInsurances.length > 0) {
+                        const matchingInsurance = filteredInsurances[0];
+                        setFormData(prev => ({
+                          ...prev,
+                          insuranceCommodity: value,
+                          firePolicyCompanyName: matchingInsurance.firePolicyCompanyName || '',
+                          firePolicyNumber: matchingInsurance.firePolicyNumber || '',
+                          firePolicyAmount: matchingInsurance.firePolicyAmount || '',
+                          firePolicyStartDate: safeCreateDate(matchingInsurance.firePolicyStartDate),
+                          firePolicyEndDate: safeCreateDate(matchingInsurance.firePolicyEndDate),
+                          burglaryPolicyCompanyName: matchingInsurance.burglaryPolicyCompanyName || '',
+                          burglaryPolicyNumber: matchingInsurance.burglaryPolicyNumber || '',
+                          burglaryPolicyAmount: matchingInsurance.burglaryPolicyAmount || '',
+                          burglaryPolicyStartDate: safeCreateDate(matchingInsurance.burglaryPolicyStartDate),
+                          burglaryPolicyEndDate: safeCreateDate(matchingInsurance.burglaryPolicyEndDate),
+                        }));
+                        
+                        console.log('Re-filled main form with commodity-specific insurance data');
+                      }
+                    }
+                  }}
+                >
+                  <SelectTrigger className="text-orange-600">
+                    <SelectValue placeholder="Select commodity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {commoditiesData.map(commodity => (
+                      <SelectItem key={commodity.id} value={commodity.commodityName}>
+                        {commodity.commodityName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
+
+            {/* Insurance Policy Selection - shows when client + commodity are selected */}
+            {formData.insuranceTakenBy === 'client' && formData.clientName && formData.insuranceCommodity && clientInsuranceData.length > 0 && (
+              <div className="space-y-2">
+                <Label>Select Insurance Policy</Label>
+                <Select
+                  value={selectedInsurancePolicy}
+                  onValueChange={(value) => {
+                    setSelectedInsurancePolicy(value);
+                    
+                    // Find the selected insurance and auto-fill the form
+                    const selectedInsurance = clientInsuranceData.find((ins: any, index: number) => 
+                      `${index}-${ins.firePolicyNumber || ''}-${ins.burglaryPolicyNumber || ''}` === value
+                    );
+                    
+                    if (selectedInsurance) {
+                      setFormData(prev => ({
+                        ...prev,
+                        firePolicyCompanyName: selectedInsurance.firePolicyCompanyName || '',
+                        firePolicyNumber: selectedInsurance.firePolicyNumber || '',
+                        firePolicyAmount: selectedInsurance.firePolicyAmount || '',
+                        firePolicyStartDate: safeCreateDate(selectedInsurance.firePolicyStartDate),
+                        firePolicyEndDate: safeCreateDate(selectedInsurance.firePolicyEndDate),
+                        burglaryPolicyCompanyName: selectedInsurance.burglaryPolicyCompanyName || '',
+                        burglaryPolicyNumber: selectedInsurance.burglaryPolicyNumber || '',
+                        burglaryPolicyAmount: selectedInsurance.burglaryPolicyAmount || '',
+                        burglaryPolicyStartDate: safeCreateDate(selectedInsurance.burglaryPolicyStartDate),
+                        burglaryPolicyEndDate: safeCreateDate(selectedInsurance.burglaryPolicyEndDate),
+                      }));
+                      
+                      console.log('Auto-filled form with selected insurance policy:', selectedInsurance);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="text-orange-600">
+                    <SelectValue placeholder="Choose insurance policy" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clientInsuranceData
+                      .filter((ins: any) => !formData.insuranceCommodity || 
+                        (ins.commodity && ins.commodity.toLowerCase() === formData.insuranceCommodity.toLowerCase())
+                      )
+                      .map((insurance: any, index: number) => {
+                        const policyKey = `${index}-${insurance.firePolicyNumber || ''}-${insurance.burglaryPolicyNumber || ''}`;
+                        const displayText = `Fire: ${insurance.firePolicyCompanyName || 'N/A'} (${insurance.firePolicyNumber || 'N/A'}) | Burglary: ${insurance.burglaryPolicyCompanyName || 'N/A'} (${insurance.burglaryPolicyNumber || 'N/A'})`;
+                        
+                        return (
+                          <SelectItem key={policyKey} value={policyKey}>
+                            {displayText}
+                          </SelectItem>
+                        );
+                      })
+                    }
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
@@ -3505,36 +3680,47 @@ export default function WarehouseInspectionForm({
                       value={formData.clientName} 
                       onValueChange={async (value) => {
                         const selectedClient = clientsData.find(client => client.firmName === value);
-                        setFormData(prev => ({ 
-                          ...prev, 
-                          clientName: value,
-                          clientAddress: selectedClient?.companyAddress || ''
-                        }));
                         
                         // Load client insurance data
                         if (selectedClient) {
                           try {
                             console.log('Loading insurance data for client:', value);
-                            const clientDoc = await getDocs(query(collection(db, 'clients'), where('firmName', '==', value)));
-                            console.log('Client document found:', !clientDoc.empty);
-                            if (!clientDoc.empty) {
-                              const clientData = clientDoc.docs[0].data() as any;
-                              const clientDocId = clientDoc.docs[0].id; // Get the document ID
-                              console.log('Client data:', clientData);
-                              const insurances = clientData.insurances || [];
-                              console.log('Insurance data found:', insurances);
+                            const combinedInsurances = await fetchClientInsurances(value);
+                          
+                            console.log('Combined insurance data found:', combinedInsurances);
+                            setClientInsuranceData(combinedInsurances);
+                            setSelectedInsurancePolicy(''); // Reset policy selection when client changes
+                            
+                            // Auto-fill form with first matching insurance if available
+                            if (combinedInsurances.length > 0) {
+                              // Filter by commodity if selected
+                              let filteredInsurances = combinedInsurances;
+                              if (formData.insuranceCommodity) {
+                                filteredInsurances = combinedInsurances.filter((ins: any) => 
+                                  ins.commodity && ins.commodity.toLowerCase() === formData.insuranceCommodity.toLowerCase()
+                                );
+                              }
                               
-                              // Add document ID and collection info to each insurance policy
-                              const insurancesWithDocId = insurances.map((insurance: any) => ({
-                                ...insurance,
-                                sourceDocumentId: clientDocId,
-                                sourceCollection: 'clients'
+                              const insuranceToUse = filteredInsurances.length > 0 ? filteredInsurances[0] : combinedInsurances[0];
+                              
+                              setFormData(prev => ({
+                                ...prev,
+                                clientName: value,
+                                clientAddress: selectedClient?.companyAddress || '',
+                                insuranceCommodity: insuranceToUse.commodity || prev.insuranceCommodity,
+                                firePolicyCompanyName: insuranceToUse.firePolicyCompanyName || '',
+                                firePolicyNumber: insuranceToUse.firePolicyNumber || '',
+                                firePolicyAmount: insuranceToUse.firePolicyAmount || '',
+                                firePolicyStartDate: safeCreateDate(insuranceToUse.firePolicyStartDate),
+                                firePolicyEndDate: safeCreateDate(insuranceToUse.firePolicyEndDate),
+                                burglaryPolicyCompanyName: insuranceToUse.burglaryPolicyCompanyName || '',
+                                burglaryPolicyNumber: insuranceToUse.burglaryPolicyNumber || '',
+                                burglaryPolicyAmount: insuranceToUse.burglaryPolicyAmount || '',
+                                burglaryPolicyStartDate: safeCreateDate(insuranceToUse.burglaryPolicyStartDate),
+                                burglaryPolicyEndDate: safeCreateDate(insuranceToUse.burglaryPolicyEndDate),
                               }));
                               
-                              setClientInsuranceData(insurancesWithDocId);
-                            } else {
-                              console.log('No client document found for:', value);
-                              setClientInsuranceData([]);
+                              console.log('Auto-filled main form with insurance data');
                             }
                           } catch (error) {
                             console.error('Error loading client insurance data:', error);
@@ -3543,6 +3729,12 @@ export default function WarehouseInspectionForm({
                         } else {
                           console.log('No selected client found');
                           setClientInsuranceData([]);
+                          // Just set basic client info if no insurance data
+                          setFormData(prev => ({ 
+                            ...prev, 
+                            clientName: value,
+                            clientAddress: ''
+                          }));
                         }
                       }}
                       required
@@ -4042,19 +4234,71 @@ export default function WarehouseInspectionForm({
 
                   <div className="space-y-2">
                     <Label>Commodity</Label>
-                    <Input
+                    <Select
                       value={insurance.insuranceCommodity}
-                      onChange={(e) => {
+                      onValueChange={async (value) => {
                         const updatedEntries = formData.insuranceEntries.map((entry: InsuranceEntry) =>
                           entry.id === insurance.id 
-                            ? { ...entry, insuranceCommodity: e.target.value }
+                            ? { ...entry, insuranceCommodity: value }
                             : entry
                         );
                         setFormData(prev => ({ ...prev, insuranceEntries: updatedEntries }));
+                        
+                        // If client is already selected, re-filter insurance data based on new commodity
+                        if (insurance.clientName) {
+                          try {
+                            const combinedInsurances = await fetchClientInsurances(insurance.clientName);
+                            
+                            const filteredInsurances = combinedInsurances.filter((ins: any) =>
+                              ins.insuranceCommodity && ins.insuranceCommodity.toLowerCase() === value.toLowerCase()
+                            );
+                            
+                            console.log('Re-filtered insurances for commodity:', value, filteredInsurances);
+                            
+                            setAdditionalInsuranceClientData(prev => ({
+                              ...prev,
+                              [insurance.id]: filteredInsurances.length > 0 ? filteredInsurances : combinedInsurances
+                            }));
+                            
+                            if (filteredInsurances.length > 0) {
+                              const matchingInsurance = filteredInsurances[0];
+                              const updatedEntriesWithData = formData.insuranceEntries.map((entry: InsuranceEntry) =>
+                                entry.id === insurance.id
+                                  ? {
+                                      ...entry,
+                                      insuranceCommodity: value,
+                                      firePolicyCompanyName: matchingInsurance.firePolicyCompanyName || '',
+                                      firePolicyNumber: matchingInsurance.firePolicyNumber || '',
+                                      firePolicyAmount: matchingInsurance.firePolicyAmount || '',
+                                      firePolicyStartDate: safeCreateDate(matchingInsurance.firePolicyStartDate),
+                                      firePolicyEndDate: safeCreateDate(matchingInsurance.firePolicyEndDate),
+                                      burglaryPolicyCompanyName: matchingInsurance.burglaryPolicyCompanyName || '',
+                                      burglaryPolicyNumber: matchingInsurance.burglaryPolicyNumber || '',
+                                      burglaryPolicyAmount: matchingInsurance.burglaryPolicyAmount || '',
+                                      burglaryPolicyStartDate: safeCreateDate(matchingInsurance.burglaryPolicyStartDate),
+                                      burglaryPolicyEndDate: safeCreateDate(matchingInsurance.burglaryPolicyEndDate),
+                                    }
+                                  : entry
+                              );
+                              setFormData(prev => ({ ...prev, insuranceEntries: updatedEntriesWithData }));
+                            }
+                          } catch (error) {
+                            console.error('Error re-filtering insurance for commodity:', error);
+                          }
+                        }
                       }}
-                      className="text-orange-600"
-                      placeholder="Enter commodity name"
-                    />
+                    >
+                      <SelectTrigger className="text-orange-600">
+                        <SelectValue placeholder="Select commodity" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {commoditiesData.map(commodity => (
+                          <SelectItem key={commodity.id} value={commodity.commodityName}>
+                            {commodity.commodityName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 
@@ -4083,48 +4327,49 @@ export default function WarehouseInspectionForm({
                             if (selectedClient) {
                               try {
                                 console.log('Loading insurance data for client in Additional Insurance:', value);
-                                const clientDoc = await getDocs(query(collection(db, 'clients'), where('firmName', '==', value)));
-                                console.log('Client document found for Additional Insurance:', !clientDoc.empty);
-                                if (!clientDoc.empty) {
-                                  const clientData = clientDoc.docs[0].data() as any;
-                                  console.log('Client data for Additional Insurance:', clientData);
-                                  const insurances = clientData.insurances || [];
-                                  console.log('Insurance data found for Additional Insurance:', insurances);
-                                  
-                                  // Store the insurance data for this additional insurance entry
-                                  setAdditionalInsuranceClientData(prev => ({
-                                    ...prev,
-                                    [insurance.id]: insurances
-                                  }));
-                                  
-                                  // If there's insurance data, populate the first insurance entry
-                                  if (insurances.length > 0) {
-                                    const firstInsurance = insurances[0];
-                                    const updatedEntriesWithInsurance = formData.insuranceEntries.map((entry: InsuranceEntry) =>
-                                      entry.id === insurance.id 
-                                        ? { 
-                                            ...entry, 
-                                            clientName: value,
-                                            clientAddress: selectedClient?.companyAddress || '',
-                                            insuranceCommodity: firstInsurance.commodity || '',
-                                            firePolicyCompanyName: firstInsurance.firePolicyCompanyName || '',
-                                            firePolicyNumber: firstInsurance.firePolicyNumber || '',
-                                            firePolicyAmount: firstInsurance.firePolicyAmount || '',
-                                            firePolicyStartDate: safeCreateDate(firstInsurance.firePolicyStartDate),
-                                            firePolicyEndDate: safeCreateDate(firstInsurance.firePolicyEndDate),
-                                            burglaryPolicyCompanyName: firstInsurance.burglaryPolicyCompanyName || '',
-                                            burglaryPolicyNumber: firstInsurance.burglaryPolicyNumber || '',
-                                            burglaryPolicyAmount: firstInsurance.burglaryPolicyAmount || '',
-                                            burglaryPolicyStartDate: safeCreateDate(firstInsurance.burglaryPolicyStartDate),
-                                            burglaryPolicyEndDate: safeCreateDate(firstInsurance.burglaryPolicyEndDate),
-                                          }
-                                        : entry
-                                    );
-                                    setFormData(prev => ({ ...prev, insuranceEntries: updatedEntriesWithInsurance }));
-                                    console.log('Populated Additional Insurance with client data');
-                                  }
-                                } else {
-                                  console.log('No client document found for Additional Insurance:', value);
+                                const combinedInsurances = await fetchClientInsurances(value);
+                                console.log('Combined insurance data for Additional Insurance:', combinedInsurances);
+                                
+                                // Filter insurances based on selected commodity if available
+                                let filteredInsurances = combinedInsurances;
+                                if (insurance.insuranceCommodity) {
+                                  filteredInsurances = combinedInsurances.filter((ins: any) => 
+                                    ins.insuranceCommodity && ins.insuranceCommodity.toLowerCase() === insurance.insuranceCommodity.toLowerCase()
+                                  );
+                                  console.log('Filtered insurances for commodity (Additional):', insurance.insuranceCommodity, filteredInsurances);
+                                }
+                                
+                                // Store the filtered insurance data for this additional insurance entry
+                                setAdditionalInsuranceClientData(prev => ({
+                                  ...prev,
+                                  [insurance.id]: filteredInsurances.length > 0 ? filteredInsurances : combinedInsurances
+                                }));
+                                
+                                // If there's insurance data, populate the first matching insurance entry
+                                const insuranceToUse = filteredInsurances.length > 0 ? filteredInsurances[0] : (combinedInsurances.length > 0 ? combinedInsurances[0] : null);
+                                if (insuranceToUse) {
+                                  const updatedEntriesWithInsurance = formData.insuranceEntries.map((entry: InsuranceEntry) =>
+                                    entry.id === insurance.id 
+                                      ? { 
+                                          ...entry, 
+                                          clientName: value,
+                                          clientAddress: selectedClient?.companyAddress || '',
+                                          insuranceCommodity: insuranceToUse.insuranceCommodity || insurance.insuranceCommodity,
+                                          firePolicyCompanyName: insuranceToUse.firePolicyCompanyName || '',
+                                          firePolicyNumber: insuranceToUse.firePolicyNumber || '',
+                                          firePolicyAmount: insuranceToUse.firePolicyAmount || '',
+                                          firePolicyStartDate: safeCreateDate(insuranceToUse.firePolicyStartDate),
+                                          firePolicyEndDate: safeCreateDate(insuranceToUse.firePolicyEndDate),
+                                          burglaryPolicyCompanyName: insuranceToUse.burglaryPolicyCompanyName || '',
+                                          burglaryPolicyNumber: insuranceToUse.burglaryPolicyNumber || '',
+                                          burglaryPolicyAmount: insuranceToUse.burglaryPolicyAmount || '',
+                                          burglaryPolicyStartDate: safeCreateDate(insuranceToUse.burglaryPolicyStartDate),
+                                          burglaryPolicyEndDate: safeCreateDate(insuranceToUse.burglaryPolicyEndDate),
+                                        }
+                                      : entry
+                                  );
+                                  setFormData(prev => ({ ...prev, insuranceEntries: updatedEntriesWithInsurance }));
+                                  console.log('Populated Additional Insurance with client data');
                                 }
                               } catch (error) {
                                 console.error('Error loading client insurance data for Additional Insurance:', error);
@@ -5286,15 +5531,15 @@ export default function WarehouseInspectionForm({
               Save Changes
             </Button>
             
-            {/* PENDING or editing state */}
-            {(formData.status === 'pending' || mode === 'edit') && (
+            {/* PENDING state only */}
+            {(formData.status === 'pending' || !formData.status || formData.status === '') && (
               <Button type="submit" className="bg-green-500 hover:bg-green-600 action-button">
                 Proceed to Submit
               </Button>
             )}
             
             {/* SUBMITTED state - initial view */}
-            {formData.status === 'submitted' && mode === 'view' && !formData.showActivationButtons && (
+            {formData.status === 'submitted' && !formData.showActivationButtons && (
               <>
                 <Button 
                   type="button" 
@@ -5651,12 +5896,21 @@ export default function WarehouseInspectionForm({
               <>
                 <div>
                   <Label>Commodity</Label>
-                  <Input
+                  <Select
                     value={editInsuranceFields.insuranceCommodity || ''}
-                    onChange={e => setEditInsuranceFields((f: any) => ({ ...f, insuranceCommodity: e.target.value }))}
-                    className="text-orange-600"
-                    placeholder="Enter commodity name"
-                  />
+                    onValueChange={(value) => setEditInsuranceFields((f: any) => ({ ...f, insuranceCommodity: value }))}
+                  >
+                    <SelectTrigger className="text-orange-600">
+                      <SelectValue placeholder="Select commodity" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {commoditiesData.map(commodity => (
+                        <SelectItem key={commodity.id} value={commodity.commodityName}>
+                          {commodity.commodityName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label>Fire Policy Start Date</Label>

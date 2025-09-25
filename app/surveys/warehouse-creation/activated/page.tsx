@@ -2,6 +2,7 @@
 
 import DashboardLayout from '@/components/dashboard-layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -692,7 +693,7 @@ export default function ActivatedWarehousePage() {
               className="inline-flex items-center text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
             >
               <ArrowLeft className="w-5 h-5 mr-2" />
-              Warehouse Creation
+              Dashboard
             </button>
           </div>
           
@@ -748,7 +749,7 @@ export default function ActivatedWarehousePage() {
             </div>
 
             {/* Filter Dropdowns */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label className="text-green-600 font-medium">State</Label>
                 <Select value={stateFilter} onValueChange={setStateFilter}>
@@ -793,7 +794,7 @@ export default function ActivatedWarehousePage() {
                     </SelectContent>
                   </Select>
                 </div>
-                </div>
+                </div> */}
 
             {/* Entry Count */}
             <div className="text-sm text-green-600">
@@ -865,17 +866,31 @@ export default function ActivatedWarehousePage() {
         )}
 
         {/* Inspection Form Dialog */}
-        {showInspectionForm && selectedInspection && (
-              <WarehouseInspectionForm 
+        <Dialog open={showInspectionForm} onOpenChange={(open) => {
+          if (!open) {
+            setShowInspectionForm(false);
+            setSelectedInspection(null);
+          }
+        }}>
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-semibold text-green-700">
+                Warehouse Inspection Details - {selectedInspection?.inspectionCode}
+              </DialogTitle>
+            </DialogHeader>
+            {selectedInspection && (
+              <WarehouseInspectionForm
                 onClose={() => {
                   setShowInspectionForm(false);
-              setSelectedInspection(null);
-            }}
-            initialData={selectedInspection}
-            mode="edit"
-            onStatusChange={handleStatusChange}
-          />
-        )}
+                  setSelectedInspection(null);
+                }}
+                initialData={selectedInspection}
+                mode="edit"
+                onStatusChange={handleStatusChange}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

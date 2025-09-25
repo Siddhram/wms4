@@ -278,20 +278,39 @@ export default function InsuranceMasterPage() {
         insuranceSnapshot,
         commoditySnapshot,
         clientSnapshot,
-        warehouseSnapshot,
+        inspectionSnapshot,
         bankSnapshot
       ] = await Promise.all([
         getDocs(collection(db, 'insurance')),
         getDocs(collection(db, 'commodities')),
         getDocs(collection(db, 'clients')),
-        getDocs(collection(db, 'warehouses')),
+        getDocs(collection(db, 'inspections')),
         getDocs(collection(db, 'banks'))
       ]);
 
       const fetchedInsurance = insuranceSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as InsuranceData[];
       const fetchedCommodities = commoditySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as CommodityData[];
       const fetchedClients = clientSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ClientData[];
-      const fetchedWarehouses = warehouseSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as WarehouseData[];
+      
+      // Extract unique warehouses from inspections
+      const warehouseSet = new Set<string>();
+      const fetchedWarehouses: WarehouseData[] = [];
+      
+      inspectionSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.warehouseName && !warehouseSet.has(data.warehouseName)) {
+          warehouseSet.add(data.warehouseName);
+          fetchedWarehouses.push({
+            id: doc.id,
+            warehouseName: data.warehouseName,
+            warehouseCode: data.warehouseCode || 'WH-0001',
+            state: data.state || '',
+            branch: data.branch || '',
+            location: data.location || ''
+          });
+        }
+      });
+      
       const fetchedBanks = bankSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as BankData[];
 
       setInsuranceData(fetchedInsurance);

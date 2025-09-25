@@ -29,7 +29,7 @@ const columns = [
   },
   {
     accessorKey: "aum",
-    header: "AUM (₹)",
+    header: "AUM (Rs/MT)",
     cell: ({ row }: { row: Row<any> }) => {
       const amount = parseFloat(row.getValue("aum"));
       const formatted = amount.toFixed(2);
@@ -83,7 +83,7 @@ export default function AUMSummaryTable({ showHeader = false }) {
 
   // CSV export
   const handleExportCSV = () => {
-    const headers = ["State", "Commodity", "Quantity (MT)", "AUM (₹/MT)"];
+    const headers = ["State", "Commodity", "Quantity (MT)", "AUM (Rs/MT)"];
     const rows = summaryRows.map(row => [row.state, row.commodity, row.quantity, row.aum]);
     const csv = [headers, ...rows].map(r => r.join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -154,7 +154,7 @@ export default function AUMSummaryTable({ showHeader = false }) {
             headClassName="bg-orange-100 text-orange-600 font-bold text-center"
             cellClassName="text-green-800 text-center"
             stickyHeader={true}
-            stickyFirstColumn={true}
+            stickyFirstColumn={false}
             showGridLines={true}
           />
         </CardContent>

@@ -103,7 +103,7 @@ export function DataTable<TData, TValue>({
                       className={cn(
                         headClassName,
                         showGridLines ? "border border-gray-300" : "",
-                        stickyFirstColumn && index === 0 ? "sticky left-0 z-10 bg-white" : ""
+                        stickyFirstColumn && index === 0 ? "sticky left-0 z-10 bg-orange-100 border-r border-gray-300" : ""
                       )}
                     >
                       {header.isPlaceholder
@@ -131,7 +131,7 @@ export function DataTable<TData, TValue>({
                       className={cn(
                         cellClassName,
                         showGridLines ? "border border-gray-300" : "",
-                        stickyFirstColumn && index === 0 ? "sticky left-0 z-10 bg-white" : ""
+                        stickyFirstColumn && index === 0 ? "sticky left-0 z-10 bg-white border-r border-gray-300" : ""
                       )}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

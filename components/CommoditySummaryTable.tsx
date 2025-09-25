@@ -26,7 +26,7 @@ const columns = [
   },
   {
     accessorKey: "aum",
-    header: "AUM (₹)",
+    header: "AUM (Rs/MT)",
     cell: ({ row }: { row: Row<any> }) => {
       const amount = parseFloat(row.getValue("aum"));
       const formatted = amount.toFixed(2);
@@ -79,7 +79,7 @@ export default function CommoditySummaryTable({ showHeader = false }) {
 
   // CSV export
   const handleExportCSV = () => {
-    const headers = ["Commodity", "Variety", "Quantity (MT)", "AUM (₹)"];
+    const headers = ["Commodity", "Variety", "Quantity (MT)", "AUM (Rs/MT)"];
     const rows = summaryRows.map(row => [row.commodity, row.variety, row.quantity, row.aum]);
     const csv = [headers, ...rows].map(r => r.join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -125,9 +125,9 @@ export default function CommoditySummaryTable({ showHeader = false }) {
               className="bg-blue-500 hover:bg-blue-700 text-white text-sm md:text-base px-3 md:px-4 py-2"
               disabled={loading || !summaryRows.length}
               >
-              <Download className="w-4 h-4 mr-1 md:mr-2" />
-              <span className="hidden sm:inline">Export CSV</span>
-              <span className="sm:hidden">Export</span>
+              <Download className="w-4 h-4 mr-1 md:mr-2 text-white" />
+              <span className="hidden sm:inline text-white">Export CSV</span>
+              <span className="sm:hidden text-white">Export</span>
               </Button>
             </div>
             {/* Entry Count */}
@@ -154,7 +154,7 @@ export default function CommoditySummaryTable({ showHeader = false }) {
                 headClassName="bg-orange-100 text-orange-600 font-bold text-center"
                 cellClassName="text-green-800 text-center"
                 stickyHeader={true}
-                stickyFirstColumn={true}
+                stickyFirstColumn={false}
                 showGridLines={true}
               />
             </div>

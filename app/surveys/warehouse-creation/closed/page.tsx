@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { DataTable } from '@/components/data-table';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { Row } from '@tanstack/react-table';
 import WarehouseInspectionForm from '../inspection-form';
 
@@ -320,7 +320,7 @@ export default function ClosedWarehousePage() {
               onClick={() => router.back()}
               className="inline-block text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
             >
-              ← Warehouse Creation
+              ← Dashboard
             </button>
           </div>
           
@@ -640,7 +640,12 @@ export default function ClosedWarehousePage() {
 
         {/* Warehouse Inspection Form Dialog */}
         <Dialog open={showInspectionForm} onOpenChange={setShowInspectionForm}>
-          <DialogContent className="max-w-full max-h-[90vh] overflow-y-auto p-0">
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-semibold text-green-700">
+                Warehouse Inspection Details - {selectedInspection?.inspectionCode}
+              </DialogTitle>
+            </DialogHeader>
             {selectedInspection && (
               <WarehouseInspectionForm 
                 onClose={() => {

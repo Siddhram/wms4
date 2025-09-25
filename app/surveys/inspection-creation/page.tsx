@@ -1110,15 +1110,6 @@ export default function InspectionCreationPage() {
           
           {/* Action Buttons */}
           <div className="flex space-x-2">
-            {inspections.length > 0 && (
-              <Button 
-                onClick={exportToCSV}
-                className="bg-blue-500 hover:bg-blue-600 text-white"
-              >
-                <Download className="mr-2 h-4 w-4" />
-                Export CSV
-              </Button>
-            )}
             <Dialog open={showAddModal} onOpenChange={(open) => {
               setShowAddModal(open);
               if (!open) {
@@ -1364,6 +1355,13 @@ export default function InspectionCreationPage() {
                     className="border-green-300 focus:border-green-500 pl-10"
                   />
                 </div>
+                <Button 
+                  onClick={exportToCSV}
+                  className="bg-blue-500 hover:bg-blue-600 text-white"
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Export CSV
+                </Button>
                 {searchTerm && (
                   <Button
                     onClick={() => setSearchTerm('')}
