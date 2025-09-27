@@ -12,6 +12,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
+import { useRoleAccess } from '@/hooks/use-role-access';
 import {
   RotateCcw,
   Download,
@@ -289,6 +290,7 @@ const resubmittedColumns = [
 export default function ResubmittedWarehousePage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { getSurveyTabMode } = useRoleAccess();
   
   const [inspections, setInspections] = useState<InspectionData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -787,7 +789,7 @@ export default function ResubmittedWarehousePage() {
                   setSelectedInspection(null);
                 }}
                 initialData={selectedInspection}
-                mode="edit"
+                mode={getSurveyTabMode('resubmitted')}
                 onStatusChange={handleStatusChange}
               />
             )}

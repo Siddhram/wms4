@@ -2,6 +2,7 @@
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
+import { useRoleAccess } from '@/hooks/use-role-access';
 import { useEffect } from 'react';
 import Image from 'next/image';
 import DashboardLayout from '@/components/dashboard-layout';
@@ -77,6 +78,15 @@ export default function ReleaseOrderPage() {
   const { user } = useAuth();
   const userRole = user?.role || 'user';
   const router = useRouter();
+  const {
+    canCreateReleaseOrder,
+    canApproveReleaseOrder,
+    canRejectReleaseOrder,
+    canResubmitReleaseOrder,
+    canViewROPDF,
+    showROActionButtons,
+    canEditRORemark
+  } = useRoleAccess();
   // Placeholder state for search
   const [searchTerm, setSearchTerm] = React.useState('');
   const [showAddModal, setShowAddModal] = React.useState(false);
@@ -624,12 +634,14 @@ export default function ReleaseOrderPage() {
             Release Order
           </h1>
         </div>
-        <Button 
-          className="bg-green-500 hover:bg-green-600 text-white px-4 lg:px-8 py-3 text-sm font-semibold shadow-lg rounded-xl w-full lg:w-auto" 
-          onClick={() => setShowAddModal(true)}
-        >
-          <Plus className="mr-2 h-4 lg:h-5 w-4 lg:w-5" /> Add RO
-        </Button>
+        {canCreateReleaseOrder() && (
+          <Button 
+            className="bg-green-500 hover:bg-green-600 text-white px-4 lg:px-8 py-3 text-sm font-semibold shadow-lg rounded-xl w-full lg:w-auto" 
+            onClick={() => setShowAddModal(true)}
+          >
+            <Plus className="mr-2 h-4 lg:h-5 w-4 lg:w-5" /> Add RO
+          </Button>
+        )}
       </div>
 
       {/* Search and Export */}
@@ -1139,8 +1151,8 @@ export default function ReleaseOrderPage() {
                     <span className="text-gray-500 text-sm">No file</span>
                   )}
                 </div>
-                {/* Generate Receipt Button (only if approved) */}
-                {selectedRO.roStatus === 'approved' && (
+                {/* Generate Receipt Button (only if approved and user has PDF permissions) */}
+                {selectedRO.roStatus === 'approved' && canViewROPDF() && (
                   <div className="flex justify-center sm:justify-end mt-4">
                     <Button type="button" className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto" onClick={async () => {
                       try {
@@ -1322,13 +1334,28 @@ export default function ReleaseOrderPage() {
                 )}
                 <div className="mt-4">
                   <Label className="text-sm sm:text-base">Remark</Label>
-                  <Input value={remark} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRemark(e.target.value)} placeholder="Enter remark..." className="text-sm" />
+                  <Input 
+                    value={remark} 
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRemark(e.target.value)} 
+                    placeholder={canEditRORemark() ? "Enter remark..." : "Read-only"}
+                    className="text-sm" 
+                    readOnly={!canEditRORemark()}
+                  />
                 </div>
-                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mt-4 sm:justify-end">
-                  <Button type="button" className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto" onClick={() => handleROStatusChange('approved')} disabled={roStatusUpdating}>Approve</Button>
-                  <Button type="button" className="bg-red-600 hover:bg-red-700 text-white w-full sm:w-auto" onClick={() => handleROStatusChange('rejected')} disabled={roStatusUpdating}>Reject</Button>
-                  <Button type="button" className="bg-yellow-500 hover:bg-yellow-600 text-white w-full sm:w-auto" onClick={() => handleROStatusChange('resubmitted')} disabled={roStatusUpdating}>Resubmit</Button>
-                </div>
+                {/* Status action buttons - only for checkers */}
+                {showROActionButtons() && (
+                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mt-4 sm:justify-end">
+                    {canApproveReleaseOrder() && (
+                      <Button type="button" className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto" onClick={() => handleROStatusChange('approved')} disabled={roStatusUpdating}>Approve</Button>
+                    )}
+                    {canRejectReleaseOrder() && (
+                      <Button type="button" className="bg-red-600 hover:bg-red-700 text-white w-full sm:w-auto" onClick={() => handleROStatusChange('rejected')} disabled={roStatusUpdating}>Reject</Button>
+                    )}
+                    {canResubmitReleaseOrder() && (
+                      <Button type="button" className="bg-yellow-500 hover:bg-yellow-600 text-white w-full sm:w-auto" onClick={() => handleROStatusChange('resubmitted')} disabled={roStatusUpdating}>Resubmit</Button>
+                    )}
+                  </div>
+                )}
               </form>
             )}
           </DialogContent>

@@ -4,6 +4,7 @@ import DashboardLayout from '@/components/dashboard-layout';
 import { Card, CardContent } from "@/components/ui/card";
 import Link from "next/link";
 import { useRouter } from 'next/navigation';
+import { useRoleAccess } from '@/hooks/use-role-access';
 import {
   ClipboardCheck,
   Building
@@ -28,6 +29,7 @@ const surveyModules = [
 
 export default function SurveysPage() {
   const router = useRouter();
+  const { userRole, canAccess } = useRoleAccess();
 
   return (
     <DashboardLayout>
@@ -48,10 +50,20 @@ export default function SurveysPage() {
             <h1 className="text-3xl font-bold tracking-tight text-orange-600 inline-block border-b-4 border-green-500 pb-2 px-6 py-3 bg-orange-100 rounded-lg">
               Survey
             </h1>
+            {userRole === 'maker' && (
+          <div className=""></div>
+              // <div className="mt-2 inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+              //   Maker Role - Create & Edit Surveys
+              // </div>
+            )}
           </div>
           
-          {/* Empty div for spacing */}
-          <div className="w-32"></div>
+          {/* Role info */}
+          <div className="w-32 text-right">
+            <div className="text-sm text-gray-600">
+              Role: <span className="font-semibold capitalize">{userRole}</span>
+            </div>
+          </div>
         </div>
         
         {/* Survey Module Cards */}

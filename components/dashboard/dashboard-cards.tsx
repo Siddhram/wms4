@@ -22,42 +22,49 @@ const dashboardCards = [
     icon: ClipboardCheck,
     href: "/surveys",
     color: "text-green-500",
+    allowedRoles: ["maker", "checker", "admin"]
   },
   {
     title: "Inward",
     icon: PackageCheck,
     href: "/inward",
     color: "text-yellow-500",
+    allowedRoles: ["maker", "checker", "admin"]
   },
   {
     title: "Release Order",
     icon: ArrowRightLeft,
     href: "/ro",
     color: "text-purple-500",
+    allowedRoles: ["maker", "checker", "admin"]
   },
   {
     title: "Delivery Order",
     icon: Truck,
     href: "/delivery-order",
     color: "text-pink-500",
+    allowedRoles: ["maker", "checker", "admin"]
   },
   {
     title: "Outward",
     icon: Box,
     href: "/outward",
     color: "text-orange-500",
+    allowedRoles: ["maker", "checker", "admin"]
   },
   {
     title: "Reports",
     icon: FileText,
     href: "/reports",
     color: "text-red-500",
+    allowedRoles: ["maker", "checker", "admin"]
   },
   {
     title: "Master Data",
     icon: Database,
     href: "/master-data",
     color: "text-indigo-500",
+    allowedRoles: ["checker", "admin"]
   },
 ];
 
@@ -68,22 +75,26 @@ const adminCards = [
     icon: Shield,
     href: "/admin",
     color: "text-emerald-500",
+    allowedRoles: ["admin"]
   },
   {
     title: "User Management",
     icon: Users,
     href: "/admin/users",
     color: "text-cyan-500",
+    allowedRoles: ["admin"]
   },
 ];
 
 export function DashboardCards() {
   const { user } = useAuth();
   
-  // Combine regular cards with admin cards if user is admin
-  const availableCards = user?.role === 'admin' 
-    ? [...dashboardCards, ...adminCards] 
-    : dashboardCards;
+  // Combine all cards and filter by user role
+  const allCards = [...dashboardCards, ...adminCards];
+  
+  const availableCards = allCards.filter(card => 
+    user?.role && card.allowedRoles.includes(user.role)
+  );
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 lg:gap-6">

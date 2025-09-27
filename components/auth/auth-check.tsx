@@ -8,8 +8,14 @@ import { useAuth } from '@/contexts/AuthContext';
 const roleBasedRoutes: Record<string, Set<string>> = {
   maker: new Set([
     '/dashboard',
+    '/surveys',          // Added surveys access for makers
+    '/surveys/inspection-creation',
+    '/surveys/warehouse-creation',
     '/inward',
     '/outward',
+    '/delivery-order',   // Added delivery order access for makers
+    '/ro',               // Added release order access for makers
+    '/reports',          // Added reports access for makers
     '/commodity-summary',
     '/aum-summary',
     '/warehouse-status', // Allow warehouse status for maker
@@ -17,7 +23,18 @@ const roleBasedRoutes: Record<string, Set<string>> = {
   checker: new Set([
     '/dashboard',
     '/surveys',
+    '/surveys/inspection-creation',
+    '/surveys/warehouse-creation',
+    '/inward',           // Added inward access for checkers
+    '/outward',          // Added outward access for checkers
     '/reports',
+    '/delivery-order',   // Added delivery order access for checkers
+    '/ro',               // Added release order access for checkers
+    '/master-data',      // Added master data access for checkers
+    '/master-data/clients',
+    '/master-data/commodities',
+    '/master-data/banks',
+    '/master-data/branches',
     '/commodity-summary',
     '/aum-summary',
     '/warehouse-status', // Allow warehouse status for checker
@@ -31,6 +48,8 @@ const roleBasedRoutes: Record<string, Set<string>> = {
     '/master-data/branches',
     '/reports',
     '/surveys',
+    '/surveys/inspection-creation',
+    '/surveys/warehouse-creation',
     '/inward',
     '/outward',
     '/ro',

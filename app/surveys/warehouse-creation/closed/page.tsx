@@ -12,6 +12,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
+import { useRoleAccess } from '@/hooks/use-role-access';
 import {
   Archive,
   Download,
@@ -104,6 +105,7 @@ function getInsuranceAlertStatus(inspection: InspectionData): 'none' | 'expiring
 export default function ClosedWarehousePage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { getSurveyTabMode } = useRoleAccess();
   const [inspections, setInspections] = useState<InspectionData[]>([]);
   const [showInspectionForm, setShowInspectionForm] = useState(false);
   const [selectedInspection, setSelectedInspection] = useState<InspectionData | null>(null);
@@ -682,7 +684,7 @@ export default function ClosedWarehousePage() {
                   loadInspections(); // Reload data after closing form
                 }}
                 initialData={convertInspectionToFormData(selectedInspection)}
-                mode="view"
+                mode={getSurveyTabMode('closed')}
                 onStatusChange={(warehouseCode, newStatus) => {
                   // Reload the inspections data after status change
                   loadInspections();

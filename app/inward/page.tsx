@@ -13,8 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Search, Download, Plus, Edit, Trash2, Eye, AlertTriangle, Lightbulb } from "lucide-react";
+import { Search, Download, Plus, Edit, Trash2, Eye, AlertTriangle, Lightbulb, Info } from "lucide-react";
 import { useToast } from '@/hooks/use-toast';
+import { useRoleAccess } from '@/hooks/use-role-access';
 import { DataTable } from '@/components/data-table';
 import { uploadToCloudinary } from '@/lib/cloudinary';
 import React from 'react';
@@ -206,6 +207,23 @@ function AlertCell({ row }: { row: any }) {
 
 export default function InwardPage() {
   const router = useRouter();
+  const { 
+    canCreateInwardEntry, 
+    canEditInwardEntry, 
+    canViewCIR, 
+    canApproveCIR, 
+    canRejectCIR, 
+    canResubmitCIR,
+    canViewStorageReceipt,
+    canGenerateStorageReceipt,
+    canPrintStorageReceipt,
+    canViewWarehouseReceipt,
+    canGenerateWarehouseReceipt,
+    canPrintWarehouseReceipt,
+    showCIRActionButtons,
+    getInwardEntryMode,
+    userRole
+  } = useRoleAccess();
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [inwardData, setInwardData] = useState<any[]>([]);
@@ -3526,25 +3544,52 @@ export default function InwardPage() {
             size="sm"
             variant="ghost"
             className="h-8 w-8 p-0 text-green-600 hover:text-green-800 hover:bg-green-50"
+            title={canViewStorageReceipt() ? "View Storage/Warehouse Receipt" : "No permission to view receipts"}
           >
             <Eye className="h-4 w-4" />
           </Button>
-          <Button
-            onClick={() => handleEdit(row.original)}
-            size="sm"
-            variant="ghost"
-            className="h-8 w-8 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
-          <Button
-            onClick={() => handleDelete(row.original)}
-            size="sm"
-            variant="ghost"
-            className="h-8 w-8 p-0 text-red-600 hover:text-red-800 hover:bg-red-50"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {canEditInwardEntry() ? (
+            <Button
+              onClick={() => handleEdit(row.original)}
+              size="sm"
+              variant="ghost"
+              className="h-8 w-8 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+              title="Edit inward entry"
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 w-8 p-0 text-gray-400 cursor-not-allowed opacity-50"
+              disabled
+              title={userRole === 'checker' ? "Checkers cannot edit inward entries" : "No permission to edit entries"}
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+          )}
+          {canEditInwardEntry() ? (
+            <Button
+              onClick={() => handleDelete(row.original)}
+              size="sm"
+              variant="ghost"
+              className="h-8 w-8 p-0 text-red-600 hover:text-red-800 hover:bg-red-50"
+              title="Delete inward entry"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 w-8 p-0 text-gray-400 cursor-not-allowed opacity-50"
+              disabled
+              title={userRole === 'checker' ? "Checkers cannot delete inward entries" : "No permission to delete entries"}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       ),
     },
@@ -5833,11 +5878,32 @@ export default function InwardPage() {
             </Button>
           ) : cirModalData?.cirStatus === 'Resubmitted' ? null : cirModalData?.cirStatus === 'Rejected' ? null : (
             cirReadOnly ? (
-              <>
-                <Button onClick={handleCIRApprove} className="bg-green-600 hover:bg-green-700 text-white" disabled={!cirRemarks.trim()}>Approve</Button>
-                <Button onClick={handleCIRReject} className="bg-red-600 hover:bg-red-700 text-white" disabled={!cirRemarks.trim()}>Reject</Button>
-                <Button onClick={handleCIRResubmit} className="bg-yellow-400 hover:bg-yellow-500 text-white" disabled={!cirRemarks.trim()}>Resubmit</Button>
-              </>
+              showCIRActionButtons() ? (
+                <>
+                  {canApproveCIR() && (
+                    <Button onClick={handleCIRApprove} className="bg-green-600 hover:bg-green-700 text-white" disabled={!cirRemarks.trim()}>
+                      Approve
+                    </Button>
+                  )}
+                  {canRejectCIR() && (
+                    <Button onClick={handleCIRReject} className="bg-red-600 hover:bg-red-700 text-white" disabled={!cirRemarks.trim()}>
+                      Reject
+                    </Button>
+                  )}
+                  {canResubmitCIR() && (
+                    <Button onClick={handleCIRResubmit} className="bg-yellow-400 hover:bg-yellow-500 text-white" disabled={!cirRemarks.trim()}>
+                      Resubmit
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <div className="flex flex-col items-center text-gray-500">
+                  <span className="text-sm">CIR Actions (Read Only)</span>
+                  <span className="text-xs">
+                    {userRole === 'maker' ? 'Makers can only view CIR reports' : 'No permission for CIR actions'}
+                  </span>
+                </div>
+              )
             ) : (
               <Button onClick={handleCIRSave} color="primary">Save</Button>
             )
@@ -5860,14 +5926,31 @@ export default function InwardPage() {
             Inward Module
           </h1>
         </div>
-        <Button className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 text-lg font-semibold shadow-lg rounded-xl" onClick={() => {
-          setIsEditMode(false);
-          setEditingRow(null);
-          resetForm();
-          setShowAddModal(true);
-        }}>
-          + Add Inward
-        </Button>
+        <div className="flex flex-col items-end">
+          {canCreateInwardEntry() ? (
+            <Button className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 text-lg font-semibold shadow-lg rounded-xl" onClick={() => {
+              setIsEditMode(false);
+              setEditingRow(null);
+              resetForm();
+              setShowAddModal(true);
+            }}>
+              + Add Inward
+            </Button>
+          ) : (
+            <div className="flex flex-col items-end">
+              <Button 
+                className="bg-gray-400 cursor-not-allowed text-white px-8 py-3 text-lg font-semibold shadow-lg rounded-xl opacity-50" 
+                disabled
+                title="You don't have permission to create inward entries"
+              >
+                + Add Inward (Read Only)
+              </Button>
+              <span className="text-xs text-gray-500 mt-1">
+                {userRole === 'checker' ? 'Checkers can only view/approve entries' : 'No permission to create entries'}
+              </span>
+            </div>
+          )}
+        </div>
         {/* Alert dialog for expired reservation/insurance */}
         <Dialog open={alertOpen} onOpenChange={(open) => setAlertOpen(open)}>
           <DialogContent className="max-w-lg">
@@ -6004,10 +6087,22 @@ export default function InwardPage() {
             </DialogTitle>
           </DialogHeader>
           <form className="space-y-4" onSubmit={handleSubmit}>
+            {!canCreateInwardEntry && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                <div className="flex items-center text-blue-800">
+                  <Info className="h-4 w-4 mr-2" />
+                  <span className="text-sm font-medium">Read-Only Mode: You can view inward details but cannot modify entry fields. Use CIR, SR, and WR sections for approvals.</span>
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label className="block font-semibold mb-1">State</Label>
-                <Select value={form.state} onValueChange={v => setBaseForm(f => ({ ...f, state: v, branch: '', location: '', warehouseName: '', warehouseCode: '', warehouseAddress: '', businessType: '' }))}>
+                <Select 
+                  value={form.state} 
+                  onValueChange={v => setBaseForm(f => ({ ...f, state: v, branch: '', location: '', warehouseName: '', warehouseCode: '', warehouseAddress: '', businessType: '' }))}
+                  disabled={!canCreateInwardEntry}
+                >
                   <SelectTrigger><SelectValue placeholder="Select State" /></SelectTrigger>
                   <SelectContent>
                     {states.map(state => <SelectItem key={state} value={state}>{state}</SelectItem>)}
@@ -6016,7 +6111,11 @@ export default function InwardPage() {
               </div>
               <div>
                 <Label className="block font-semibold mb-1">Branch</Label>
-                <Select value={form.branch} onValueChange={v => setBaseForm(f => ({ ...f, branch: v, location: '', warehouseName: '', warehouseCode: '', warehouseAddress: '', businessType: '' }))} disabled={!form.state}>
+                <Select 
+                  value={form.branch} 
+                  onValueChange={v => setBaseForm(f => ({ ...f, branch: v, location: '', warehouseName: '', warehouseCode: '', warehouseAddress: '', businessType: '' }))} 
+                  disabled={!form.state || !canCreateInwardEntry}
+                >
                   <SelectTrigger><SelectValue placeholder="Select Branch" /></SelectTrigger>
                   <SelectContent>
                     {filteredBranches.map((b: any) => <SelectItem key={b.branch} value={b.branch}>{b.branch}</SelectItem>)}
@@ -6028,7 +6127,11 @@ export default function InwardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label className="block font-semibold mb-1">Location</Label>
-                <Select value={form.location} onValueChange={v => setBaseForm(f => ({ ...f, location: v, warehouseName: '', warehouseCode: '', warehouseAddress: '', businessType: '' }))} disabled={!form.branch}>
+                <Select 
+                  value={form.location} 
+                  onValueChange={v => setBaseForm(f => ({ ...f, location: v, warehouseName: '', warehouseCode: '', warehouseAddress: '', businessType: '' }))} 
+                  disabled={!form.branch || !canCreateInwardEntry}
+                >
                   <SelectTrigger><SelectValue placeholder="Select Location" /></SelectTrigger>
                   <SelectContent>
                     {filteredLocations.map((loc: any) => <SelectItem key={loc.locationName} value={loc.locationName}>{loc.locationName}</SelectItem>)}
@@ -6037,50 +6140,54 @@ export default function InwardPage() {
               </div>
               <div>
                 <Label className="block font-semibold mb-1">Warehouse Name</Label>
-                <Select value={form.warehouseName} onValueChange={async (warehouseName) => {
-                  // Fetch available reservations when warehouse changes
-                  if (warehouseName && form.client) {
-                    fetchAvailableReservations(warehouseName, form.client);
-                  }
-                  
-                  const selectedWarehouse = filteredWarehouses.find((w: any) => w.warehouseName === warehouseName);
-                  
-                  setBaseForm(f => ({ 
-                    ...f, 
-                    warehouseName: warehouseName,
-                    warehouseCode: selectedWarehouse?.warehouseCode || '',
-                    warehouseAddress: selectedWarehouse?.warehouseInspectionData?.address || selectedWarehouse?.warehouseAddress || '',
-                    businessType: selectedWarehouse?.businessType || '',
-                    bankName: selectedWarehouse?.bankName || '',
-                    bankBranch: selectedWarehouse?.bankBranch || '',
-                    bankState: selectedWarehouse?.bankState || '',
-                    ifscCode: selectedWarehouse?.ifscCode || '',
-                    // Clear insurance data when warehouse changes
-                    insuranceManagedBy: '',
-                    firePolicyNumber: '',
-                    firePolicyAmount: '',
-                    firePolicyStart: '',
-                    firePolicyEnd: '',
-                    burglaryPolicyNumber: '',
-                    burglaryPolicyAmount: '',
-                    burglaryPolicyStart: '',
-                    burglaryPolicyEnd: '',
-                    firePolicyCompanyName: '',
-                    burglaryPolicyCompanyName: '',
-                    bankFundedBy: '',
-                    selectedInsurance: null,
-                  }));
-                  
-                  // Reset insurance selections
-                  setSelectedInsuranceType('all');
-                  setSelectedInsuranceIndex(null);
-                  setSelectedInsuranceInfoType('');
-                  setSelectedInsuranceInfoIndex(null);
-                  setInsuranceEntries([]);
-                  
-                  console.log('✅ Warehouse selected:', warehouseName);
-                  console.log('� Insurance will be fetched when commodity is selected');
-                }} disabled={!form.location}>
+                <Select 
+                  value={form.warehouseName} 
+                  onValueChange={async (warehouseName) => {
+                    // Fetch available reservations when warehouse changes
+                    if (warehouseName && form.client) {
+                      fetchAvailableReservations(warehouseName, form.client);
+                    }
+                    
+                    const selectedWarehouse = filteredWarehouses.find((w: any) => w.warehouseName === warehouseName);
+                    
+                    setBaseForm(f => ({ 
+                      ...f, 
+                      warehouseName: warehouseName,
+                      warehouseCode: selectedWarehouse?.warehouseCode || '',
+                      warehouseAddress: selectedWarehouse?.warehouseInspectionData?.address || selectedWarehouse?.warehouseAddress || '',
+                      businessType: selectedWarehouse?.businessType || '',
+                      bankName: selectedWarehouse?.bankName || '',
+                      bankBranch: selectedWarehouse?.bankBranch || '',
+                      bankState: selectedWarehouse?.bankState || '',
+                      ifscCode: selectedWarehouse?.ifscCode || '',
+                      // Clear insurance data when warehouse changes
+                      insuranceManagedBy: '',
+                      firePolicyNumber: '',
+                      firePolicyAmount: '',
+                      firePolicyStart: '',
+                      firePolicyEnd: '',
+                      burglaryPolicyNumber: '',
+                      burglaryPolicyAmount: '',
+                      burglaryPolicyStart: '',
+                      burglaryPolicyEnd: '',
+                      firePolicyCompanyName: '',
+                      burglaryPolicyCompanyName: '',
+                      bankFundedBy: '',
+                      selectedInsurance: null,
+                    }));
+                    
+                    // Reset insurance selections
+                    setSelectedInsuranceType('all');
+                    setSelectedInsuranceIndex(null);
+                    setSelectedInsuranceInfoType('');
+                    setSelectedInsuranceInfoIndex(null);
+                    setInsuranceEntries([]);
+                    
+                    console.log('✅ Warehouse selected:', warehouseName);
+                    console.log('� Insurance will be fetched when commodity is selected');
+                  }} 
+                  disabled={!form.location || !canCreateInwardEntry}
+                >
                   <SelectTrigger><SelectValue placeholder="Select Warehouse" /></SelectTrigger>
                   <SelectContent>
                     {filteredWarehouses.map((w: any) => (
@@ -6114,13 +6221,17 @@ export default function InwardPage() {
             </div>
               <div>
                 <Label className="block font-semibold mb-1">Client Name</Label>
-                <Select value={form.client} onValueChange={v => {
-                  setBaseForm(f => ({ ...f, client: v }));
-                  // Fetch available reservations when client changes
-                  if (form.warehouseName && v) {
-                    fetchAvailableReservations(form.warehouseName, v);
-                  }
-                }}>
+                <Select 
+                  value={form.client} 
+                  onValueChange={v => {
+                    setBaseForm(f => ({ ...f, client: v }));
+                    // Fetch available reservations when client changes
+                    if (form.warehouseName && v) {
+                      fetchAvailableReservations(form.warehouseName, v);
+                    }
+                  }}
+                  disabled={!canCreateInwardEntry}
+                >
                   <SelectTrigger><SelectValue placeholder="Select Client" /></SelectTrigger>
                   <SelectContent>
                     {clients.map((c: any) => <SelectItem key={c.firmName} value={c.firmName}>{c.firmName}</SelectItem>)}
@@ -6157,6 +6268,7 @@ export default function InwardPage() {
                     value={form.dateOfInward} 
                     onChange={e => setBaseForm(f => ({ ...f, dateOfInward: e.target.value }))} 
                     placeholder="Select date"
+                    disabled={!canCreateInwardEntry}
                   />
                 </div>
                 <div>
@@ -6165,6 +6277,7 @@ export default function InwardPage() {
                     value={form.cadNumber} 
                     onChange={e => setBaseForm(f => ({ ...f, cadNumber: e.target.value }))} 
                     placeholder="Enter CAD Number"
+                    disabled={!canCreateInwardEntry}
                   />
                 </div>
               </div>
@@ -6176,6 +6289,7 @@ export default function InwardPage() {
                     value={form.bankReceipt} 
                     onChange={e => setBaseForm(f => ({ ...f, bankReceipt: e.target.value }))} 
                     placeholder="Enter Base Receipt Number"
+                    disabled={!canCreateInwardEntry}
                   />
                 </div>
               </div>
@@ -6188,7 +6302,11 @@ export default function InwardPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
                   <Label className="block font-semibold mb-2">Commodity <span className="text-red-500">*</span></Label>
-                  <Select value={form.commodity} onValueChange={handleCommodityChange}>
+                  <Select 
+                    value={form.commodity} 
+                    onValueChange={handleCommodityChange}
+                    disabled={!canCreateInwardEntry}
+                  >
                     <SelectTrigger><SelectValue placeholder="Select Commodity" /></SelectTrigger>
                     <SelectContent>
                       {commodities.map((c: any) => (
@@ -6204,7 +6322,7 @@ export default function InwardPage() {
                   <Select 
                     value={form.varietyName} 
                     onValueChange={handleVarietyChange}
-                    disabled={!form.commodity}
+                    disabled={!form.commodity || !canCreateInwardEntry}
                   >
                     <SelectTrigger><SelectValue placeholder="Select Variety" /></SelectTrigger>
                     <SelectContent>
@@ -6226,6 +6344,7 @@ export default function InwardPage() {
                     value={form.marketRate} 
                     onChange={e => setBaseForm(f => ({ ...f, marketRate: e.target.value }))} 
                     placeholder="Enter Market Rate"
+                    disabled={!canCreateInwardEntry}
                   />
                 </div>
                 <div>
@@ -6322,6 +6441,7 @@ export default function InwardPage() {
                         const selected = availableReservations.find(res => res.id === reservationId);
                         setSelectedReservation(selected);
                       }}
+                      disabled={!canCreateInwardEntry}
                     >
                       <SelectTrigger><SelectValue placeholder="Choose from available reservations" /></SelectTrigger>
                       <SelectContent>
@@ -6744,6 +6864,7 @@ export default function InwardPage() {
                               value={entry.vehicleNumber || ''} 
                               onChange={(e) => handleEntryUpdate(index, 'vehicleNumber', e.target.value)}
                               className="bg-white border-green-300" 
+                              disabled={!canCreateInwardEntry}
                             />
                           </div>
                           <div>
@@ -6752,6 +6873,7 @@ export default function InwardPage() {
                               value={entry.getpassNumber || ''} 
                               onChange={(e) => handleEntryUpdate(index, 'getpassNumber', e.target.value)}
                               className="bg-white border-green-300" 
+                              disabled={!canCreateInwardEntry}
                             />
                           </div>
                         </div>
@@ -6767,6 +6889,7 @@ export default function InwardPage() {
                               value={entry.weightBridge || ''} 
                               onChange={(e) => handleEntryUpdate(index, 'weightBridge', e.target.value)}
                               className="bg-white border-green-300" 
+                              disabled={!canCreateInwardEntry}
                             />
                           </div>
                           <div>
@@ -6775,6 +6898,7 @@ export default function InwardPage() {
                               value={entry.weightBridgeSlipNumber || ''} 
                               onChange={(e) => handleEntryUpdate(index, 'weightBridgeSlipNumber', e.target.value)}
                               className="bg-white border-green-300" 
+                              disabled={!canCreateInwardEntry}
                             />
                           </div>
                         </div>
@@ -6790,6 +6914,7 @@ export default function InwardPage() {
                               value={entry.grossWeight || ''} 
                               onChange={(e) => handleEntryUpdate(index, 'grossWeight', e.target.value)}
                               className="bg-white border-green-300" 
+                              disabled={!canCreateInwardEntry}
                             />
                           </div>
                           <div>
@@ -6798,6 +6923,7 @@ export default function InwardPage() {
                               value={entry.tareWeight || ''} 
                               onChange={(e) => handleEntryUpdate(index, 'tareWeight', e.target.value)}
                               className="bg-white border-green-300" 
+                              disabled={!canCreateInwardEntry}
                             />
                           </div>
                           <div>
@@ -6806,6 +6932,7 @@ export default function InwardPage() {
                               value={entry.netWeight || ''} 
                               onChange={(e) => handleEntryUpdate(index, 'netWeight', e.target.value)}
                               className="bg-white border-green-300" 
+                              disabled={!canCreateInwardEntry}
                             />
                           </div>
                         </div>
@@ -6820,6 +6947,7 @@ export default function InwardPage() {
                                   ? 'border-red-500 bg-red-50' 
                                   : 'border-green-300'
                               }`}
+                              disabled={!canCreateInwardEntry}
                             />
                             {entry.totalBags && !validateEntryStackBags(entry) && (
                               <p className="text-xs text-red-600 mt-1">
@@ -6833,6 +6961,7 @@ export default function InwardPage() {
                               value={entry.totalQuantity || ''} 
                               onChange={(e) => handleEntryUpdate(index, 'totalQuantity', e.target.value)}
                               className="bg-white border-green-300" 
+                              disabled={!canCreateInwardEntry}
                             />
                           </div>
                           <div>
@@ -6862,6 +6991,7 @@ export default function InwardPage() {
                                   size="sm"
                                   onClick={() => handleEntryRemoveStack(index, stackIndex)}
                                   className="text-red-600 border-red-300 hover:bg-red-50"
+                                  disabled={!canCreateInwardEntry}
                                 >
                                   Remove
                                 </Button>
@@ -6873,6 +7003,7 @@ export default function InwardPage() {
                                     value={stack.stackNumber || ''} 
                                     onChange={(e) => handleEntryStackUpdate(index, stackIndex, 'stackNumber', e.target.value)}
                                     className="bg-white border-green-300" 
+                                    disabled={!canCreateInwardEntry}
                                   />
                                 </div>
                                 <div>
@@ -6881,6 +7012,7 @@ export default function InwardPage() {
                                     value={stack.numberOfBags || ''} 
                                     onChange={(e) => handleEntryStackUpdate(index, stackIndex, 'numberOfBags', e.target.value)}
                                     className="bg-white border-green-300" 
+                                    disabled={!canCreateInwardEntry}
                                   />
                                 </div>
                               </div>
@@ -7053,6 +7185,7 @@ export default function InwardPage() {
                   type="button" 
                   onClick={addNewInwardEntry}
                   className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md text-sm"
+                  disabled={!canCreateInwardEntry}
                 >
                   Add New Entry
                 </Button>
@@ -7066,6 +7199,7 @@ export default function InwardPage() {
                     value={form.vehicleNumber} 
                     onChange={e => setCurrentEntryForm(f => ({ ...f, vehicleNumber: e.target.value }))} 
                     placeholder="Enter Vehicle Number"
+                    disabled={!canCreateInwardEntry}
                   />
                 </div>
                 <div>
@@ -7074,6 +7208,7 @@ export default function InwardPage() {
                     value={form.getpassNumber} 
                     onChange={e => setCurrentEntryForm(f => ({ ...f, getpassNumber: e.target.value }))} 
                     placeholder="Enter Gatepass Number"
+                    disabled={!canCreateInwardEntry}
                   />
                   <p className="text-xs text-orange-600 mt-1">Gatepass number must be unique across all entries</p>
                 </div>
@@ -7087,6 +7222,7 @@ export default function InwardPage() {
                     value={form.weightBridge} 
                     onChange={e => setCurrentEntryForm(f => ({ ...f, weightBridge: e.target.value }))} 
                     placeholder="Enter Weighbridge Name"
+                    disabled={!canCreateInwardEntry}
                   />
                 </div>
                 <div>
@@ -7095,6 +7231,7 @@ export default function InwardPage() {
                     value={form.weightBridgeSlipNumber} 
                     onChange={e => setCurrentEntryForm(f => ({ ...f, weightBridgeSlipNumber: e.target.value }))} 
                     placeholder="Enter Slip Number"
+                    disabled={!canCreateInwardEntry}
                   />
                 </div>
               </div>
@@ -7109,6 +7246,7 @@ export default function InwardPage() {
                     value={form.grossWeight} 
                     onChange={e => handleGrossWeightChange(e.target.value)} 
                     placeholder="0.000"
+                    disabled={!canCreateInwardEntry}
                   />
                 </div>
                 <div>
@@ -7119,6 +7257,7 @@ export default function InwardPage() {
                     value={form.tareWeight} 
                     onChange={e => handleTareWeightChange(e.target.value)} 
                     placeholder="0.000"
+                    disabled={!canCreateInwardEntry}
                   />
                 </div>
                 <div>
@@ -7130,6 +7269,7 @@ export default function InwardPage() {
                     onChange={e => handleNetWeightChange(e.target.value)} 
                     placeholder="Auto-calculated"
                     className="bg-gray-50"
+                    disabled={!canCreateInwardEntry}
                   />
                 </div>
               </div>
@@ -7144,6 +7284,7 @@ export default function InwardPage() {
                     onChange={e => handleTotalBagsChange(e.target.value)}
                     placeholder="0"
                     className={currentEntryForm.totalBags && !validateStackBags() ? 'border-red-500 bg-red-50' : ''}
+                    disabled={!canCreateInwardEntry}
                   />
                   {currentEntryForm.totalBags && !validateStackBags() && (
                     <p className="text-xs text-red-600 mt-1">
@@ -7159,6 +7300,7 @@ export default function InwardPage() {
                     value={currentEntryForm.totalQuantity}
                     onChange={e => setCurrentEntryForm(f => ({ ...f, totalQuantity: e.target.value }))} 
                     placeholder="0.000"
+                    disabled={!canCreateInwardEntry}
                   />
                 </div>
                 <div>
@@ -7185,6 +7327,7 @@ export default function InwardPage() {
                     type="button" 
                     onClick={addStack}
                     className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm"
+                    disabled={!canCreateInwardEntry}
                   >
                     + Add Stack
                   </Button>
@@ -7199,6 +7342,7 @@ export default function InwardPage() {
                           type="button" 
                           onClick={() => removeStack(index)}
                           className="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs"
+                          disabled={!canCreateInwardEntry}
                         >
                           Remove
                         </Button>
@@ -7211,6 +7355,7 @@ export default function InwardPage() {
                           value={stack.stackNumber} 
                           onChange={e => updateStack(index, 'stackNumber', e.target.value)} 
                           placeholder="Enter Stack Number"
+                          disabled={!canCreateInwardEntry}
                         />
                       </div>
                       <div>
@@ -7220,6 +7365,7 @@ export default function InwardPage() {
                           value={stack.numberOfBags} 
                           onChange={e => updateStack(index, 'numberOfBags', e.target.value)} 
                           placeholder="0"
+                          disabled={!canCreateInwardEntry}
                         />
                       </div>
                     </div>
@@ -7433,8 +7579,17 @@ export default function InwardPage() {
 
 
             <div className="flex justify-end pt-8">
-              <Button type="submit" className="bg-green-600 hover:bg-green-700 text-white font-bold py-3" disabled={isUploading}>
-                {isUploading ? 'Uploading & Saving...' : (isEditMode ? 'Update Inward Entry' : 'Submit')}
+              <Button 
+                type="submit" 
+                className="bg-green-600 hover:bg-green-700 text-white font-bold py-3" 
+                disabled={isUploading || !canCreateInwardEntry}
+              >
+                {!canCreateInwardEntry 
+                  ? 'Read-Only Mode - Cannot Submit' 
+                  : isUploading 
+                    ? 'Uploading & Saving...' 
+                    : (isEditMode ? 'Update Inward Entry' : 'Submit')
+                }
               </Button>
             </div>
           </form>
@@ -7961,13 +8116,19 @@ export default function InwardPage() {
                 if (isFormApproved || status === 'approved') {
                   return (
                     <div className="flex justify-end mt-4">
-                      <Button
-                        onClick={handlePrint}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm"
-                        disabled={isPrinting}
-                      >
-                        {isPrinting ? 'Generating PDF...' : 'Print Receipt'}
-                      </Button>
+                      {(canPrintStorageReceipt() || canPrintWarehouseReceipt()) ? (
+                        <Button
+                          onClick={handlePrint}
+                          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm"
+                          disabled={isPrinting}
+                        >
+                          {isPrinting ? 'Generating PDF...' : 'Print Receipt'}
+                        </Button>
+                      ) : (
+                        <div className="text-gray-500 text-sm">
+                          Print access restricted for your role
+                        </div>
+                      )}
                     </div>
                   );
                 } else if (status === 'rejected') {
@@ -7989,25 +8150,45 @@ export default function InwardPage() {
                 } else {
                   return (
                     <div className="flex gap-4 mt-4 justify-end">
-                      <Button
-                        onClick={() => handleRejectSR(selectedRowForSR)}
-                        className="bg-red-600 hover:bg-red-700 text-white"
-                      >
-                        Reject
-                      </Button>
-                      <Button
-                        onClick={() => handleResubmitSR(selectedRowForSR)}
-                        className="bg-yellow-600 hover:bg-yellow-700 text-white"
-                      >
-                        Resubmit
-                      </Button>
-                      <Button
-                        onClick={() => handleApproveSR(selectedRowForSR)}
-                        disabled={isInsuranceExpired(selectedRowForSR)}
-                        className="bg-green-600 hover:bg-green-700 text-white"
-                      >
-                        {selectedRowForSR.receiptType === 'WR' ? 'Proceed to WR' : 'Proceed to SR'}
-                      </Button>
+                      {canGenerateStorageReceipt() || canGenerateWarehouseReceipt() ? (
+                        <>
+                          <Button
+                            onClick={() => handleRejectSR(selectedRowForSR)}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                          >
+                            Reject
+                          </Button>
+                          <Button
+                            onClick={() => handleResubmitSR(selectedRowForSR)}
+                            className="bg-yellow-600 hover:bg-yellow-700 text-white"
+                          >
+                            Resubmit
+                          </Button>
+                          <Button
+                            onClick={() => handleApproveSR(selectedRowForSR)}
+                            disabled={isInsuranceExpired(selectedRowForSR)}
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                          >
+                            {selectedRowForSR.receiptType === 'WR' ? 'Proceed to WR' : 'Proceed to SR'}
+                          </Button>
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center text-gray-500">
+                          <span className="text-sm">{selectedRowForSR?.receiptType === 'WR' ? 'WR' : 'SR'} Actions (Read Only)</span>
+                          <span className="text-xs">
+                            {userRole === 'maker' ? 'Makers can only view receipts' : 'No permission for receipt actions'}
+                          </span>
+                          {(canPrintStorageReceipt() || canPrintWarehouseReceipt()) && (
+                            <Button
+                              onClick={handlePrint}
+                              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm mt-2"
+                              disabled={isPrinting}
+                            >
+                              {isPrinting ? 'Generating PDF...' : 'Print Receipt'}
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 }
@@ -8652,11 +8833,24 @@ export default function InwardPage() {
                 </Button>
               ) : cirModalData?.cirStatus === 'Resubmitted' ? null : cirModalData?.cirStatus === 'Rejected' ? null : (
                 cirReadOnly ? (
-                  <>
-                    <Button onClick={handleCIRApprove} className="bg-green-600 hover:bg-green-700 text-white" disabled={!cirRemarks.trim()}>Approve</Button>
-                    <Button onClick={handleCIRReject} className="bg-red-600 hover:bg-red-700 text-white" disabled={!cirRemarks.trim()}>Reject</Button>
-                    <Button onClick={handleCIRResubmit} className="bg-yellow-400 hover:bg-yellow-500 text-white" disabled={!cirRemarks.trim()}>Resubmit</Button>
-                  </>
+                  showCIRActionButtons() ? (
+                    <>
+                      {canApproveCIR() && (
+                        <Button onClick={handleCIRApprove} className="bg-green-600 hover:bg-green-700 text-white" disabled={!cirRemarks.trim()}>Approve</Button>
+                      )}
+                      {canRejectCIR() && (
+                        <Button onClick={handleCIRReject} className="bg-red-600 hover:bg-red-700 text-white" disabled={!cirRemarks.trim()}>Reject</Button>
+                      )}
+                      {canResubmitCIR() && (
+                        <Button onClick={handleCIRResubmit} className="bg-yellow-400 hover:bg-yellow-500 text-white" disabled={!cirRemarks.trim()}>Resubmit</Button>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center text-gray-500">
+                      <Eye className="h-5 w-5 mb-1" />
+                      <span className="text-xs">Read-Only Access</span>
+                    </div>
+                  )
                 ) : (
                   <Button onClick={handleCIRSave} color="primary">Save</Button>
                 )

@@ -12,6 +12,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
+import { useRoleAccess } from '@/hooks/use-role-access';
 import {
   XCircle,
   Download,
@@ -277,6 +278,7 @@ const rejectedColumns = [
 export default function RejectedWarehousePage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { getSurveyTabMode } = useRoleAccess();
   
   const [inspections, setInspections] = useState<InspectionData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -756,7 +758,7 @@ export default function RejectedWarehousePage() {
                   setSelectedInspection(null);
                 }}
                 initialData={selectedInspection}
-                mode="view"
+                mode={getSurveyTabMode('rejected')}
                 onStatusChange={handleStatusChange}
               />
             )}

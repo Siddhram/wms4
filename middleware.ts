@@ -13,19 +13,32 @@ const publicPaths = new Set([
 const roleBasedRoutes: Record<string, Set<string>> = {
   maker: new Set([
     '/dashboard',
+    '/surveys',              // Added surveys access for makers
+    '/surveys/inspection-creation',
+    '/surveys/warehouse-creation',
     '/inward',
     '/outward',
     '/delivery-order',
     '/ro',
+    '/reports',
     '/commodity-summary',
     '/aum-summary'
   ]),
   checker: new Set([
     '/dashboard',
     '/surveys',
+    '/surveys/inspection-creation',
+    '/surveys/warehouse-creation',
+    '/inward',
+    '/outward',
     '/reports',
     '/delivery-order',
     '/ro',
+    '/master-data',
+    '/master-data/clients',
+    '/master-data/commodities',
+    '/master-data/banks',
+    '/master-data/branches',
     '/commodity-summary',
     '/aum-summary'
   ]),
@@ -38,6 +51,8 @@ const roleBasedRoutes: Record<string, Set<string>> = {
     '/master-data/branches',
     '/reports',
     '/surveys',
+    '/surveys/inspection-creation',
+    '/surveys/warehouse-creation',
     '/inward',
     '/outward',
     '/ro',

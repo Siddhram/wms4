@@ -44,6 +44,7 @@ import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
 import { DataTable } from '@/components/data-table';
 import { Search } from 'lucide-react';
+import { useRoleAccess } from '@/hooks/use-role-access';
 
 // Data interfaces matching the master data modules
 interface BranchLocation {
@@ -116,6 +117,7 @@ interface WarehouseInspectionData {
 export default function InspectionCreationPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { userRole, canAccess } = useRoleAccess();
   
   // Data from Firebase
   const [branchesData, setBranchesData] = useState<BranchData[]>([]);

@@ -2,6 +2,7 @@
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
+import { useRoleAccess } from '@/hooks/use-role-access';
 import { useEffect } from 'react';
 import Image from 'next/image';
 import DashboardLayout from '@/components/dashboard-layout';
@@ -75,6 +76,15 @@ const getStatusStyling = (status: string) => {
 export default function DeliveryOrderPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const {
+    canCreateDeliveryOrder,
+    canApproveDeliveryOrder,
+    canRejectDeliveryOrder,
+    canResubmitDeliveryOrder,
+    canViewDOPDF,
+    showDOActionButtons,
+    canEditDORemark
+  } = useRoleAccess();
   
   // Extract user role from user object
   const userRole = user?.role || 'admin'; // Default to admin if user or role is undefined
@@ -1094,18 +1104,20 @@ export default function DeliveryOrderPage() {
             ← Dashboard
           </Button>
           <h1 className="text-3xl font-bold text-orange-600 text-center flex-1">Delivery Order</h1>
-          <Button onClick={() => {
-            setShowAddModal(true);
-            // Clear filters when opening the modal
-            setRoSearch('');
-            setSelectedRO(null);
-            setDoBags('');
-            setDoQty('');
-            setFileAttachments([]);
-            setFormError(null);
-          }} className="bg-green-500 hover:bg-green-600 text-white">
-            <Plus className="h-4 w-4 mr-2" /> Add DO
-          </Button>
+          {canCreateDeliveryOrder() && (
+            <Button onClick={() => {
+              setShowAddModal(true);
+              // Clear filters when opening the modal
+              setRoSearch('');
+              setSelectedRO(null);
+              setDoBags('');
+              setDoQty('');
+              setFileAttachments([]);
+              setFormError(null);
+            }} className="bg-green-500 hover:bg-green-600 text-white">
+              <Plus className="h-4 w-4 mr-2" /> Add DO
+            </Button>
+          )}
         </div>
 
         {/* Search and Export */}
@@ -1918,7 +1930,7 @@ export default function DeliveryOrderPage() {
                         {/* Only show generate receipt button */}
                         <div className="text-center">
                           <Button className="bg-green-600 hover:bg-green-700 text-white">
-                            Generate Receipt
+                            Generate Receit
                           </Button>
                         </div>
                       </div>
@@ -1963,42 +1975,54 @@ export default function DeliveryOrderPage() {
                       </div>
                     );
                   } else {
-                    // Pending status - show approve/reject/resubmit buttons
+                    // Pending status - show approve/reject/resubmit buttons based on permissions
                     return (
                       <div className="mt-6 pt-4 border-t border-green-200">
-                        <Label className="text-green-800 font-medium">Update Status with Remark</Label>
+                        <Label className="text-green-800 font-medium">
+                          {canEditDORemark() ? "Update Status with Remark" : "Remark (Read-only)"}
+                        </Label>
                         <Input 
                           value={remark} 
                           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRemark(e.target.value)} 
-                          placeholder="Enter remark..." 
+                          placeholder={canEditDORemark() ? "Enter remark..." : "Read-only"}
                           className="mt-2 border-green-100" 
+                          readOnly={!canEditDORemark()}
                         />
-                        <div className="flex gap-4 mt-4 justify-end">
-                          <Button 
-                            type="button" 
-                            className="bg-green-600 hover:bg-green-700 text-white" 
-                            onClick={() => handleDOStatusChange('approved')} 
-                            disabled={doStatusUpdating}
-                          >
-                            Approve
-                          </Button>
-                          <Button 
-                            type="button" 
-                            className="bg-red-600 hover:bg-red-700 text-white" 
-                            onClick={() => handleDOStatusChange('rejected')} 
-                            disabled={doStatusUpdating}
-                          >
-                            Reject
-                          </Button>
-                          <Button 
-                            type="button" 
-                            className="bg-orange-500 hover:bg-orange-600 text-white" 
-                            onClick={() => handleDOStatusChange('resubmitted')} 
-                            disabled={doStatusUpdating}
-                          >
-                            Resubmit
-                          </Button>
-                        </div>
+                        {/* Status action buttons - only for checkers */}
+                        {showDOActionButtons() && (
+                          <div className="flex gap-4 mt-4 justify-end">
+                            {canApproveDeliveryOrder() && (
+                              <Button 
+                                type="button" 
+                                className="bg-green-600 hover:bg-green-700 text-white" 
+                                onClick={() => handleDOStatusChange('approved')} 
+                                disabled={doStatusUpdating}
+                              >
+                                Approve
+                              </Button>
+                            )}
+                            {canRejectDeliveryOrder() && (
+                              <Button 
+                                type="button" 
+                                className="bg-red-600 hover:bg-red-700 text-white" 
+                                onClick={() => handleDOStatusChange('rejected')} 
+                                disabled={doStatusUpdating}
+                              >
+                                Reject
+                              </Button>
+                            )}
+                            {canResubmitDeliveryOrder() && (
+                              <Button 
+                                type="button" 
+                                className="bg-orange-500 hover:bg-orange-600 text-white" 
+                                onClick={() => handleDOStatusChange('resubmitted')} 
+                                disabled={doStatusUpdating}
+                              >
+                                Resubmit
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   }

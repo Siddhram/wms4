@@ -17,6 +17,7 @@ import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
 import Image from 'next/image';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useRoleAccess } from '@/hooks/use-role-access';
 
 interface WarehouseInspectionFormProps {
   onClose: () => void;
@@ -274,6 +275,15 @@ export default function WarehouseInspectionForm({
   onStatusChange 
 }: WarehouseInspectionFormProps) {
   const { toast } = useToast();
+  const { 
+    userRole, 
+    canEditSurvey, 
+    canApproveSurvey, 
+    showSurveyActions, 
+    getSurveyTabMode,
+    canEditWarehouseName,
+    canAccessInsuranceFunction
+  } = useRoleAccess();
 
   // Helper function to safely convert dates to ISO strings
   const safeDateToISO = (dateValue: any): string | null => {
@@ -495,12 +505,24 @@ export default function WarehouseInspectionForm({
   
   // Determine which specific fields should be read-only (master data only)
   const isViewMode = mode === 'view';
-  const isFormReadOnly = false; // Allow editing across all statuses
+  // Determine if form should be read-only based on role and status
+  const isFormReadOnly = getSurveyTabMode(formData.status || 'pending') === 'view';
   
-  // Helper function to check if a field should be read-only (only master data)
+  // Helper function to check if a field should be read-only
   const isFieldReadOnly = (fieldName: string) => {
     // Master data fields that should remain read-only
     const masterDataFields = ['bankState', 'bankBranch', 'bankName', 'ifscCode'];
+    
+    // Role-based access control
+    const currentStatus = formData.status || 'pending';
+    const canEditBasedOnRole = canEditSurvey(currentStatus);
+    
+    // If user can't edit based on role and status, make field read-only
+    if (!canEditBasedOnRole) {
+      return true;
+    }
+    
+    // Otherwise, only master data fields are read-only
     return masterDataFields.includes(fieldName);
   };
   
@@ -2394,13 +2416,33 @@ export default function WarehouseInspectionForm({
           WAREHOUSE INSPECTION REPORT
         </h2>
         
-        {/* Status Indicator */}
-        {formData.status !== 'pending' && (
-          <div className="mt-4 inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-            Status: {formData.status.charAt(0).toUpperCase() + formData.status.slice(1)}
-            {isReadOnly && <span className="ml-2 text-xs">(View Only)</span>}
+        {/* Status and Role Indicators */}
+        <div className="mt-4 flex flex-wrap gap-2 justify-center">
+          {formData.status !== 'pending' && (
+            <div className="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+              Status: {formData.status.charAt(0).toUpperCase() + formData.status.slice(1)}
+              {isReadOnly && <span className="ml-2 text-xs">(View Only)</span>}
+            </div>
+          )}
+          
+          {/* Role-based permission indicator */}
+          <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+            userRole === 'admin' ? 'bg-red-100 text-red-800' :
+            userRole === 'checker' ? 'bg-green-100 text-green-800' :
+            'bg-yellow-100 text-yellow-800'
+          }`}>
+            {userRole === 'admin' && '👑 Admin - Full Access'}
+            {userRole === 'checker' && '✅ Checker - Approve/Reject/Resubmit in Active/Reactivate/Closed tabs'}
+            {userRole === 'maker' && '📝 Maker - Create/Edit in Pending/Resubmit tabs'}
           </div>
-        )}
+          
+          {/* Insurance function access indicator */}
+          {canAccessInsuranceFunction(formData.status || '') && (
+            <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+              🛡️ Insurance Functions Available
+            </div>
+          )}
+        </div>
       </div>
 
       <style>{`
@@ -2556,7 +2598,7 @@ export default function WarehouseInspectionForm({
                           readOnly
                           className="bg-gray-50 text-orange-600"
                         />
-                        {formData.status !== 'pending' && (
+                        {formData.status !== 'pending' && canEditWarehouseName() && (
                           <Button
                             type="button"
                             size="sm"
@@ -4341,8 +4383,8 @@ export default function WarehouseInspectionForm({
               </>
             )}
 
-            {/* Add Another Insurance Button - Only show for activated warehouses */}
-            {formData.status === 'activated' && (
+            {/* Add Another Insurance Button - Only show for activated warehouses and authorized roles */}
+            {formData.status === 'activated' && canAccessInsuranceFunction(formData.status || '') && (
               <div className="border-t pt-4 mt-4">
                 <Button
                   type="button"
@@ -5730,6 +5772,20 @@ export default function WarehouseInspectionForm({
         </Card>
 
         {/* Action Buttons based on status and mode */}
+        
+        {/* Action guidance for checkers */}
+        {userRole === 'checker' && formData.status && ['activated', 'closed', 'reactivate'].includes(formData.status) && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+            <h4 className="font-semibold text-green-800 mb-2">✅ Checker Actions Available:</h4>
+            <p className="text-sm text-green-700">
+              {formData.status === 'activated' && 'You can Close this warehouse, Reject it, or send it for Resubmission.'}
+              {formData.status === 'closed' && 'You can Reactivate this warehouse, Reject it, or send it for Resubmission.'}
+              {formData.status === 'reactivate' && 'You can Approve Reactivation, Reject it, or send it for Resubmission.'}
+              {canAccessInsuranceFunction(formData.status) && ' Insurance functions are also available.'}
+            </p>
+          </div>
+        )}
+        
         <div className="flex justify-between">
           <Button type="button" variant="outline" onClick={onClose} className="action-button">
             Cancel
@@ -5762,14 +5818,14 @@ export default function WarehouseInspectionForm({
             </Button>
             
             {/* PENDING state only */}
-            {(formData.status === 'pending' || !formData.status || formData.status === '') && (
+            {(formData.status === 'pending' || !formData.status || formData.status === '') && canEditSurvey(formData.status || 'pending') && (
               <Button type="submit" className="bg-green-500 hover:bg-green-600 action-button">
                 Proceed to Submit
               </Button>
             )}
             
             {/* SUBMITTED state - initial view */}
-            {formData.status === 'submitted' && !formData.showActivationButtons && (
+            {formData.status === 'submitted' && !formData.showActivationButtons && canApproveSurvey(formData.status) && (
               <>
                 <Button 
                   type="button" 
@@ -5790,7 +5846,7 @@ export default function WarehouseInspectionForm({
             )}
             
             {/* SUBMITTED state - activation buttons showing */}
-            {formData.status === 'submitted' && formData.showActivationButtons && (
+            {formData.status === 'submitted' && formData.showActivationButtons && canApproveSurvey(formData.status) && (
               <>
                 <Button 
                   type="button" 
@@ -5817,19 +5873,36 @@ export default function WarehouseInspectionForm({
               </>
             )}
             
-            {/* ACTIVATED state */}
-            {formData.status === 'activated' && (
-              <Button 
-                type="button" 
-                className="bg-red-500 hover:bg-red-600 action-button"
-                onClick={() => handleStatusAction('close')}
-              >
-                Close
-              </Button>
+            {/* ACTIVATED state - Checker can close, reject, or resubmit */}
+            {formData.status === 'activated' && canApproveSurvey(formData.status) && (
+              <>
+                <Button 
+                  type="button" 
+                  className="bg-red-500 hover:bg-red-600 action-button"
+                  onClick={() => handleStatusAction('close')}
+                >
+                  Close
+                </Button>
+                <Button 
+                  type="button" 
+                  variant="destructive"
+                  className="action-button"
+                  onClick={() => handleStatusAction('reject')}
+                >
+                  Reject
+                </Button>
+                <Button 
+                  type="button" 
+                  className="bg-purple-500 hover:bg-purple-600 action-button"
+                  onClick={() => handleStatusAction('resubmit')}
+                >
+                  Resubmit
+                </Button>
+              </>
             )}
             
             {/* RESUBMITTED state */}
-            {formData.status === 'resubmitted' && mode === 'view' && (
+            {formData.status === 'resubmitted' && mode === 'view' && canEditSurvey(formData.status) && (
               <>
                 <Button 
                   type="button" 
@@ -5849,19 +5922,64 @@ export default function WarehouseInspectionForm({
               </>
             )}
             
-            {/* CLOSED state */}
-            {formData.status === 'closed' && (
-              <Button 
-                type="button" 
-                className="bg-blue-500 hover:bg-blue-600 action-button"
-                onClick={() => handleStatusAction('reactivate')}
-              >
-                Reactivate
-              </Button>
+            {/* CLOSED state - Checker can reactivate, reject, or resubmit */}
+            {formData.status === 'closed' && canApproveSurvey(formData.status) && (
+              <>
+                <Button 
+                  type="button" 
+                  className="bg-blue-500 hover:bg-blue-600 action-button"
+                  onClick={() => handleStatusAction('reactivate')}
+                >
+                  Reactivate
+                </Button>
+                <Button 
+                  type="button" 
+                  variant="destructive"
+                  className="action-button"
+                  onClick={() => handleStatusAction('reject')}
+                >
+                  Reject
+                </Button>
+                <Button 
+                  type="button" 
+                  className="bg-purple-500 hover:bg-purple-600 action-button"
+                  onClick={() => handleStatusAction('resubmit')}
+                >
+                  Resubmit
+                </Button>
+              </>
             )}
             
-            {/* REJECTED and REACTIVATE states - read only, no buttons except cancel */}
-            {(formData.status === 'rejected' || formData.status === 'reactivate') && (
+            {/* REACTIVATE state - Checker can approve reactivation, reject, or resubmit */}
+            {formData.status === 'reactivate' && canApproveSurvey(formData.status) && (
+              <>
+                <Button 
+                  type="button" 
+                  className="bg-green-500 hover:bg-green-600 action-button"
+                  onClick={() => handleStatusAction('activate')}
+                >
+                  Approve Reactivation
+                </Button>
+                <Button 
+                  type="button" 
+                  variant="destructive"
+                  className="action-button"
+                  onClick={() => handleStatusAction('reject')}
+                >
+                  Reject
+                </Button>
+                <Button 
+                  type="button" 
+                  className="bg-purple-500 hover:bg-purple-600 action-button"
+                  onClick={() => handleStatusAction('resubmit')}
+                >
+                  Resubmit
+                </Button>
+              </>
+            )}
+
+            {/* REJECTED state - read only, no buttons */}
+            {formData.status === 'rejected' && (
               <div className="text-sm text-gray-500 px-4 py-2 italic">
                 Status: {formData.status.charAt(0).toUpperCase() + formData.status.slice(1)}
               </div>

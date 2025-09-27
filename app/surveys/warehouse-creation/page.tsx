@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useRoleAccess } from '@/hooks/use-role-access';
 import {
   Clock,
   FileText,
@@ -18,6 +19,7 @@ import {
 
 export default function WarehouseCreationPage() {
   const router = useRouter();
+  const { userRole, canAccessSurveyTab, getSurveyTabMode } = useRoleAccess();
   const [statusCounts, setStatusCounts] = useState({
     pending: 0,
     submitted: 0,
@@ -145,7 +147,15 @@ export default function WarehouseCreationPage() {
   ];
 
   const handleCardClick = (moduleId: string) => {
-    router.push(`/surveys/warehouse-creation/${moduleId}`);
+    // Check if user can access this tab
+    if (canAccessSurveyTab(moduleId)) {
+      router.push(`/surveys/warehouse-creation/${moduleId}`);
+    }
+  };
+
+  // Filter tabs based on role permissions
+  const getAccessibleTabs = () => {
+    return warehouseStatusModules.filter(module => canAccessSurveyTab(module.id));
   };
 
   return (
@@ -167,6 +177,15 @@ export default function WarehouseCreationPage() {
             <h1 className="text-3xl font-bold tracking-tight text-orange-600 inline-block border-b-4 border-green-500 pb-2 px-6 py-3 bg-orange-100 rounded-lg">
               Warehouse Creation
             </h1>
+            {userRole === 'checker' && (
+            <div></div>
+            )}
+            {userRole === 'maker' && (
+               <div></div>
+            )}
+            {userRole === 'admin' && (
+             <div></div>
+            )}
           </div>
           
           {/* Empty space for layout balance */}
@@ -177,12 +196,14 @@ export default function WarehouseCreationPage() {
         
         {/* Warehouse Status Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {warehouseStatusModules.map((module) => {
+          {getAccessibleTabs().map((module) => {
             const Icon = module.icon;
             return (
               <Card 
                 key={module.title} 
-                className={`hover:shadow-lg transition-all duration-300 cursor-pointer ${module.bgColor} hover:bg-opacity-80 rounded-lg ${module.borderColor} border-2 h-full`}
+                className={`hover:shadow-lg transition-all duration-300 cursor-pointer ${module.bgColor} hover:bg-opacity-80 rounded-lg ${module.borderColor} border-2 h-full ${
+                  getSurveyTabMode(module.id) === 'view' ? 'opacity-75' : ''
+                }`}
                 onClick={() => handleCardClick(module.id)}
               >
                 <CardContent className="p-6 flex flex-col items-center justify-center space-y-4 text-center h-full">
@@ -192,6 +213,9 @@ export default function WarehouseCreationPage() {
                   <div className="space-y-2">
                     <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-300 pb-1">
                       {module.title}
+                      {getSurveyTabMode(module.id) === 'view' && (
+                        <span className="ml-2 text-xs text-gray-500 font-normal">(Read Only)</span>
+                      )}
                     </h3>
                     <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${module.color} ${module.bgColor} border ${module.borderColor}`}>
                       {module.count} Warehouses
@@ -206,19 +230,41 @@ export default function WarehouseCreationPage() {
           })}
         </div>
 
+        {/* Role-specific guidance */}
+        {userRole === 'checker' && (
+          <div className="mt-8 p-6 bg-green-50 rounded-lg border border-green-200">
+            <div className="flex items-start space-x-3">
+              <div className="flex-shrink-0">
+                <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-xs font-bold">✓</span>
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-green-900">Checker Permissions</h4>
+                <div className="text-sm text-green-700 mt-2 space-y-1">
+                  <p><strong>Full Access:</strong> Activated, Closed, Reactivate tabs - Approve, Reject, Resubmit actions available</p>
+                  <p><strong>Read Only:</strong> Pending, Rejected, Resubmitted tabs - View only, no editing allowed</p>
+                  <p><strong>Special:</strong> Insurance functions available in full access tabs</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
         {/* Additional Info Section */}
-        <div className="mt-8 p-6 bg-green-50 rounded-lg border border-green-200">
+        <div className="mt-8 p-6 bg-blue-50 rounded-lg border border-blue-200">
           <div className="flex items-start space-x-3">
             <div className="flex-shrink-0">
-              <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+              <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
                 <span className="text-white text-xs font-bold">i</span>
               </div>
             </div>
             <div>
-              <h4 className="text-sm font-medium text-green-900">Warehouse Management</h4>
-              <p className="text-sm text-green-700 mt-1">
+              <h4 className="text-sm font-medium text-blue-900">Warehouse Management</h4>
+              <p className="text-sm text-blue-700 mt-1">
                 Manage warehouse facilities across different stages of their lifecycle. 
                 Track status from initial creation through activation and eventual closure.
+                {getSurveyTabMode('pending') === 'view' && ' Tabs marked as (Read Only) have limited access based on your role.'}
               </p>
             </div>
           </div>

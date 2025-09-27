@@ -5,6 +5,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
+import { useRoleAccess } from '@/hooks/use-role-access';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -88,6 +89,15 @@ export default function OutwardPage() {
   const { user } = useAuth();
   const userRole = user?.role || 'user';
   const router = useRouter();
+  const {
+    canCreateOutward,
+    canApproveOutward,
+    canRejectOutward,
+    canResubmitOutward,
+    canViewOutwardPDF,
+    showOutwardActionButtons,
+    canEditOutwardRemark
+  } = useRoleAccess();
   
   // State variables
   const [searchTerm, setSearchTerm] = React.useState('');
@@ -812,12 +822,14 @@ export default function OutwardPage() {
             ← Dashboard
           </Button>
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-orange-600 text-center order-first lg:order-none">Outward Module</h1>
-          <Button 
-            onClick={() => setShowAddModal(true)} 
-            className="bg-green-500 hover:bg-green-600 text-white w-full lg:w-auto px-4 py-3"
-          >
-            <Plus className="h-4 w-4 mr-2" /> Add Outward
-          </Button>
+          {canCreateOutward() && (
+            <Button 
+              onClick={() => setShowAddModal(true)} 
+              className="bg-green-500 hover:bg-green-600 text-white w-full lg:w-auto px-4 py-3"
+            >
+              <Plus className="h-4 w-4 mr-2" /> Add Outward
+            </Button>
+          )}
         </div>
 
         {/* Search and Export */}
@@ -1044,7 +1056,7 @@ export default function OutwardPage() {
                                 {normalizeStatusText(outward.outwardStatus || 'pending')}
                               </span>
                             )}
-                            {(outward.outwardStatus === 'resubmitted') && (
+                            {(outward.outwardStatus === 'resubmitted') && canCreateOutward() && (
                               <Button 
                                 variant="ghost" 
                                 size="sm" 
@@ -2243,7 +2255,7 @@ export default function OutwardPage() {
               {/* Action buttons at bottom right */}
               <div className="flex flex-col sm:flex-row justify-center sm:justify-end gap-3 sm:gap-4 mt-6 pt-4 border-t border-gray-200">
                 {/* Show all buttons when pending or resubmitted */}
-                {(selectedOutward.outwardStatus === 'pending' || selectedOutward.outwardStatus === 'resubmitted') && (userRole === 'checker' || userRole === 'admin') && (
+                {(selectedOutward.outwardStatus === 'pending' || selectedOutward.outwardStatus === 'resubmitted') && showOutwardActionButtons() && (
                   <>
                     <Button 
                       onClick={async () => {
@@ -2352,7 +2364,7 @@ export default function OutwardPage() {
                 )}
                 
                 {/* Generate Receipt button - only show when approved */}
-                {selectedOutward.outwardStatus === 'approved' && (
+                {selectedOutward.outwardStatus === 'approved' && canViewOutwardPDF() && (
                   <Button 
                     type="button" 
                     className="bg-orange-600 hover:bg-orange-700 text-white px-4 sm:px-6 w-full sm:w-auto"
