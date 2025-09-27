@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Search, Download, Plus, Edit, Trash2, Calendar, AlertTriangle } from "lucide-react";
+import { Search, Download, Plus, Edit, Trash2, Calendar, AlertTriangle, Lightbulb } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -17,7 +17,7 @@ import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@
 import { DataTable } from '@/components/data-table';
 import { ColumnDef } from '@tanstack/react-table';
 import { CSVLink } from 'react-csv';
-import { parseISO, format } from 'date-fns';
+import { parseISO, format, differenceInDays } from 'date-fns';
 
 // Interfaces
 interface InsuranceData {
@@ -40,11 +40,15 @@ interface InsuranceData {
   firePolicyAmount: string;
   firePolicyStartDate: string;
   firePolicyEndDate: string;
+  firePolicyUsedAmount?: string; // Amount used/deducted from fire policy
+  firePolicyRemainingAmount?: string; // Calculated remaining balance
   burglaryPolicyCompanyName: string;
   burglaryPolicyNumber: string;
   burglaryPolicyAmount: string;
   burglaryPolicyStartDate: string;
   burglaryPolicyEndDate: string;
+  burglaryPolicyUsedAmount?: string; // Amount used/deducted from burglary policy
+  burglaryPolicyRemainingAmount?: string; // Calculated remaining balance
   createdAt: string;
 }
 
@@ -109,6 +113,9 @@ export default function InsuranceMasterPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingInsurance, setEditingInsurance] = useState<InsuranceData | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; insurance: InsuranceData | null }>({ open: false, insurance: null });
+  const [showExtendModal, setShowExtendModal] = useState(false);
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
+  const [selectedInsuranceForAction, setSelectedInsuranceForAction] = useState<InsuranceData | null>(null);
 
   // Form state
   const [formData, setFormData] = useState<Partial<InsuranceData>>({
@@ -129,11 +136,13 @@ export default function InsuranceMasterPage() {
     firePolicyAmount: '',
     firePolicyStartDate: '',
     firePolicyEndDate: '',
+    firePolicyUsedAmount: '0',
     burglaryPolicyCompanyName: '',
     burglaryPolicyNumber: '',
     burglaryPolicyAmount: '',
     burglaryPolicyStartDate: '',
     burglaryPolicyEndDate: '',
+    burglaryPolicyUsedAmount: '0',
   });
 
   // Multiple commodity selection
@@ -141,6 +150,54 @@ export default function InsuranceMasterPage() {
     commodityName: string;
     varietyName: string;
   }>>([]);
+
+  // Utility function to get insurance expiry status
+  const getInsuranceStatus = (firePolicyEndDate: string) => {
+    try {
+      const endDate = parseISO(firePolicyEndDate);
+      const today = new Date();
+      const daysUntilExpiry = differenceInDays(endDate, today);
+      
+      if (daysUntilExpiry < 0) {
+        return 'expired'; // Blue light - expired
+      } else if (daysUntilExpiry <= 5) {
+        return 'expiring'; // Red light - expiring within 5 days
+      }
+      return 'active'; // No light - active
+    } catch {
+      return 'active';
+    }
+  };
+
+  // Handle extend insurance
+  const handleExtendInsurance = (insurance: InsuranceData) => {
+    setSelectedInsuranceForAction(insurance);
+    setFormData({
+      firePolicyEndDate: insurance.firePolicyEndDate,
+      burglaryPolicyEndDate: insurance.burglaryPolicyEndDate,
+    });
+    setShowExtendModal(true);
+  };
+
+  // Handle replace expired insurance
+  const handleReplaceInsurance = (insurance: InsuranceData) => {
+    setSelectedInsuranceForAction(insurance);
+    // Pre-populate form with existing data but clear dates and policy numbers
+    setFormData({
+      ...insurance,
+      firePolicyNumber: '',
+      firePolicyStartDate: '',
+      firePolicyEndDate: '',
+      burglaryPolicyNumber: '',
+      burglaryPolicyStartDate: '',
+      burglaryPolicyEndDate: '',
+      firePolicyAmount: '',
+      burglaryPolicyAmount: '',
+      firePolicyCompanyName: '',
+      burglaryPolicyCompanyName: '',
+    });
+    setShowReplaceModal(true);
+  };
 
   // Column definitions with insurance code
   const insuranceColumns: ColumnDef<InsuranceData>[] = [
@@ -206,10 +263,59 @@ export default function InsuranceMasterPage() {
       header: "Fire Policy End",
       cell: ({ row }) => {
         const date = row.getValue("firePolicyEndDate") as string;
+        const status = getInsuranceStatus(date);
         try {
-          return <span className="text-red-600">{format(parseISO(date), 'dd/MM/yyyy')}</span>;
+          return (
+            <div className="flex items-center gap-2">
+              {status === 'expiring' ? (
+                <div className="bg-red-100 border-2 border-red-500 rounded-lg p-2 animate-pulse">
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <div className="w-3 h-3 bg-red-500 rounded-full animate-ping absolute"></div>
+                      <div className="w-3 h-3 bg-red-600 rounded-full relative"></div>
+                    </div>
+                    <span className="text-red-800 font-bold">{format(parseISO(date), 'dd/MM/yyyy')}</span>
+                    <Button
+                      size="sm"
+                      className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 h-6"
+                      onClick={() => handleExtendInsurance(row.original)}
+                      title="Insurance expiring soon - Click to extend"
+                    >
+                      EXTEND
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <span className="text-red-600">{format(parseISO(date), 'dd/MM/yyyy')}</span>
+              )}
+            </div>
+          );
         } catch {
-          return <span className="text-red-600">{date}</span>;
+          return (
+            <div className="flex items-center gap-2">
+              {status === 'expiring' ? (
+                <div className="bg-red-100 border-2 border-red-500 rounded-lg p-2 animate-pulse">
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <div className="w-3 h-3 bg-red-500 rounded-full animate-ping absolute"></div>
+                      <div className="w-3 h-3 bg-red-600 rounded-full relative"></div>
+                    </div>
+                    <span className="text-red-800 font-bold">{date}</span>
+                    <Button
+                      size="sm"
+                      className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 h-6"
+                      onClick={() => handleExtendInsurance(row.original)}
+                      title="Insurance expiring soon - Click to extend"
+                    >
+                      EXTEND
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <span className="text-red-600">{date}</span>
+              )}
+            </div>
+          );
         }
       }
     },
@@ -231,40 +337,109 @@ export default function InsuranceMasterPage() {
       }
     },
     {
-      accessorKey: "createdAt",
-      header: "Created Date",
+      accessorKey: "firePolicyRemainingAmount",
+      header: "Fire Policy Balance",
       cell: ({ row }) => {
-        const date = row.getValue("createdAt") as string;
-        try {
-          return <span className="text-gray-600">{format(parseISO(date), 'dd/MM/yyyy')}</span>;
-        } catch {
-          return <span className="text-gray-600">{date}</span>;
-        }
+        const totalAmount = parseFloat(row.original.firePolicyAmount || '0');
+        const usedAmount = parseFloat(row.original.firePolicyUsedAmount || '0');
+        const remainingAmount = totalAmount - usedAmount;
+        const percentage = totalAmount > 0 ? (remainingAmount / totalAmount) * 100 : 100;
+        
+        return (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className={`font-semibold ${remainingAmount <= totalAmount * 0.2 ? 'text-red-600' : 'text-green-600'}`}>
+                ₹{remainingAmount.toLocaleString()}
+              </span>
+              <span className="text-xs text-gray-500">
+                ({percentage.toFixed(1)}%)
+              </span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div 
+                className={`h-2 rounded-full transition-all ${
+                  percentage > 50 ? 'bg-green-500' : 
+                  percentage > 20 ? 'bg-yellow-500' : 'bg-red-500'
+                }`}
+                style={{ width: `${Math.max(percentage, 0)}%` }}
+              />
+            </div>
+          </div>
+        );
+      }
+    },
+    {
+      accessorKey: "burglaryPolicyRemainingAmount",
+      header: "Burglary Policy Balance",
+      cell: ({ row }) => {
+        const totalAmount = parseFloat(row.original.burglaryPolicyAmount || '0');
+        const usedAmount = parseFloat(row.original.burglaryPolicyUsedAmount || '0');
+        const remainingAmount = totalAmount - usedAmount;
+        const percentage = totalAmount > 0 ? (remainingAmount / totalAmount) * 100 : 100;
+        
+        return (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className={`font-semibold ${remainingAmount <= totalAmount * 0.2 ? 'text-red-600' : 'text-green-600'}`}>
+                ₹{remainingAmount.toLocaleString()}
+              </span>
+              <span className="text-xs text-gray-500">
+                ({percentage.toFixed(1)}%)
+              </span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div 
+                className={`h-2 rounded-full transition-all ${
+                  percentage > 50 ? 'bg-green-500' : 
+                  percentage > 20 ? 'bg-yellow-500' : 'bg-red-500'
+                }`}
+                style={{ width: `${Math.max(percentage, 0)}%` }}
+              />
+            </div>
+          </div>
+        );
       }
     },
     {
       id: "actions",
       header: "Actions",
-      cell: ({ row }) => (
-        <div className="flex items-center space-x-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-orange-300 text-orange-600 hover:bg-orange-50"
-            onClick={() => handleEdit(row.original)}
-          >
-            <Edit className="w-4 h-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-red-300 text-red-600 hover:bg-red-50"
-            onClick={() => setDeleteDialog({ open: true, insurance: row.original })}
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        </div>
-      ),
+      cell: ({ row }) => {
+        const status = getInsuranceStatus(row.original.firePolicyEndDate);
+        return (
+          <div className="flex items-center space-x-2">
+            {/* Blue Light for Expired Insurance */}
+            {status === 'expired' && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-blue-300 text-blue-600 hover:bg-blue-50 p-2"
+                onClick={() => handleReplaceInsurance(row.original)}
+                title="Insurance expired - Click to add new insurance"
+              >
+                <Lightbulb className="w-4 h-4 fill-blue-500 text-blue-500" />
+              </Button>
+            )}
+            
+            {/* Regular Action Buttons */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-orange-300 text-orange-600 hover:bg-orange-50"
+              onClick={() => handleEdit(row.original)}
+            >
+              <Edit className="w-4 h-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-red-300 text-red-600 hover:bg-red-50"
+              onClick={() => setDeleteDialog({ open: true, insurance: row.original })}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+        );
+      },
     }
   ];
 
@@ -351,29 +526,42 @@ export default function InsuranceMasterPage() {
 
   // CSV data preparation with proper headers
   const csvData = useMemo(() => {
-    return filteredInsurance.map(insurance => ({
-      'Insurance Code': insurance.insuranceCode,
-      'Warehouse Name': insurance.warehouseName,
-      'Warehouse Code': insurance.warehouseCode,
-      'Commodity': insurance.commodityName,
-      'Variety Name': insurance.varietyName,
-      'Insurance Type': insurance.insuranceType === 'bank-funded' ? 'Bank Funded' : 
-                      insurance.insuranceType.charAt(0).toUpperCase() + insurance.insuranceType.slice(1),
-      'Client Name': insurance.clientName || '-',
-      'Client Code': insurance.clientCode || '-',
-      'Bank Funded By': insurance.bankFundedBy || '-', // Fixed header name
-      'Fire Policy Company': insurance.firePolicyCompanyName,
-      'Fire Policy Number': insurance.firePolicyNumber,
-      'Fire Policy Amount': insurance.firePolicyAmount,
-      'Fire Policy Start Date': insurance.firePolicyStartDate,
-      'Fire Policy End Date': insurance.firePolicyEndDate,
-      'Burglary Policy Company': insurance.burglaryPolicyCompanyName,
-      'Burglary Policy Number': insurance.burglaryPolicyNumber,
-      'Burglary Policy Amount': insurance.burglaryPolicyAmount,
-      'Burglary Policy Start Date': insurance.burglaryPolicyStartDate,
-      'Burglary Policy End Date': insurance.burglaryPolicyEndDate,
-      'Created Date': format(parseISO(insurance.createdAt), 'dd/MM/yyyy') // Date only, not time
-    }));
+    return filteredInsurance.map(insurance => {
+      const fireTotalAmount = parseFloat(insurance.firePolicyAmount || '0');
+      const fireUsedAmount = parseFloat(insurance.firePolicyUsedAmount || '0');
+      const fireRemainingAmount = fireTotalAmount - fireUsedAmount;
+      
+      const burglaryTotalAmount = parseFloat(insurance.burglaryPolicyAmount || '0');
+      const burglaryUsedAmount = parseFloat(insurance.burglaryPolicyUsedAmount || '0');
+      const burglaryRemainingAmount = burglaryTotalAmount - burglaryUsedAmount;
+      
+      return {
+        'Insurance Code': insurance.insuranceCode,
+        'Warehouse Name': insurance.warehouseName,
+        'Warehouse Code': insurance.warehouseCode,
+        'Commodity': insurance.commodityName,
+        'Variety Name': insurance.varietyName,
+        'Insurance Type': insurance.insuranceType === 'bank-funded' ? 'Bank Funded' : 
+                        insurance.insuranceType.charAt(0).toUpperCase() + insurance.insuranceType.slice(1),
+        'Client Name': insurance.clientName || '-',
+        'Client Code': insurance.clientCode || '-',
+        'Bank Funded By': insurance.bankFundedBy || '-',
+        'Fire Policy Company': insurance.firePolicyCompanyName,
+        'Fire Policy Number': insurance.firePolicyNumber,
+        'Fire Policy Amount': insurance.firePolicyAmount,
+        'Fire Policy Used Amount': insurance.firePolicyUsedAmount || '0',
+        'Fire Policy Remaining Balance': fireRemainingAmount.toString(),
+        'Fire Policy Start Date': insurance.firePolicyStartDate,
+        'Fire Policy End Date': insurance.firePolicyEndDate,
+        'Burglary Policy Company': insurance.burglaryPolicyCompanyName,
+        'Burglary Policy Number': insurance.burglaryPolicyNumber,
+        'Burglary Policy Amount': insurance.burglaryPolicyAmount,
+        'Burglary Policy Used Amount': insurance.burglaryPolicyUsedAmount || '0',
+        'Burglary Policy Remaining Balance': burglaryRemainingAmount.toString(),
+        'Burglary Policy Start Date': insurance.burglaryPolicyStartDate,
+        'Burglary Policy End Date': insurance.burglaryPolicyEndDate
+      };
+    });
   }, [filteredInsurance]);
 
   const csvHeaders = [
@@ -389,14 +577,17 @@ export default function InsuranceMasterPage() {
     { label: 'Fire Policy Company', key: 'Fire Policy Company' },
     { label: 'Fire Policy Number', key: 'Fire Policy Number' },
     { label: 'Fire Policy Amount', key: 'Fire Policy Amount' },
+    { label: 'Fire Policy Used Amount', key: 'Fire Policy Used Amount' },
+    { label: 'Fire Policy Remaining Balance', key: 'Fire Policy Remaining Balance' },
     { label: 'Fire Policy Start Date', key: 'Fire Policy Start Date' },
     { label: 'Fire Policy End Date', key: 'Fire Policy End Date' },
     { label: 'Burglary Policy Company', key: 'Burglary Policy Company' },
     { label: 'Burglary Policy Number', key: 'Burglary Policy Number' },
     { label: 'Burglary Policy Amount', key: 'Burglary Policy Amount' },
+    { label: 'Burglary Policy Used Amount', key: 'Burglary Policy Used Amount' },
+    { label: 'Burglary Policy Remaining Balance', key: 'Burglary Policy Remaining Balance' },
     { label: 'Burglary Policy Start Date', key: 'Burglary Policy Start Date' },
-    { label: 'Burglary Policy End Date', key: 'Burglary Policy End Date' },
-    { label: 'Created Date', key: 'Created Date' }
+    { label: 'Burglary Policy End Date', key: 'Burglary Policy End Date' }
   ];
 
   // Generate unique insurance code
@@ -510,6 +701,8 @@ export default function InsuranceMasterPage() {
         ...formData,
         insuranceCode,
         createdAt: editingInsurance ? editingInsurance.createdAt : new Date().toISOString(),
+        firePolicyUsedAmount: editingInsurance ? editingInsurance.firePolicyUsedAmount || '0' : '0',
+        burglaryPolicyUsedAmount: editingInsurance ? editingInsurance.burglaryPolicyUsedAmount || '0' : '0',
         selectedCommodities // Save multiple commodity selections
       };
 
@@ -576,6 +769,116 @@ export default function InsuranceMasterPage() {
     }
   };
 
+  // Handle extend insurance submission
+  const handleExtendSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedInsuranceForAction) return;
+
+    // Validate end dates are not in the past
+    const today = getTodayDate();
+    if (formData.firePolicyEndDate && formData.firePolicyEndDate < today) {
+      toast({
+        title: "❌ Invalid Date",
+        description: "Fire policy end date cannot be in the past",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+    
+    if (formData.burglaryPolicyEndDate && formData.burglaryPolicyEndDate < today) {
+      toast({
+        title: "❌ Invalid Date", 
+        description: "Burglary policy end date cannot be in the past",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+
+    try {
+      const updateData = {
+        firePolicyEndDate: formData.firePolicyEndDate,
+        burglaryPolicyEndDate: formData.burglaryPolicyEndDate,
+      };
+
+      await updateDoc(doc(db, 'insurance', selectedInsuranceForAction.id!), updateData);
+      
+      toast({
+        title: "✅ Insurance Extended",
+        description: "Insurance policy dates have been extended successfully",
+        className: "bg-green-100 border-green-500 text-green-700",
+        duration: 3000,
+      });
+
+      setShowExtendModal(false);
+      setSelectedInsuranceForAction(null);
+      setFormData({});
+      fetchData(); // Refresh data
+    } catch (error) {
+      toast({
+        title: "❌ Error",
+        description: "Failed to extend insurance policy. Please try again.",
+        variant: "destructive",
+        duration: 3000,
+      });
+    }
+  };
+
+  // Handle replace insurance submission
+  const handleReplaceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedInsuranceForAction) return;
+
+    // Validate end dates are not in the past
+    const today = getTodayDate();
+    if (formData.firePolicyEndDate && formData.firePolicyEndDate < today) {
+      toast({
+        title: "❌ Invalid Date",
+        description: "Fire policy end date cannot be in the past",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+    
+    if (formData.burglaryPolicyEndDate && formData.burglaryPolicyEndDate < today) {
+      toast({
+        title: "❌ Invalid Date", 
+        description: "Burglary policy end date cannot be in the past",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+
+    try {
+      // Update the existing insurance with new data
+      await updateDoc(doc(db, 'insurance', selectedInsuranceForAction.id!), formData);
+      
+      toast({
+        title: "✅ Insurance Replaced",
+        description: "New insurance policy has replaced the expired one successfully",
+        className: "bg-green-100 border-green-500 text-green-700",
+        duration: 3000,
+      });
+
+      setShowReplaceModal(false);
+      setSelectedInsuranceForAction(null);
+      setFormData({});
+      fetchData(); // Refresh data
+    } catch (error) {
+      toast({
+        title: "❌ Error",
+        description: "Failed to replace insurance policy. Please try again.",
+        variant: "destructive",
+        duration: 3000,
+      });
+    }
+  };
+
   // Close modal and reset form
   const closeModal = () => {
     setShowAddModal(false);
@@ -588,7 +891,16 @@ export default function InsuranceMasterPage() {
     <DashboardLayout>
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Insurance Master Module</h1>
+          <div className="flex items-center gap-4">
+            <Button
+              onClick={() => router.push('/dashboard')}
+              variant="outline"
+              className="border-orange-300 text-orange-600 hover:bg-orange-50"
+            >
+              ← Dashboard
+            </Button>
+            <h1 className="text-3xl font-bold">Insurance Master Module</h1>
+          </div>
           {/* Add Insurance button at top right corner */}
           <Button
             onClick={() => setShowAddModal(true)}
@@ -598,6 +910,34 @@ export default function InsuranceMasterPage() {
             Add Insurance
           </Button>
         </div>
+
+        {/* Status Indicators Description */}
+        <Card className="border-blue-300 bg-blue-50">
+          <CardContent className="pt-4">
+            <div className="text-sm">
+              <h3 className="font-semibold text-blue-800 mb-2">📋 Insurance Status Indicators:</h3>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 bg-red-100 border border-red-300 rounded px-2 py-1">
+                    <div className="relative">
+                      <div className="w-2 h-2 bg-red-500 rounded-full animate-ping absolute"></div>
+                      <div className="w-2 h-2 bg-red-600 rounded-full relative"></div>
+                    </div>
+                    <span className="text-red-800 text-xs font-medium">EXPIRING</span>
+                  </div>
+                  <span className="text-gray-700 text-sm">Fire policy expires within 5 days - Click to extend policy dates</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 bg-blue-100 border border-blue-300 rounded px-2 py-1">
+                    <Lightbulb className="w-3 h-3 fill-blue-500 text-blue-500" />
+                    <span className="text-blue-800 text-xs font-medium">EXPIRED</span>
+                  </div>
+                  <span className="text-gray-700 text-sm">Fire policy has expired - Click to add new insurance policy</span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Search and Export Controls */}
         <Card className="border-green-300">
@@ -1049,6 +1389,324 @@ export default function InsuranceMasterPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Extend Insurance Modal */}
+        <Dialog open={showExtendModal} onOpenChange={setShowExtendModal}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="text-red-700 text-xl flex items-center gap-2">
+                <Lightbulb className="w-5 h-5 fill-red-500 text-red-500" />
+                🔄 Extend Insurance Policy
+              </DialogTitle>
+              <DialogDescription className="text-red-600">
+                Insurance Code: <strong>{selectedInsuranceForAction?.insuranceCode}</strong>
+                <br />
+                Extend the fire policy and burglary policy end dates
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleExtendSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-red-600 font-medium">Fire Policy End Date <span className="text-red-500">*</span></Label>
+                  <Input
+                    type="date"
+                    value={formData.firePolicyEndDate || ''}
+                    onChange={(e) => handleInputChange('firePolicyEndDate', e.target.value)}
+                    className="border-red-300 focus:border-red-500"
+                    min={getTodayDate()}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-orange-600 font-medium">Burglary Policy End Date <span className="text-red-500">*</span></Label>
+                  <Input
+                    type="date"
+                    value={formData.burglaryPolicyEndDate || ''}
+                    onChange={(e) => handleInputChange('burglaryPolicyEndDate', e.target.value)}
+                    className="border-orange-300 focus:border-orange-500"
+                    min={getTodayDate()}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-4 pt-4 border-t">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowExtendModal(false);
+                    setSelectedInsuranceForAction(null);
+                    setFormData({});
+                  }}
+                  className="border-gray-300 text-gray-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="bg-red-500 hover:bg-red-600 text-white px-8 py-2 shadow-lg"
+                >
+                  🔄 Extend Policies
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Replace Insurance Modal */}
+        <Dialog open={showReplaceModal} onOpenChange={setShowReplaceModal}>
+          <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-blue-700 text-xl flex items-center gap-2">
+                <Lightbulb className="w-5 h-5 fill-blue-500 text-blue-500" />
+                🆕 Replace Expired Insurance
+              </DialogTitle>
+              <DialogDescription className="text-blue-600">
+                Insurance Code: <strong>{selectedInsuranceForAction?.insuranceCode}</strong>
+                <br />
+                Add new insurance to replace the expired policy
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleReplaceSubmit} className="space-y-6">
+              {/* Insurance Type Selection */}
+              <div className="grid grid-cols-1 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-green-600 font-medium">Insurance Type <span className="text-red-500">*</span></Label>
+                  <Select
+                    value={formData.insuranceType || ''}
+                    onValueChange={(value) => handleInputChange('insuranceType', value)}
+                    required
+                  >
+                    <SelectTrigger className="border-orange-300 focus:border-orange-500">
+                      <SelectValue placeholder="Select insurance type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bank-funded">Bank Funded</SelectItem>
+                      <SelectItem value="client">Client</SelectItem>
+                      <SelectItem value="agrogreen">Agrogreen</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Common Fields */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-green-600 font-medium">Warehouse Name <span className="text-red-500">*</span></Label>
+                  <Select
+                    value={formData.warehouseName || ''}
+                    onValueChange={(value) => handleInputChange('warehouseName', value)}
+                    required
+                  >
+                    <SelectTrigger className="border-orange-300 focus:border-orange-500">
+                      <SelectValue placeholder="Select warehouse" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {warehouses.map(warehouse => (
+                        <SelectItem key={warehouse.id} value={warehouse.warehouseName}>
+                          {warehouse.warehouseName} ({warehouse.warehouseCode})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-green-600 font-medium">Commodity <span className="text-red-500">*</span></Label>
+                  <Select
+                    value={formData.commodityName || ''}
+                    onValueChange={(value) => handleInputChange('commodityName', value)}
+                    required
+                  >
+                    <SelectTrigger className="border-orange-300 focus:border-orange-500">
+                      <SelectValue placeholder="Select commodity" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {commodities.map(commodity => (
+                        <SelectItem key={commodity.id} value={commodity.commodityName}>
+                          {commodity.commodityName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-green-600 font-medium">Variety <span className="text-red-500">*</span></Label>
+                  <Select
+                    value={formData.varietyName || ''}
+                    onValueChange={(value) => handleInputChange('varietyName', value)}
+                    required
+                  >
+                    <SelectTrigger className="border-orange-300 focus:border-orange-500">
+                      <SelectValue placeholder="Select variety" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {commodities
+                        .find(c => c.commodityName === formData.commodityName)
+                        ?.varieties?.map(variety => (
+                          <SelectItem key={variety.varietyId} value={variety.varietyName}>
+                            {variety.varietyName}
+                          </SelectItem>
+                        )) || []}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Fire Policy Details */}
+              <div className="space-y-4 border border-red-200 rounded-lg p-4 bg-red-50">
+                <h3 className="text-red-800 font-semibold text-lg">🔥 New Fire Policy Details</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-green-600 font-medium">Company Name <span className="text-red-500">*</span></Label>
+                    <Input
+                      value={formData.firePolicyCompanyName || ''}
+                      onChange={(e) => handleInputChange('firePolicyCompanyName', e.target.value)}
+                      className="border-orange-300 focus:border-orange-500"
+                      placeholder="Fire insurance company name"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-green-600 font-medium">Policy Number <span className="text-red-500">*</span></Label>
+                    <Input
+                      value={formData.firePolicyNumber || ''}
+                      onChange={(e) => handleInputChange('firePolicyNumber', e.target.value)}
+                      className="border-orange-300 focus:border-orange-500"
+                      placeholder="Fire policy number"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-green-600 font-medium">Policy Amount <span className="text-red-500">*</span></Label>
+                    <Input
+                      type="number"
+                      value={formData.firePolicyAmount || ''}
+                      onChange={(e) => handleInputChange('firePolicyAmount', e.target.value)}
+                      className="border-orange-300 focus:border-orange-500"
+                      placeholder="Policy amount"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-green-600 font-medium">Start Date <span className="text-red-500">*</span></Label>
+                    <Input
+                      type="date"
+                      value={formData.firePolicyStartDate || ''}
+                      onChange={(e) => handleInputChange('firePolicyStartDate', e.target.value)}
+                      className="border-orange-300 focus:border-orange-500"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-green-600 font-medium">End Date <span className="text-red-500">*</span></Label>
+                    <Input
+                      type="date"
+                      value={formData.firePolicyEndDate || ''}
+                      onChange={(e) => handleInputChange('firePolicyEndDate', e.target.value)}
+                      className="border-orange-300 focus:border-orange-500"
+                      min={getTodayDate()}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Burglary Policy Details */}
+              <div className="space-y-4 border border-orange-200 rounded-lg p-4 bg-orange-50">
+                <h3 className="text-orange-800 font-semibold text-lg">🛡️ New Burglary Policy Details</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-green-600 font-medium">Company Name <span className="text-red-500">*</span></Label>
+                    <Input
+                      value={formData.burglaryPolicyCompanyName || ''}
+                      onChange={(e) => handleInputChange('burglaryPolicyCompanyName', e.target.value)}
+                      className="border-orange-300 focus:border-orange-500"
+                      placeholder="Burglary insurance company name"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-green-600 font-medium">Policy Number <span className="text-red-500">*</span></Label>
+                    <Input
+                      value={formData.burglaryPolicyNumber || ''}
+                      onChange={(e) => handleInputChange('burglaryPolicyNumber', e.target.value)}
+                      className="border-orange-300 focus:border-orange-500"
+                      placeholder="Burglary policy number"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-green-600 font-medium">Policy Amount <span className="text-red-500">*</span></Label>
+                    <Input
+                      type="number"
+                      value={formData.burglaryPolicyAmount || ''}
+                      onChange={(e) => handleInputChange('burglaryPolicyAmount', e.target.value)}
+                      className="border-orange-300 focus:border-orange-500"
+                      placeholder="Policy amount"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-green-600 font-medium">Start Date <span className="text-red-500">*</span></Label>
+                    <Input
+                      type="date"
+                      value={formData.burglaryPolicyStartDate || ''}
+                      onChange={(e) => handleInputChange('burglaryPolicyStartDate', e.target.value)}
+                      className="border-orange-300 focus:border-orange-500"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-green-600 font-medium">End Date <span className="text-red-500">*</span></Label>
+                    <Input
+                      type="date"
+                      value={formData.burglaryPolicyEndDate || ''}
+                      onChange={(e) => handleInputChange('burglaryPolicyEndDate', e.target.value)}
+                      className="border-orange-300 focus:border-orange-500"
+                      min={getTodayDate()}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-4 pt-4 border-t">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowReplaceModal(false);
+                    setSelectedInsuranceForAction(null);
+                    setFormData({});
+                  }}
+                  className="border-gray-300 text-gray-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-8 py-2 shadow-lg"
+                >
+                  🆕 Replace Insurance
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

@@ -22,6 +22,7 @@ import {
   FileText,
   AlertCircle
 } from "lucide-react";
+import BlinkingSirenIcon from '@/components/BlinkingSirenIcon';
 import { DataTable } from '@/components/data-table';
 import type { Row } from '@tanstack/react-table';
 import WarehouseInspectionForm from '../inspection-form';
@@ -47,6 +48,28 @@ interface InspectionData {
   status?: string;
   resubmissionRemarks?: string;
   checkerRemarks?: string;
+}
+
+// Insurance expiry check function
+function getInsuranceAlertStatus(inspection: InspectionData): 'none' | 'expiring' | 'expired' {
+  const insuranceEntries = inspection.warehouseInspectionData?.insuranceEntries || [];
+  if (insuranceEntries.length === 0) return 'none';
+
+  const today = new Date();
+  let hasExpired = false;
+
+  insuranceEntries.forEach((insurance: any) => {
+    [insurance.firePolicyEndDate, insurance.burglaryPolicyEndDate].forEach((date: any) => {
+      if (date) {
+        const endDate = new Date(date);
+        if (endDate < today) {
+          hasExpired = true;
+        }
+      }
+    });
+  });
+
+  return hasExpired ? 'expired' : 'none';
 }
 
 // Define columns for DataTable
@@ -211,8 +234,10 @@ const resubmittedColumns = [
     header: "Actions",
     cell: ({ row }: { row: Row<any> }) => {
       const inspection = row.original;
+      const insuranceStatus = getInsuranceAlertStatus(inspection);
+      
       return (
-        <div className="flex space-x-2 justify-center">
+        <div className="flex space-x-2 justify-center items-center">
           <Button 
             variant="outline" 
             size="sm"
@@ -249,6 +274,11 @@ const resubmittedColumns = [
           >
             <FileText className="w-4 h-4" />
           </Button>
+          {insuranceStatus === 'expired' && (
+            <div title="Insurance Expired">
+              <BlinkingSirenIcon color="red" size={20} />
+            </div>
+          )}
         </div>
       );
     },

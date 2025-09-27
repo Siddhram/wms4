@@ -79,20 +79,22 @@ export default function AnalyticsPage() {
     setLoading(true);
     try {
       // Fetch data from multiple collections
-      const [inwardSnapshot, outwardSnapshot, roSnapshot, doSnapshot, inspectionsSnapshot] = await Promise.all([
+      const [inwardSnapshot, outwardSnapshot, roSnapshot, doSnapshot, inspectionsSnapshot, insuranceSnapshot] = await Promise.all([
         getDocs(collection(db, 'inward')),
         getDocs(collection(db, 'outwards')),
         getDocs(collection(db, 'releaseOrders')),
         getDocs(collection(db, 'deliveryOrders')),
-        getDocs(collection(db, 'inspections'))
+        getDocs(collection(db, 'inspections')),
+        getDocs(collection(db, 'insurance'))
       ]);
 
-      // Process inward data
+      // Process data
       const inwardData = inwardSnapshot.docs.map(doc => doc.data());
       const outwardData = outwardSnapshot.docs.map(doc => doc.data());
       const roData = roSnapshot.docs.map(doc => doc.data());
       const doData = doSnapshot.docs.map(doc => doc.data());
       const inspectionsData = inspectionsSnapshot.docs.map(doc => doc.data());
+      const insuranceData = insuranceSnapshot.docs.map(doc => doc.data());
 
       // Calculate totals
       const totalInward = inwardData.length;
@@ -114,27 +116,36 @@ export default function AnalyticsPage() {
         return sum + value;
       }, 0);
 
-      // Calculate insurance data
-      let totalInsurance = 0;
+      // Calculate insurance data from insurance master collection
+      let totalInsurance = insuranceData.length;
       let activeInsurance = 0;
       let expiredInsurance = 0;
 
-      inspectionsData.forEach((inspection: any) => {
-        if (inspection.insuranceEntries && Array.isArray(inspection.insuranceEntries)) {
-          totalInsurance += inspection.insuranceEntries.length;
-          inspection.insuranceEntries.forEach((insurance: any) => {
-            if (insurance.firePolicyEndDate || insurance.burglaryPolicyEndDate) {
-              const endDate = new Date(insurance.firePolicyEndDate || insurance.burglaryPolicyEndDate);
-              const today = new Date();
-              if (endDate > today) {
-                activeInsurance++;
-              } else {
-                expiredInsurance++;
-              }
-            } else {
-              activeInsurance++;
-            }
-          });
+      insuranceData.forEach((insurance: any) => {
+        // Check if either policy is still active
+        const fireEndDate = insurance.firePolicyEndDate ? new Date(insurance.firePolicyEndDate) : null;
+        const burglaryEndDate = insurance.burglaryPolicyEndDate ? new Date(insurance.burglaryPolicyEndDate) : null;
+        const today = new Date();
+        
+        let hasActivePolicy = false;
+        
+        if (fireEndDate && fireEndDate > today) {
+          hasActivePolicy = true;
+        }
+        
+        if (burglaryEndDate && burglaryEndDate > today) {
+          hasActivePolicy = true;
+        }
+        
+        // If no end dates are specified, consider as active
+        if (!fireEndDate && !burglaryEndDate) {
+          hasActivePolicy = true;
+        }
+        
+        if (hasActivePolicy) {
+          activeInsurance++;
+        } else {
+          expiredInsurance++;
         }
       });
 

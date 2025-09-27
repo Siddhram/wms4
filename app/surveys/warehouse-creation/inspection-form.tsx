@@ -16,7 +16,6 @@ import { collection, getDocs, addDoc, query, where, doc, updateDoc } from 'fireb
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
 import Image from 'next/image';
-import InsurancePopup from '@/components/InsurancePopup';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface WarehouseInspectionFormProps {
@@ -400,6 +399,8 @@ export default function WarehouseInspectionForm({
     burglaryPolicyAmount: '',
     burglaryPolicyStartDate: null as Date | null,
     burglaryPolicyEndDate: null as Date | null,
+    remainingFirePolicyAmount: '',
+    remainingBurglaryPolicyAmount: '',
     insuranceCompany: '',
     insurancePolicyNumber: '',
     assuredSum: '',
@@ -479,6 +480,7 @@ export default function WarehouseInspectionForm({
   const [associatedBanks, setAssociatedBanks] = useState<AssociatedBank[]>([]);
   const [clientInsuranceData, setClientInsuranceData] = useState<any[]>([]);
   const [selectedClientInsurances, setSelectedClientInsurances] = useState<any[]>([]);
+  const [additionalInsuranceSections, setAdditionalInsuranceSections] = useState<any[]>([]);
   const [agrogreenInsuranceData, setAgrogreenInsuranceData] = useState<any[]>([]);
   const [selectedInsurancePolicy, setSelectedInsurancePolicy] = useState<string>('');
   const [selectedAgrogreenInsurances, setSelectedAgrogreenInsurances] = useState<any[]>([]);
@@ -486,8 +488,7 @@ export default function WarehouseInspectionForm({
   const [commodityInsuranceData, setCommodityInsuranceData] = useState<any[]>([]);
 
   // Insurance popup state
-  const [showInsurancePopup, setShowInsurancePopup] = useState(false);
-  const [pendingAction, setPendingAction] = useState<'activate' | 'close' | 'reactivate' | null>(null);
+  // Removed insurance popup states - using direct validation instead
   
   // Most fields are now editable - only master data fields remain read-only
   const isReadOnly = false; // Remove general read-only restriction
@@ -622,6 +623,15 @@ export default function WarehouseInspectionForm({
   }, []);
 
   const fetchClientInsurances = useCallback(async (clientName: string) => {
+    console.log('🔍 WAREHOUSE CREATION: Fetching insurances from Insurance Master');
+    console.log('Filters:', {
+      clientName,
+      warehouseName: formData.warehouseName,
+      state: formData.state,
+      branch: formData.branch,
+      location: formData.location
+    });
+
     const combinedInsurances: any[] = [];
 
     const normalizeInsurance = (insurance: any, sourceDocumentId: string, sourceCollection: string) => ({
@@ -630,31 +640,103 @@ export default function WarehouseInspectionForm({
       commodity: insurance?.commodity || insurance?.commodityName || insurance?.insuranceCommodity || '',
       sourceDocumentId,
       sourceCollection,
+      // Show original amounts in main fields, remaining amounts in separate fields
+      firePolicyAmount: insurance?.firePolicyAmount || '',
+      burglaryPolicyAmount: insurance?.burglaryPolicyAmount || '',
+      remainingFirePolicyAmount: insurance?.firePolicyRemainingAmount || insurance?.firePolicyAmount || '',
+      remainingBurglaryPolicyAmount: insurance?.burglaryPolicyRemainingAmount || insurance?.burglaryPolicyAmount || '',
     });
 
     try {
-      const clientQuery = query(collection(db, 'clients'), where('firmName', '==', clientName));
-      const clientSnapshot = await getDocs(clientQuery);
-      if (!clientSnapshot.empty) {
-        const clientDoc = clientSnapshot.docs[0];
-        const clientData = clientDoc.data() as any;
-        const clientInsurances = clientData.insurances || [];
-        combinedInsurances.push(
-          ...clientInsurances.map((insurance: any) =>
-            normalizeInsurance(insurance, clientDoc.id, 'clients')
-          )
+      // Primary: Fetch from Insurance Master collection with warehouse and client filters
+      let insuranceQuery;
+      
+      if (formData.warehouseName && formData.state && formData.branch && formData.location) {
+        // Complete warehouse information available - use precise filtering
+        insuranceQuery = query(
+          collection(db, 'insurance'),
+          where('warehouseName', '==', formData.warehouseName),
+          where('state', '==', formData.state),
+          where('branch', '==', formData.branch),
+          where('location', '==', formData.location)
         );
+        console.log('✅ Using complete warehouse filters for insurance query');
+      } else if (formData.warehouseName) {
+        // Only warehouse name available
+        insuranceQuery = query(
+          collection(db, 'insurance'),
+          where('warehouseName', '==', formData.warehouseName)
+        );
+        console.log('✅ Using warehouse name filter for insurance query');
+      } else if (clientName) {
+        // Fallback to client name if warehouse not available
+        insuranceQuery = query(
+          collection(db, 'insurance'),
+          where('clientName', '==', clientName)
+        );
+        console.log('✅ Using client name filter for insurance query');
+      } else {
+        console.log('❌ No valid filters available for insurance query');
+        return [];
       }
 
-      const insuranceQuery = query(collection(db, 'insurance'), where('clientName', '==', clientName));
       const insuranceSnapshot = await getDocs(insuranceQuery);
-      combinedInsurances.push(
-        ...insuranceSnapshot.docs.map(doc =>
-          normalizeInsurance(doc.data(), doc.id, 'insurance')
-        )
-      );
+      console.log('📊 Insurance Master query result:', insuranceSnapshot.docs.length, 'documents found');
+      
+      insuranceSnapshot.docs.forEach((doc, index) => {
+        const data = doc.data();
+        console.log(`Insurance ${index + 1}:`, {
+          warehouseName: data.warehouseName,
+          commodityName: data.commodityName,
+          clientName: data.clientName,
+          firePolicyAmount: data.firePolicyAmount,
+          firePolicyRemainingAmount: data.firePolicyRemainingAmount,
+          burglaryPolicyAmount: data.burglaryPolicyAmount,
+          burglaryPolicyRemainingAmount: data.burglaryPolicyRemainingAmount
+        });
+      });
+
+      const normalizedInsurances = insuranceSnapshot.docs.map(doc => {
+        const normalized = normalizeInsurance(doc.data(), doc.id, 'insurance');
+        console.log('🔧 NORMALIZED INSURANCE from master:', {
+          original: {
+            firePolicyAmount: doc.data().firePolicyAmount,
+            firePolicyRemainingAmount: doc.data().firePolicyRemainingAmount,
+            burglaryPolicyAmount: doc.data().burglaryPolicyAmount,
+            burglaryPolicyRemainingAmount: doc.data().burglaryPolicyRemainingAmount
+          },
+          normalized: {
+            firePolicyAmount: normalized.firePolicyAmount,
+            remainingFirePolicyAmount: normalized.remainingFirePolicyAmount,
+            burglaryPolicyAmount: normalized.burglaryPolicyAmount,
+            remainingBurglaryPolicyAmount: normalized.remainingBurglaryPolicyAmount
+          }
+        });
+        return normalized;
+      });
+      
+      combinedInsurances.push(...normalizedInsurances);
+
+      // Legacy: Also check clients collection for backward compatibility (if needed)
+      if (clientName && combinedInsurances.length === 0) {
+        console.log('🔄 No insurance found in master, checking clients collection as fallback...');
+        const clientQuery = query(collection(db, 'clients'), where('firmName', '==', clientName));
+        const clientSnapshot = await getDocs(clientQuery);
+        if (!clientSnapshot.empty) {
+          const clientDoc = clientSnapshot.docs[0];
+          const clientData = clientDoc.data() as any;
+          const clientInsurances = clientData.insurances || [];
+          combinedInsurances.push(
+            ...clientInsurances.map((insurance: any) =>
+              normalizeInsurance(insurance, clientDoc.id, 'clients')
+            )
+          );
+          console.log('📊 Fallback: Found', clientInsurances.length, 'insurances in clients collection');
+        }
+      }
+
     } catch (error) {
-      console.error('Error fetching client insurances:', error);
+      console.error('❌ Error fetching insurances:', error);
     }
 
     const uniqueMap = new Map<string, any>();
@@ -669,7 +751,17 @@ export default function WarehouseInspectionForm({
       }
     });
 
-    return Array.from(uniqueMap.values());
+    const finalInsurances = Array.from(uniqueMap.values());
+    console.log('🎯 FINAL INSURANCES being returned:', finalInsurances.map(ins => ({
+      firePolicyNumber: ins.firePolicyNumber,
+      firePolicyAmount: ins.firePolicyAmount,
+      remainingFirePolicyAmount: ins.remainingFirePolicyAmount,
+      burglaryPolicyAmount: ins.burglaryPolicyAmount,
+      remainingBurglaryPolicyAmount: ins.remainingBurglaryPolicyAmount,
+      sourceCollection: ins.sourceCollection
+    })));
+    
+    return finalInsurances;
   }, []);
 
   // Fetch associated banks for a given warehouse code
@@ -800,17 +892,36 @@ export default function WarehouseInspectionForm({
       
       setFormData(prev => ({
         ...prev,
-        // Use the processed form data with converted dates
+        // Use the processed form data with converted dates, BUT exclude insurance amounts (fetch them fresh)
         ...processedFormData,
         // Always preserve core inspection fields from top level
         inspectionCode: initialData.inspectionCode || formDataSource.inspectionCode || prev.inspectionCode,
         warehouseCode: initialData.warehouseCode || formDataSource.warehouseCode || prev.warehouseCode,
         warehouseName: initialData.warehouseName || formDataSource.warehouseName || prev.warehouseName,
+        // Bank details are stored at top level of inspection, not in warehouseInspectionData
+        bankState: initialData.bankState || formDataSource.bankState || prev.bankState,
+        bankBranch: initialData.bankBranch || formDataSource.bankBranch || prev.bankBranch,
+        bankName: initialData.bankName || formDataSource.bankName || prev.bankName,
+        ifscCode: initialData.ifscCode || formDataSource.ifscCode || prev.ifscCode,
         // Preserve attachedFiles if they exist in current state
         attachedFiles: formDataSource.attachedFiles || initialData.attachedFiles || prev.attachedFiles || [],
         // Handle insurance entries from existing data with proper date conversion
-        insuranceEntries: processedInsuranceEntries
+        insuranceEntries: processedInsuranceEntries,
+        // Reset insurance amounts - will be fetched fresh from insurance master
+        firePolicyAmount: '',
+        burglaryPolicyAmount: '',
+        remainingFirePolicyAmount: '',
+        remainingBurglaryPolicyAmount: '',
       }));
+      
+      // Restore selected client insurances and additional sections if they exist
+      if (formDataSource.selectedClientInsurances && Array.isArray(formDataSource.selectedClientInsurances)) {
+        setSelectedClientInsurances(formDataSource.selectedClientInsurances);
+      }
+      
+      if (formDataSource.additionalInsuranceSections && Array.isArray(formDataSource.additionalInsuranceSections)) {
+        setAdditionalInsuranceSections(formDataSource.additionalInsuranceSections);
+      }
       // Initialize editable warehouse name
       setEditableWarehouseName(initialData.warehouseName || formDataSource.warehouseName || '');
       
@@ -820,6 +931,42 @@ export default function WarehouseInspectionForm({
       }
     }
   }, [initialData, initialData?.inspectionCode, mode, fetchAssociatedBanks]); // include initialData to satisfy exhaustive-deps
+
+  // Refresh insurance amounts after form initialization
+  useEffect(() => {
+    const refreshInsuranceAmounts = async () => {
+      if (formData.clientName && formData.insuranceTakenBy === 'client' && 
+          (formData.firePolicyNumber || formData.burglaryPolicyNumber)) {
+        console.log('🔄 Refreshing insurance amounts for initialized form...');
+        try {
+          const freshInsuranceData = await fetchClientInsurances(formData.clientName);
+          
+          // Find matching insurance based on policy numbers
+          const matchingInsurance = freshInsuranceData.find(ins => 
+            ins.firePolicyNumber === formData.firePolicyNumber || 
+            ins.burglaryPolicyNumber === formData.burglaryPolicyNumber
+          );
+          
+          if (matchingInsurance) {
+            console.log('✅ Found matching insurance with fresh amounts:', matchingInsurance);
+            setFormData(prev => ({
+              ...prev,
+              firePolicyAmount: matchingInsurance.firePolicyAmount || prev.firePolicyAmount,
+              burglaryPolicyAmount: matchingInsurance.burglaryPolicyAmount || prev.burglaryPolicyAmount,
+              remainingFirePolicyAmount: matchingInsurance.remainingFirePolicyAmount || '',
+              remainingBurglaryPolicyAmount: matchingInsurance.remainingBurglaryPolicyAmount || '',
+            }));
+          }
+        } catch (error) {
+          console.error('❌ Error refreshing insurance amounts:', error);
+        }
+      }
+    };
+
+    // Run after a short delay to ensure form initialization is complete
+    const timeoutId = setTimeout(refreshInsuranceAmounts, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [formData.clientName, formData.insuranceTakenBy, formData.firePolicyNumber, formData.burglaryPolicyNumber, fetchClientInsurances]);
 
   // Bank state effect
   useEffect(() => {
@@ -843,12 +990,12 @@ export default function WarehouseInspectionForm({
       
   setAvailableBankBranches(Array.from(new Set(branches)));
       
-      // Don't clear bank data in view mode - preserve the initial data
-      if (mode !== 'view') {
+      // Don't clear bank data in view mode OR if we have initialData with bank details
+      if (mode !== 'view' && !(initialData && initialData.bankBranch)) {
         setFormData(prev => ({ ...prev, bankBranch: '', bankName: '', ifscCode: '' }));
       }
     }
-  }, [formData.bankState, banksData, mode]);
+  }, [formData.bankState, banksData, mode, initialData]);
 
   // Bank name effect
   useEffect(() => {
@@ -869,12 +1016,12 @@ export default function WarehouseInspectionForm({
       
       setAvailableBanks(banksInBranch);
       
-      // Don't clear bank data in view mode - preserve the initial data
-      if (mode !== 'view') {
+      // Don't clear bank data in view mode OR if we have initialData with bank details
+      if (mode !== 'view' && !(initialData && initialData.bankName)) {
         setFormData(prev => ({ ...prev, bankName: '', ifscCode: '' }));
       }
     }
-  }, [formData.bankState, formData.bankBranch, banksData, mode]);
+  }, [formData.bankState, formData.bankBranch, banksData, mode, initialData]);
 
   // Auto-calculate warehouse capacity
   useEffect(() => {
@@ -993,31 +1140,43 @@ export default function WarehouseInspectionForm({
     const loadInitialClientInsuranceData = async () => {
       if (initialData?.clientName && initialData?.insuranceTakenBy === 'client') {
         try {
-          console.log('Loading initial insurance data for client:', initialData.clientName);
-          const clientDoc = await getDocs(query(collection(db, 'clients'), where('firmName', '==', initialData.clientName)));
-          if (!clientDoc.empty) {
-            const clientData = clientDoc.docs[0].data() as any;
-            const clientDocId = clientDoc.docs[0].id; // Get the document ID
-            const insurances = clientData.insurances || [];
-            console.log('Initial insurance data found:', insurances);
+          console.log('🔄 Loading initial insurance data for client:', initialData.clientName);
+          
+          // Use the fetchClientInsurances function which prioritizes insurance master collection
+          const insuranceData = await fetchClientInsurances(initialData.clientName);
+          console.log('✅ Initial insurance data loaded:', insuranceData.length, 'policies');
+          
+          if (insuranceData.length > 0) {
+            setClientInsuranceData(insuranceData);
             
-            // Add document ID and collection info to each insurance policy
-            const insurancesWithDocId = insurances.map((insurance: any) => ({
-              ...insurance,
-              sourceDocumentId: clientDocId,
-              sourceCollection: 'clients'
+            // Auto-fill with the first insurance if available (using updated amounts)
+            const firstInsurance = insuranceData[0];
+            console.log('🔧 Auto-filling initial form with first insurance:', firstInsurance);
+            
+            setFormData(prev => ({
+              ...prev,
+              firePolicyCompanyName: firstInsurance.firePolicyCompanyName || '',
+              firePolicyNumber: firstInsurance.firePolicyNumber || '',
+              firePolicyAmount: firstInsurance.firePolicyAmount || '',
+              firePolicyStartDate: safeCreateDate(firstInsurance.firePolicyStartDate),
+              firePolicyEndDate: safeCreateDate(firstInsurance.firePolicyEndDate),
+              burglaryPolicyCompanyName: firstInsurance.burglaryPolicyCompanyName || '',
+              burglaryPolicyNumber: firstInsurance.burglaryPolicyNumber || '',
+              burglaryPolicyAmount: firstInsurance.burglaryPolicyAmount || '',
+              burglaryPolicyStartDate: safeCreateDate(firstInsurance.burglaryPolicyStartDate),
+              burglaryPolicyEndDate: safeCreateDate(firstInsurance.burglaryPolicyEndDate),
+              remainingFirePolicyAmount: firstInsurance.remainingFirePolicyAmount || '',
+              remainingBurglaryPolicyAmount: firstInsurance.remainingBurglaryPolicyAmount || '',
             }));
-            
-            setClientInsuranceData(insurancesWithDocId);
           }
         } catch (error) {
-          console.error('Error loading initial client insurance data:', error);
+          console.error('❌ Error loading initial client insurance data:', error);
         }
       }
     };
 
     loadInitialClientInsuranceData();
-  }, [initialData]);
+  }, [initialData, fetchClientInsurances]);
 
   // removed duplicate non-callback loader functions (defined above with useCallback)
 
@@ -1155,8 +1314,8 @@ export default function WarehouseInspectionForm({
             burglaryPolicyStartDate: safeDateToISO(insurance.burglaryPolicyStartDate),
             burglaryPolicyEndDate: safeDateToISO(insurance.burglaryPolicyEndDate),
             createdAt: new Date().toISOString(),
-            remainingFirePolicyAmount: '',
-            remainingBurglaryPolicyAmount: '',
+            remainingFirePolicyAmount: insurance.remainingFirePolicyAmount || '',
+            remainingBurglaryPolicyAmount: insurance.remainingBurglaryPolicyAmount || '',
             sourceDocumentId: insurance.sourceDocumentId,
             sourceCollection: insurance.sourceCollection,
             insuranceId: insurance.insuranceId
@@ -1203,8 +1362,8 @@ export default function WarehouseInspectionForm({
             burglaryPolicyStartDate: safeDateToISO(insurance.burglaryPolicyStartDate),
             burglaryPolicyEndDate: safeDateToISO(insurance.burglaryPolicyEndDate),
             createdAt: new Date().toISOString(),
-            remainingFirePolicyAmount: '',
-            remainingBurglaryPolicyAmount: '',
+            remainingFirePolicyAmount: insurance.remainingFirePolicyAmount || '',
+            remainingBurglaryPolicyAmount: insurance.remainingBurglaryPolicyAmount || '',
             sourceDocumentId: insurance.sourceDocumentId,
             sourceCollection: insurance.sourceCollection,
             insuranceId: insurance.insuranceId // <-- use the real insuranceId from agrogreen
@@ -1770,7 +1929,9 @@ export default function WarehouseInspectionForm({
         status: 'submitted',
         submittedAt: new Date().toISOString(),
         submittedDate: format(new Date(), 'yyyy-MM-dd'),
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date().toISOString(),
+        selectedClientInsurances: selectedClientInsurances,
+        additionalInsuranceSections: additionalInsuranceSections
       };
 
       // Update the existing inspection record in the inspections collection
@@ -1864,249 +2025,22 @@ export default function WarehouseInspectionForm({
     return missingInsuranceFields;
   };
 
-  // Handle insurance popup save
-  const handleInsuranceSave = async (insuranceData: any) => {
-    try {
-      // Update form data with insurance information
-      const updatedFormData = {
-        ...formData,
-        insuranceTakenBy: insuranceData.insuranceTakenBy,
-        insuranceCommodity: insuranceData.insuranceCommodity,
-        clientName: insuranceData.clientName,
-        clientAddress: insuranceData.clientAddress,
-        selectedBankName: insuranceData.selectedBankName,
-        firePolicyCompanyName: insuranceData.firePolicyCompanyName,
-        firePolicyNumber: insuranceData.firePolicyNumber,
-        firePolicyAmount: insuranceData.firePolicyAmount,
-        firePolicyStartDate: insuranceData.firePolicyStartDate,
-        firePolicyEndDate: insuranceData.firePolicyEndDate,
-        burglaryPolicyCompanyName: insuranceData.burglaryPolicyCompanyName,
-        burglaryPolicyNumber: insuranceData.burglaryPolicyNumber,
-        burglaryPolicyAmount: insuranceData.burglaryPolicyAmount,
-        burglaryPolicyStartDate: insuranceData.burglaryPolicyStartDate,
-        burglaryPolicyEndDate: insuranceData.burglaryPolicyEndDate,
-      };
+  // Removed handleInsuranceSave - using direct validation instead
 
-      // Update form data state
-      setFormData(updatedFormData);
-
-      // Proceed with the pending action
-      if (pendingAction) {
-        await executeStatusAction(pendingAction, updatedFormData);
-      }
-
-      setShowInsurancePopup(false);
-      setPendingAction(null);
-    } catch (error) {
-      console.error('Error saving insurance data:', error);
-      toast({
-        title: "Error",
-        description: "Failed to save insurance data",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Execute the actual status change
-  const executeStatusAction = async (action: 'activate' | 'close' | 'reactivate', updatedData?: any) => {
-    try {
-      const dataToSave = updatedData || formData;
-      let newStatus = '';
-      let actionMessage = '';
-
-      switch (action) {
-        case 'activate':
-          newStatus = 'activated';
-          actionMessage = 'Activated successfully';
-          break;
-        case 'close':
-          newStatus = 'closed';
-          actionMessage = 'Closed successfully';
-          break;
-        case 'reactivate':
-          newStatus = 'reactivate';
-          actionMessage = 'Moved to Reactivate tab';
-          break;
-      }
-
-      // Update the status in Firebase
-      let documentFound = false;
-      
-      // First try with inspectionCode if available
-      if (dataToSave.inspectionCode) {
-        const inspectionsRef = collection(db, 'inspections');
-        const q = query(inspectionsRef, where('inspectionCode', '==', dataToSave.inspectionCode));
-        const querySnapshot = await getDocs(q);
-      
-        if (!querySnapshot.empty) {
-          const docRef = doc(db, 'inspections', querySnapshot.docs[0].id);
-        
-                  // Clean the form data to avoid invalid date issues
-        const cleanFormData = { ...dataToSave };
-        
-        // Fix any invalid dates
-        Object.keys(cleanFormData).forEach(key => {
-          if (cleanFormData[key] instanceof Date) {
-            if (isNaN(cleanFormData[key].getTime())) {
-              cleanFormData[key] = null; // Replace invalid dates with null
-            } else {
-              cleanFormData[key] = cleanFormData[key].toISOString(); // Convert valid dates to ISO string
-            }
-          }
-        });
-
-        // Also fix dates in insurance entries
-        if (cleanFormData.insuranceEntries && Array.isArray(cleanFormData.insuranceEntries)) {
-          cleanFormData.insuranceEntries = cleanFormData.insuranceEntries.map((entry: InsuranceEntry) => {
-            const cleanEntry = { ...entry } as InsuranceEntry;
-            (Object.keys(cleanEntry) as Array<keyof InsuranceEntry>).forEach((key) => {
-              const val = cleanEntry[key];
-              if (val instanceof Date) {
-                const result: string | null = isNaN(val.getTime()) ? null : val.toISOString();
-                // Only assign to the known date-capable fields
-                if (
-                  key === 'firePolicyStartDate' ||
-                  key === 'firePolicyEndDate' ||
-                  key === 'burglaryPolicyStartDate' ||
-                  key === 'burglaryPolicyEndDate'
-                ) {
-                  (cleanEntry as any)[key] = result;
-                }
-              }
-            });
-            return cleanEntry;
-          });
-        }
-
-          await updateDoc(docRef, {
-            // Update core inspection fields that might have changed
-            inspectionCode: dataToSave.inspectionCode,
-            warehouseCode: dataToSave.warehouseCode,
-            warehouseName: dataToSave.warehouseName,
-            status: newStatus,
-            lastUpdated: new Date().toISOString(),
-            [`${newStatus}At`]: new Date().toISOString(),
-            warehouseInspectionData: {
-              ...cleanFormData,
-              status: newStatus,
-              lastUpdated: new Date().toISOString()
-            }
-          });
-          
-          documentFound = true;
-        }
-      }
-      
-      // If not found by inspectionCode, try by warehouseCode
-      if (!documentFound && dataToSave.warehouseCode) {
-        const inspectionsRef = collection(db, 'inspections');
-        const q = query(inspectionsRef, where('warehouseCode', '==', dataToSave.warehouseCode), where('status', '==', 'submitted'));
-        const querySnapshot = await getDocs(q);
-      
-        if (!querySnapshot.empty) {
-          const docRef = doc(db, 'inspections', querySnapshot.docs[0].id);
-        
-                  // Clean the form data to avoid invalid date issues
-        const cleanFormData2 = { ...dataToSave };
-        
-        // Fix any invalid dates
-        Object.keys(cleanFormData2).forEach(key => {
-          if (cleanFormData2[key] instanceof Date) {
-            if (isNaN(cleanFormData2[key].getTime())) {
-              cleanFormData2[key] = null; // Replace invalid dates with null
-            } else {
-              cleanFormData2[key] = cleanFormData2[key].toISOString(); // Convert valid dates to ISO string
-            }
-          }
-        });
-
-        // Also fix dates in insurance entries
-        if (cleanFormData2.insuranceEntries && Array.isArray(cleanFormData2.insuranceEntries)) {
-          cleanFormData2.insuranceEntries = cleanFormData2.insuranceEntries.map((entry: InsuranceEntry) => {
-            const cleanEntry = { ...entry } as InsuranceEntry;
-            (Object.keys(cleanEntry) as Array<keyof InsuranceEntry>).forEach((key) => {
-              const val = cleanEntry[key];
-              if (val instanceof Date) {
-                const result: string | null = isNaN(val.getTime()) ? null : val.toISOString();
-                if (
-                  key === 'firePolicyStartDate' ||
-                  key === 'firePolicyEndDate' ||
-                  key === 'burglaryPolicyStartDate' ||
-                  key === 'burglaryPolicyEndDate'
-                ) {
-                  (cleanEntry as any)[key] = result;
-                }
-              }
-            });
-            return cleanEntry;
-          });
-        }
-
-          await updateDoc(docRef, {
-            // Update core inspection fields that might have changed
-            inspectionCode: dataToSave.inspectionCode,
-            warehouseCode: dataToSave.warehouseCode,
-            warehouseName: dataToSave.warehouseName,
-            status: newStatus,
-            lastUpdated: new Date().toISOString(),
-            [`${newStatus}At`]: new Date().toISOString(),
-            warehouseInspectionData: {
-              ...cleanFormData2,
-              status: newStatus,
-              lastUpdated: new Date().toISOString()
-            }
-          });
-          
-          documentFound = true;
-        }
-      }
-      
-      if (!documentFound) {
-        toast({
-          title: "Error",
-          description: "Could not find inspection record to update",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Update local state
-      setFormData(prev => ({ 
-        ...prev, 
-        status: newStatus,
-        showActivationButtons: false
-      }));
-
-      // Notify parent component
-      if (onStatusChange && dataToSave.warehouseCode) {
-        onStatusChange(dataToSave.warehouseCode, newStatus);
-      }
-
-      toast({
-        title: "Status Updated",
-        description: actionMessage,
-      });
-
-      // Close form after delay
-      setTimeout(() => onClose(), 1000);
-    } catch (error) {
-      console.error('Error updating status:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update status",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Handle status change actions
+  // Removed executeStatusAction - using direct handling in handleStatusAction instead  // Handle status change actions
   const handleStatusAction = async (action: 'edit' | 'activate' | 'resubmit' | 'reject' | 'close' | 'reactivate' | 'submit') => {
     try {
-      // For activate, close, and reactivate actions, show insurance popup
-      if (action === 'activate' || action === 'close' || action === 'reactivate') {
-        setPendingAction(action);
-        setShowInsurancePopup(true);
-        return;
+      // For activate and reactivate actions, validate insurance first
+      if (action === 'activate' || action === 'reactivate') {
+        const missingInsuranceFields = validateInsuranceForActivation();
+        if (missingInsuranceFields.length > 0) {
+          toast({
+            title: `Cannot ${action === 'activate' ? 'Activate' : 'Reactivate'} Warehouse`,
+            description: `Missing insurance details: ${missingInsuranceFields.join(', ')}. Please complete the Insurance of Stock section.`,
+            variant: "destructive",
+          });
+          return;
+        }
       }
 
       // For other actions, proceed normally
@@ -2118,6 +2052,10 @@ export default function WarehouseInspectionForm({
           newStatus = 'pending';
           actionMessage = 'Moved to pending for editing';
           break;
+        case 'activate':
+          newStatus = 'activated';
+          actionMessage = 'Activated successfully';
+          break;
         case 'resubmit':
           newStatus = 'resubmitted';
           actionMessage = 'Moved to resubmitted';
@@ -2125,6 +2063,14 @@ export default function WarehouseInspectionForm({
         case 'reject':
           newStatus = 'rejected';
           actionMessage = 'Rejected';
+          break;
+        case 'close':
+          newStatus = 'closed';
+          actionMessage = 'Closed successfully';
+          break;
+        case 'reactivate':
+          newStatus = 'reactivate';
+          actionMessage = 'Moved to Reactivate tab';
           break;
         case 'submit':
           newStatus = 'submitted';
@@ -3639,6 +3585,8 @@ export default function WarehouseInspectionForm({
                         burglaryPolicyAmount: selectedInsurance.burglaryPolicyAmount || '',
                         burglaryPolicyStartDate: safeCreateDate(selectedInsurance.burglaryPolicyStartDate),
                         burglaryPolicyEndDate: safeCreateDate(selectedInsurance.burglaryPolicyEndDate),
+                        remainingFirePolicyAmount: selectedInsurance.remainingFirePolicyAmount || '',
+                        remainingBurglaryPolicyAmount: selectedInsurance.remainingBurglaryPolicyAmount || '',
                       }));
                       
                       console.log('Auto-filled form with selected insurance policy:', selectedInsurance);
@@ -3718,6 +3666,8 @@ export default function WarehouseInspectionForm({
                                 burglaryPolicyAmount: insuranceToUse.burglaryPolicyAmount || '',
                                 burglaryPolicyStartDate: safeCreateDate(insuranceToUse.burglaryPolicyStartDate),
                                 burglaryPolicyEndDate: safeCreateDate(insuranceToUse.burglaryPolicyEndDate),
+                                remainingFirePolicyAmount: insuranceToUse.remainingFirePolicyAmount || '',
+                                remainingBurglaryPolicyAmount: insuranceToUse.remainingBurglaryPolicyAmount || '',
                               }));
                               
                               console.log('Auto-filled main form with insurance data');
@@ -3778,8 +3728,22 @@ export default function WarehouseInspectionForm({
                   {clientInsuranceData.length > 0 && (
                     <div className="md:col-span-2">
                       <div className="space-y-2">
-                        <Label className="text-green-600 font-medium">Select Client Insurance Policies</Label>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-green-600 font-medium">Select Client Insurance Policies</Label>
+                          {selectedClientInsurances.length > 0 && (
+                            <div className="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-full">
+                              {selectedClientInsurances.length} selected 
+                              {selectedClientInsurances.length === 1 ? ' (filling main form)' : ` (1 main + ${selectedClientInsurances.length - 1} additional)`}
+                            </div>
+                          )}
+                        </div>
                         <div className="border border-green-200 rounded-lg p-4 bg-green-50">
+                          {selectedClientInsurances.length === 0 && (
+                            <div className="text-xs text-green-600 mb-3 p-2 bg-green-100 rounded">
+                              💡 <strong>Tip:</strong> Select insurance policies below to automatically fill the Fire Policy and Burglary Policy details sections. 
+                              Multiple selections will create additional form sections.
+                            </div>
+                          )}
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             {clientInsuranceData.map((insurance, index) => (
                               <div key={index} className="border border-green-300 rounded p-3 bg-white">
@@ -3794,8 +3758,36 @@ export default function WarehouseInspectionForm({
                                     onChange={(e) => {
                                       if (e.target.checked) {
                                         setSelectedClientInsurances(prev => [...prev, insurance]);
-                                        // REMOVED: Auto-fill form data with selected insurance
-                                        // Only add to selection state, don't auto-fill form
+                                        
+                                        // Auto-fill form data with selected insurance
+                                        if (selectedClientInsurances.length === 0) {
+                                          // First selection - fill the main form fields
+                                          setFormData(prev => ({
+                                            ...prev,
+                                            // Fire Policy Details
+                                            firePolicyCompanyName: insurance.firePolicyCompanyName || '',
+                                            firePolicyNumber: insurance.firePolicyNumber || '',
+                                            firePolicyAmount: insurance.firePolicyAmount || '',
+                                            firePolicyStartDate: safeCreateDate(insurance.firePolicyStartDate),
+                                            firePolicyEndDate: safeCreateDate(insurance.firePolicyEndDate),
+                                            // Burglary Policy Details
+                                            burglaryPolicyCompanyName: insurance.burglaryPolicyCompanyName || '',
+                                            burglaryPolicyNumber: insurance.burglaryPolicyNumber || '',
+                                            burglaryPolicyAmount: insurance.burglaryPolicyAmount || '',
+                                            burglaryPolicyStartDate: safeCreateDate(insurance.burglaryPolicyStartDate),
+                                            burglaryPolicyEndDate: safeCreateDate(insurance.burglaryPolicyEndDate),
+                                            // Remaining amounts from insurance master
+                                            remainingFirePolicyAmount: insurance.remainingFirePolicyAmount || '',
+                                            remainingBurglaryPolicyAmount: insurance.remainingBurglaryPolicyAmount || '',
+                                          }));
+                                        } else {
+                                          // Additional selections - add to additional sections
+                                          setAdditionalInsuranceSections(prev => [...prev, {
+                                            id: `additional-${Date.now()}-${Math.random()}`,
+                                            insurance: insurance,
+                                            sectionNumber: prev.length + 2 // Starting from 2 since main form is 1
+                                          }]);
+                                        }
                                       } else {
                                         setSelectedClientInsurances(prev => 
                                           prev.filter(selected => 
@@ -3803,6 +3795,74 @@ export default function WarehouseInspectionForm({
                                               selected.burglaryPolicyNumber === insurance.burglaryPolicyNumber)
                                           )
                                         );
+                                        
+                                        // Check if this was the insurance that filled the main form
+                                        if (formData.firePolicyNumber === insurance.firePolicyNumber && 
+                                            formData.burglaryPolicyNumber === insurance.burglaryPolicyNumber) {
+                                          // Clear form data when unchecking the insurance that filled it
+                                          setFormData(prev => ({
+                                            ...prev,
+                                            // Clear Fire Policy Details
+                                            firePolicyCompanyName: '',
+                                            firePolicyNumber: '',
+                                            firePolicyAmount: '',
+                                            firePolicyStartDate: null,
+                                            firePolicyEndDate: null,
+                                            // Clear Burglary Policy Details
+                                            burglaryPolicyCompanyName: '',
+                                            burglaryPolicyNumber: '',
+                                            burglaryPolicyAmount: '',
+                                            burglaryPolicyStartDate: null,
+                                            burglaryPolicyEndDate: null,
+                                            // Clear remaining amounts
+                                            remainingFirePolicyAmount: '',
+                                            remainingBurglaryPolicyAmount: '',
+                                          }));
+                                          
+                                          // If there are other selected insurances, fill with the first one
+                                          const remainingInsurances = selectedClientInsurances.filter(selected => 
+                                            !(selected.firePolicyNumber === insurance.firePolicyNumber && 
+                                              selected.burglaryPolicyNumber === insurance.burglaryPolicyNumber)
+                                          );
+                                          
+                                          if (remainingInsurances.length > 0) {
+                                            const firstRemaining = remainingInsurances[0];
+                                            setFormData(prev => ({
+                                              ...prev,
+                                              // Fire Policy Details
+                                              firePolicyCompanyName: firstRemaining.firePolicyCompanyName || '',
+                                              firePolicyNumber: firstRemaining.firePolicyNumber || '',
+                                              firePolicyAmount: firstRemaining.firePolicyAmount || '',
+                                              firePolicyStartDate: safeCreateDate(firstRemaining.firePolicyStartDate),
+                                              firePolicyEndDate: safeCreateDate(firstRemaining.firePolicyEndDate),
+                                              // Burglary Policy Details
+                                              burglaryPolicyCompanyName: firstRemaining.burglaryPolicyCompanyName || '',
+                                              burglaryPolicyNumber: firstRemaining.burglaryPolicyNumber || '',
+                                              burglaryPolicyAmount: firstRemaining.burglaryPolicyAmount || '',
+                                              burglaryPolicyStartDate: safeCreateDate(firstRemaining.burglaryPolicyStartDate),
+                                              burglaryPolicyEndDate: safeCreateDate(firstRemaining.burglaryPolicyEndDate),
+                                              // Remaining amounts from insurance master
+                                              remainingFirePolicyAmount: firstRemaining.remainingFirePolicyAmount || '',
+                                              remainingBurglaryPolicyAmount: firstRemaining.remainingBurglaryPolicyAmount || '',
+                                            }));
+                                            
+                                            // Remove from additional sections if it was there
+                                            setAdditionalInsuranceSections(prev => 
+                                              prev.filter(section => 
+                                                !(section.insurance.firePolicyNumber === firstRemaining.firePolicyNumber && 
+                                                  section.insurance.burglaryPolicyNumber === firstRemaining.burglaryPolicyNumber)
+                                              )
+                                            );
+                                          }
+                                        } else {
+                                          // Remove from additional sections
+                                          setAdditionalInsuranceSections(prev => 
+                                            prev.filter(section => 
+                                              !(section.insurance.firePolicyNumber === insurance.firePolicyNumber && 
+                                                section.insurance.burglaryPolicyNumber === insurance.burglaryPolicyNumber)
+                                            )
+                                          );
+                                        }
                                       }
                                     }}
                                     className="text-green-600"
@@ -3817,7 +3877,9 @@ export default function WarehouseInspectionForm({
                                   <div><strong>Fire Policy:</strong> {insurance.firePolicyNumber}</div>
                                   <div><strong>Burglary Policy:</strong> {insurance.burglaryPolicyNumber}</div>
                                   <div><strong>Fire Amount:</strong> ₹{insurance.firePolicyAmount}</div>
+                                  <div><strong>Fire Remaining:</strong> ₹{insurance.remainingFirePolicyAmount}</div>
                                   <div><strong>Burglary Amount:</strong> ₹{insurance.burglaryPolicyAmount}</div>
+                                  <div><strong>Burglary Remaining:</strong> ₹{insurance.remainingBurglaryPolicyAmount}</div>
                                 </div>
                               </div>
                             ))}
@@ -3924,7 +3986,14 @@ export default function WarehouseInspectionForm({
             {formData.insuranceTakenBy && formData.insuranceTakenBy !== '' && formData.insuranceTakenBy !== 'bank' && (
               <>
                 <div className="border-t pt-4 mt-4">
-                  <h4 className="text-lg font-medium text-green-700 mb-4">Fire Policy Details</h4>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-lg font-medium text-green-700">Fire Policy Details</h4>
+                    {formData.firePolicyNumber && selectedClientInsurances.length > 0 && (
+                      <div className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded">
+                        Auto-filled from selected insurance
+                      </div>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="firePolicyCompanyName">Fire Policy Company Name</Label>
@@ -3956,6 +4025,20 @@ export default function WarehouseInspectionForm({
                           className="pl-10 text-orange-600"
                           value={formData.firePolicyAmount}
                           onChange={(e) => setFormData(prev => ({ ...prev, firePolicyAmount: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="remainingFirePolicyAmount">Fire Policy Remaining Amount</Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">₹</span>
+                        <Input
+                          id="remainingFirePolicyAmount"
+                          type="number"
+                          className="pl-10 text-green-600"
+                          value={formData.remainingFirePolicyAmount}
+                          readOnly
                         />
                       </div>
                     </div>
@@ -4017,7 +4100,14 @@ export default function WarehouseInspectionForm({
                 </div>
 
                 <div className="border-t pt-4 mt-4">
-                  <h4 className="text-lg font-medium text-green-700 mb-4">Burglary Policy Details</h4>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-lg font-medium text-green-700">Burglary Policy Details</h4>
+                    {formData.burglaryPolicyNumber && selectedClientInsurances.length > 0 && (
+                      <div className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded">
+                        Auto-filled from selected insurance
+                      </div>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="burglaryPolicyCompanyName">Burglary Policy Company Name</Label>
@@ -4049,6 +4139,20 @@ export default function WarehouseInspectionForm({
                           className="pl-10 text-orange-600"
                           value={formData.burglaryPolicyAmount}
                           onChange={(e) => setFormData(prev => ({ ...prev, burglaryPolicyAmount: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="remainingBurglaryPolicyAmount">Burglary Policy Remaining Amount</Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">₹</span>
+                        <Input
+                          id="remainingBurglaryPolicyAmount"
+                          type="number"
+                          className="pl-10 text-green-600"
+                          value={formData.remainingBurglaryPolicyAmount}
+                          readOnly
                         />
                       </div>
                     </div>
@@ -4108,6 +4212,132 @@ export default function WarehouseInspectionForm({
                     </div>
                   </div>
                 </div>
+
+                {/* Additional Insurance Sections */}
+                {additionalInsuranceSections.map((section) => (
+                  <div key={section.id}>
+                    {/* Fire Policy Details - Additional Section */}
+                    <div className="border-t pt-4 mt-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-lg font-medium text-green-700">
+                          Fire Policy Details {section.sectionNumber}
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          <div className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">
+                            Auto-filled from: {section.insurance.insuranceId}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Remove this section and uncheck the insurance
+                              setAdditionalInsuranceSections(prev => {
+                                const newSections = prev.filter(s => s.id !== section.id);
+                                // Renumber sections to maintain sequential numbering
+                                return newSections.map((s, index) => ({
+                                  ...s,
+                                  sectionNumber: index + 2 // Starting from 2 since main form is 1
+                                }));
+                              });
+                              setSelectedClientInsurances(prev => 
+                                prev.filter(selected => 
+                                  !(selected.firePolicyNumber === section.insurance.firePolicyNumber && 
+                                    selected.burglaryPolicyNumber === section.insurance.burglaryPolicyNumber)
+                                )
+                              );
+                            }}
+                            className="text-red-500 hover:text-red-700 text-xs"
+                          >
+                            Remove Section
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Fire Policy Company Name</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.firePolicyCompanyName || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Fire Policy Number</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.firePolicyNumber || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Fire Policy Amount</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            ₹{section.insurance.firePolicyAmount || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Fire Policy Start Date</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.firePolicyStartDate ? formatDateDDMMYYYY(safeCreateDate(section.insurance.firePolicyStartDate) || new Date()) : 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Fire Policy End Date</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.firePolicyEndDate ? formatDateDDMMYYYY(safeCreateDate(section.insurance.firePolicyEndDate) || new Date()) : 'N/A'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Burglary Policy Details - Additional Section */}
+                    <div className="border-t pt-4 mt-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-lg font-medium text-green-700">
+                          Burglary Policy Details {section.sectionNumber}
+                        </h4>
+                        <div className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">
+                          Auto-filled from: {section.insurance.insuranceId}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Burglary Policy Company Name</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.burglaryPolicyCompanyName || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Burglary Policy Number</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.burglaryPolicyNumber || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Burglary Policy Amount</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            ₹{section.insurance.burglaryPolicyAmount || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Burglary Policy Start Date</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.burglaryPolicyStartDate ? formatDateDDMMYYYY(safeCreateDate(section.insurance.burglaryPolicyStartDate) || new Date()) : 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Burglary Policy End Date</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.burglaryPolicyEndDate ? formatDateDDMMYYYY(safeCreateDate(section.insurance.burglaryPolicyEndDate) || new Date()) : 'N/A'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </>
             )}
 
@@ -5640,33 +5870,7 @@ export default function WarehouseInspectionForm({
         </div>
       </form>
 
-      {/* Insurance Popup */}
-      <InsurancePopup
-        isOpen={showInsurancePopup}
-        onClose={() => {
-          setShowInsurancePopup(false);
-          setPendingAction(null);
-        }}
-        onSave={handleInsuranceSave}
-        initialData={{
-          insuranceTakenBy: formData.insuranceTakenBy,
-          insuranceCommodity: formData.insuranceCommodity,
-          clientName: formData.clientName,
-          clientAddress: formData.clientAddress,
-          selectedBankName: formData.selectedBankName,
-          firePolicyCompanyName: formData.firePolicyCompanyName,
-          firePolicyNumber: formData.firePolicyNumber,
-          firePolicyAmount: formData.firePolicyAmount,
-          firePolicyStartDate: formData.firePolicyStartDate,
-          firePolicyEndDate: formData.firePolicyEndDate,
-          burglaryPolicyCompanyName: formData.burglaryPolicyCompanyName,
-          burglaryPolicyNumber: formData.burglaryPolicyNumber,
-          burglaryPolicyAmount: formData.burglaryPolicyAmount,
-          burglaryPolicyStartDate: formData.burglaryPolicyStartDate,
-          burglaryPolicyEndDate: formData.burglaryPolicyEndDate,
-        }}
-        action={pendingAction || 'activate'}
-      />
+      {/* Removed Insurance Popup - using direct validation instead */}
 
       {/* Insurance Usage Popup */}
       <Dialog open={showInsuranceUsagePopup} onOpenChange={setShowInsuranceUsagePopup}>

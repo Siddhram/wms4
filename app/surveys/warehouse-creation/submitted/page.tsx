@@ -23,6 +23,7 @@ import {
   XCircle,
   RotateCcw
 } from "lucide-react";
+import BlinkingSirenIcon from '@/components/BlinkingSirenIcon';
 import { DataTable } from '@/components/data-table';
 import type { Row } from '@tanstack/react-table';
 import WarehouseInspectionForm from '../inspection-form';
@@ -46,6 +47,28 @@ interface InspectionData {
   createdAt: string | number | Date | null;
   warehouseInspectionData?: any;
   status?: string;
+}
+
+// Insurance expiry check function
+function getInsuranceAlertStatus(inspection: InspectionData): 'none' | 'expiring' | 'expired' {
+  const insuranceEntries = inspection.warehouseInspectionData?.insuranceEntries || [];
+  if (insuranceEntries.length === 0) return 'none';
+
+  const today = new Date();
+  let hasExpired = false;
+
+  insuranceEntries.forEach((insurance: any) => {
+    [insurance.firePolicyEndDate, insurance.burglaryPolicyEndDate].forEach((date: any) => {
+      if (date) {
+        const endDate = new Date(date);
+        if (endDate < today) {
+          hasExpired = true;
+        }
+      }
+    });
+  });
+
+  return hasExpired ? 'expired' : 'none';
 }
 
 // Define columns for DataTable
@@ -240,8 +263,10 @@ const submittedColumns = [
     header: "Actions",
     cell: ({ row }: { row: Row<any> }) => {
       const inspection = row.original;
+      const insuranceStatus = getInsuranceAlertStatus(inspection);
+      
       return (
-        <div className="flex space-x-2 justify-center">
+        <div className="flex space-x-2 justify-center items-center">
           <Button 
             variant="outline" 
             size="sm"
@@ -290,6 +315,11 @@ const submittedColumns = [
           >
             <RotateCcw className="w-4 h-4" />
           </Button>
+          {insuranceStatus === 'expired' && (
+            <div title="Insurance Expired">
+              <BlinkingSirenIcon color="red" size={20} />
+            </div>
+          )}
         </div>
       );
     },
@@ -381,13 +411,82 @@ export default function SubmittedWarehousePage() {
       setShowInspectionForm(true);
     };
 
-    const handleActivateWarehouse = (event: CustomEvent) => {
-      // TODO: Implement activation logic with proper validation
-      console.log('Activating warehouse:', event.detail);
-      toast({
-        title: "Feature Coming Soon",
-        description: "Warehouse activation with insurance validation will be implemented.",
-      });
+    const handleActivateWarehouse = async (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const inspection = customEvent.detail;
+      
+      // Validate insurance before activation
+      const validateInsurance = (warehouseData: any) => {
+        const missingFields: string[] = [];
+        
+        // Check if insurance data exists
+        if (!warehouseData.insuranceTakenBy) {
+          missingFields.push('Insurance Taken By');
+        }
+        
+        // If insurance is taken by someone other than bank, validate policy details
+        if (warehouseData.insuranceTakenBy && warehouseData.insuranceTakenBy !== 'bank') {
+          // Fire policy validation
+          if (!warehouseData.firePolicyCompanyName) missingFields.push('Fire Policy Company Name');
+          if (!warehouseData.firePolicyNumber) missingFields.push('Fire Policy Number');
+          if (!warehouseData.firePolicyAmount) missingFields.push('Fire Policy Amount');
+          if (!warehouseData.firePolicyStartDate) missingFields.push('Fire Policy Start Date');
+          if (!warehouseData.firePolicyEndDate) missingFields.push('Fire Policy End Date');
+
+          // Burglary policy validation
+          if (!warehouseData.burglaryPolicyCompanyName) missingFields.push('Burglary Policy Company Name');
+          if (!warehouseData.burglaryPolicyNumber) missingFields.push('Burglary Policy Number');
+          if (!warehouseData.burglaryPolicyAmount) missingFields.push('Burglary Policy Amount');
+          if (!warehouseData.burglaryPolicyStartDate) missingFields.push('Burglary Policy Start Date');
+          if (!warehouseData.burglaryPolicyEndDate) missingFields.push('Burglary Policy End Date');
+
+          // Client specific validation
+          if (warehouseData.insuranceTakenBy === 'client') {
+            if (!warehouseData.clientName) missingFields.push('Client Name');
+            if (!warehouseData.clientAddress) missingFields.push('Client Address');
+          }
+        }
+
+        // Bank specific validation
+        if (warehouseData.insuranceTakenBy === 'bank' && !warehouseData.selectedBankName) {
+          missingFields.push('Bank Name');
+        }
+
+        return missingFields;
+      };
+
+      try {
+        // Check if warehouse has proper insurance details
+        const warehouseData = inspection.warehouseInspectionData || inspection;
+        const missingInsuranceFields = validateInsurance(warehouseData);
+        
+        if (missingInsuranceFields.length > 0) {
+          toast({
+            title: "Cannot Activate Warehouse",
+            description: `Missing insurance details: ${missingInsuranceFields.join(', ')}. Please complete the insurance information before activation.`,
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        // If validation passes, proceed with activation
+        console.log('Activating warehouse:', inspection);
+        toast({
+          title: "Warehouse Activated",
+          description: `Warehouse ${inspection.warehouseCode} has been activated successfully.`,
+        });
+        
+        // Reload the inspections to reflect the change
+        loadInspections();
+        
+      } catch (error) {
+        console.error('Error activating warehouse:', error);
+        toast({
+          title: "Activation Failed",
+          description: "An error occurred while activating the warehouse.",
+          variant: "destructive",
+        });
+      }
     };
 
     const handleRejectWarehouse = (event: CustomEvent) => {

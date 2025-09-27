@@ -121,80 +121,75 @@ export default function InsuranceReportsPage() {
     try {
       const data: InsuranceReportData[] = [];
       
-      // Fetch from inspections collection (same as insurance master module)
-      console.log('Fetching from inspections collection...');
-      const snap = await getDocs(collection(db, 'inspections'));
-      console.log('Inspections collection query result:', snap.size, 'documents');
+      // Fetch from Insurance Master collection (single source of truth for updated amounts)
+      console.log('🔍 INSURANCE REPORT: Fetching from Insurance Master collection...');
+      const insuranceSnap = await getDocs(collection(db, 'insurance'));
+      console.log('📊 Insurance Master query result:', insuranceSnap.size, 'documents');
       
-      snap.docs.forEach(doc => {
+      // Also fetch inspections for warehouse details
+      const inspectionsSnap = await getDocs(collection(db, 'inspections'));
+      console.log('📊 Inspections query result:', inspectionsSnap.size, 'documents');
+      
+      // Create a map of warehouse details from inspections
+      const warehouseDetailsMap = new Map();
+      inspectionsSnap.docs.forEach(doc => {
         const docData = doc.data();
-        
-        // Only process activated warehouses (same logic as insurance master)
         if (docData.status === 'activated' || docData.status === 'reactivate') {
-          // Helper to get state/branch/location robustly (same as insurance master)
-          const getField = (field: string) =>
-            docData[field] || (docData.warehouseInspectionData && docData.warehouseInspectionData[field]) || '';
-          
-          // Process insurance entries from inspections (same as insurance master expand button)
-          if (Array.isArray(docData.insuranceEntries) && docData.insuranceEntries.length > 0) {
-            console.log(`Processing ${docData.insuranceEntries.length} insurance entries for warehouse: ${docData.warehouseName}`);
-            docData.insuranceEntries.forEach((entry: any, idx: number) => {
-              console.log(`Insurance entry ${idx}:`, {
-                firePolicyNumber: entry.firePolicyNumber,
-                firePolicyStartDate: entry.firePolicyStartDate,
-                firePolicyEndDate: entry.firePolicyEndDate,
-                burglaryPolicyNumber: entry.burglaryPolicyNumber,
-                burglaryPolicyStartDate: entry.burglaryPolicyStartDate,
-                burglaryPolicyEndDate: entry.burglaryPolicyEndDate
-              });
-              data.push({
-                id: entry.id || `${doc.id}_${idx}`,
-                state: getField('state'),
-                branch: getField('branch'),
-                location: getField('location'),
-                typeOfBusiness: docData.businessType || '',
-                warehouseType: docData.typeOfWarehouse || docData.warehouseType || '',
-                warehouseCode: docData.warehouseCode || '',
-                warehouseName: docData.warehouseName || '',
-                warehouseAddress: docData.warehouseAddress || '',
-                clientCode: entry.clientCode || '',
-                clientName: entry.clientName || '',
-                commodity: entry.insuranceCommodity || '',
-                variety: entry.variety || '',
-                bankName: entry.selectedBankName || '',
-                bankBranchName: entry.bankBranchName || '',
-                bankState: entry.bankState || '',
-                ifscCode: entry.ifscCode || '',
-                balanceBags: entry.balanceBags || '',
-                balanceQty: entry.balanceQty || '',
-                insuranceManagedBy: entry.insuranceTakenBy || '',
-                rate: entry.rate || '',
-                aum: entry.aum || '',
-                // Policy details from insurance master expand button
-                firePolicyNumber: entry.firePolicyNumber || '',
-                firePolicySumInsured: entry.firePolicyAmount || '',
-                firePolicyStartDate: entry.firePolicyStartDate ? 
-                  (entry.firePolicyStartDate.toDate ? entry.firePolicyStartDate.toDate().toISOString().split('T')[0] : 
-                   typeof entry.firePolicyStartDate === 'string' ? entry.firePolicyStartDate.split('T')[0] : 
-                   entry.firePolicyStartDate) : '',
-                firePolicyEndDate: entry.firePolicyEndDate ? 
-                  (entry.firePolicyEndDate.toDate ? entry.firePolicyEndDate.toDate().toISOString().split('T')[0] : 
-                   typeof entry.firePolicyEndDate === 'string' ? entry.firePolicyEndDate.split('T')[0] : 
-                   entry.firePolicyEndDate) : '',
-                burglaryPolicyNumber: entry.burglaryPolicyNumber || '',
-                burglaryPolicySumInsured: entry.burglaryPolicyAmount || '',
-                burglaryPolicyStartDate: entry.burglaryPolicyStartDate ? 
-                  (entry.burglaryPolicyStartDate.toDate ? entry.burglaryPolicyStartDate.toDate().toISOString().split('T')[0] : 
-                   typeof entry.burglaryPolicyStartDate === 'string' ? entry.burglaryPolicyStartDate.split('T')[0] : 
-                   entry.burglaryPolicyStartDate) : '',
-                burglaryPolicyEndDate: entry.burglaryPolicyEndDate ? 
-                  (entry.burglaryPolicyEndDate.toDate ? entry.burglaryPolicyEndDate.toDate().toISOString().split('T')[0] : 
-                   typeof entry.burglaryPolicyEndDate === 'string' ? entry.burglaryPolicyEndDate.split('T')[0] : 
-                   entry.burglaryPolicyEndDate) : ''
-              });
-            });
-          }
+          warehouseDetailsMap.set(docData.warehouseName, {
+            warehouseCode: docData.warehouseCode,
+            address: docData.address || docData.warehouseInspectionData?.address || '',
+            state: docData.state || docData.warehouseInspectionData?.state || '',
+            branch: docData.branch || docData.warehouseInspectionData?.branch || '',
+            location: docData.location || docData.warehouseInspectionData?.location || '',
+          });
         }
+      });
+      
+      // Process insurance master data with warehouse details
+      insuranceSnap.docs.forEach(doc => {
+        const insuranceData = doc.data();
+        const warehouseDetails = warehouseDetailsMap.get(insuranceData.warehouseName) || {};
+        
+        console.log(`Processing insurance for warehouse: ${insuranceData.warehouseName}`, {
+          firePolicyAmount: insuranceData.firePolicyAmount,
+          firePolicyRemainingAmount: insuranceData.firePolicyRemainingAmount,
+          burglaryPolicyAmount: insuranceData.burglaryPolicyAmount,
+          burglaryPolicyRemainingAmount: insuranceData.burglaryPolicyRemainingAmount
+        });
+        
+        data.push({
+          id: doc.id,
+          state: insuranceData.state || warehouseDetails.state || '',
+          branch: insuranceData.branch || warehouseDetails.branch || '',
+          location: insuranceData.location || warehouseDetails.location || '',
+          typeOfBusiness: insuranceData.insuranceType || '',
+          warehouseType: insuranceData.warehouseType || '',
+          warehouseCode: insuranceData.warehouseCode || warehouseDetails.warehouseCode || '',
+          warehouseName: insuranceData.warehouseName || '',
+          warehouseAddress: warehouseDetails.address || '',
+          clientCode: insuranceData.clientCode || '',
+          clientName: insuranceData.clientName || '',
+          commodity: insuranceData.commodityName || '',
+          variety: insuranceData.varietyName || '',
+          bankName: insuranceData.bankFundedBy || '',
+          bankBranchName: insuranceData.bankBranchName || '',
+          bankState: insuranceData.bankState || '',
+          ifscCode: insuranceData.ifscCode || '',
+          balanceBags: insuranceData.balanceBags || '',
+          balanceQty: insuranceData.balanceQty || '',
+          insuranceManagedBy: insuranceData.insuranceType || '',
+          rate: insuranceData.rate || '',
+          aum: insuranceData.aum || '',
+          // Policy details with updated amounts from Insurance Master
+          firePolicyNumber: insuranceData.firePolicyNumber || '',
+          firePolicySumInsured: insuranceData.firePolicyRemainingAmount || insuranceData.firePolicyAmount || '',
+          firePolicyStartDate: insuranceData.firePolicyStartDate || '',
+          firePolicyEndDate: insuranceData.firePolicyEndDate || '',
+          burglaryPolicyNumber: insuranceData.burglaryPolicyNumber || '',
+          burglaryPolicySumInsured: insuranceData.burglaryPolicyRemainingAmount || insuranceData.burglaryPolicyAmount || '',
+          burglaryPolicyStartDate: insuranceData.burglaryPolicyStartDate || '',
+          burglaryPolicyEndDate: insuranceData.burglaryPolicyEndDate || ''
+        });
       });
       
       console.log('Total insurance data:', data.length, 'records');

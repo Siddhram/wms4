@@ -22,6 +22,7 @@ import {
   CheckCircle,
   AlertCircle
 } from "lucide-react";
+import BlinkingSirenIcon from '@/components/BlinkingSirenIcon';
 import { DataTable } from '@/components/data-table';
 import type { Row } from '@tanstack/react-table';
 import WarehouseInspectionForm from '../inspection-form';
@@ -45,6 +46,28 @@ interface InspectionData {
   createdAt: string;
   warehouseInspectionData?: any;
   status?: string;
+}
+
+// Insurance expiry check function
+function getInsuranceAlertStatus(inspection: InspectionData): 'none' | 'expiring' | 'expired' {
+  const insuranceEntries = inspection.warehouseInspectionData?.insuranceEntries || [];
+  if (insuranceEntries.length === 0) return 'none';
+
+  const today = new Date();
+  let hasExpired = false;
+
+  insuranceEntries.forEach((insurance: any) => {
+    [insurance.firePolicyEndDate, insurance.burglaryPolicyEndDate].forEach((date: any) => {
+      if (date) {
+        const endDate = new Date(date);
+        if (endDate < today) {
+          hasExpired = true;
+        }
+      }
+    });
+  });
+
+  return hasExpired ? 'expired' : 'none';
 }
 
 // Define columns for DataTable
@@ -265,9 +288,10 @@ const reactivateColumns = [
       const hasValidInsurance = insuranceEntries.some((entry: any) => 
         entry.insuranceStartDate && entry.insuranceEndDate && entry.insuranceCompany
       );
+      const insuranceStatus = getInsuranceAlertStatus(inspection);
       
       return (
-        <div className="flex space-x-2 justify-center">
+        <div className="flex space-x-2 justify-center items-center">
           <Button 
             variant="outline" 
             size="sm"
@@ -295,6 +319,11 @@ const reactivateColumns = [
           >
             <CheckCircle className="w-4 h-4" />
           </Button>
+          {insuranceStatus === 'expired' && (
+            <div title="Insurance Expired">
+              <BlinkingSirenIcon color="red" size={20} />
+            </div>
+          )}
         </div>
       );
     },
@@ -386,43 +415,82 @@ export default function ReactivateWarehousePage() {
       setShowInspectionForm(true);
     };
 
-    const handleReactivateWarehouse = (event: CustomEvent) => {
-      const inspection = event.detail;
+    const handleReactivateWarehouse = async (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const inspection = customEvent.detail;
       
-      // Validate required date fields
-      const hasRequiredDates = inspection.warehouseInspectionData?.dateOfInspection && 
-                              inspection.warehouseInspectionData?.oeDate;
-      
-      if (!hasRequiredDates) {
+      // Validate insurance before reactivation
+      const validateInsurance = (warehouseData: any) => {
+        const missingFields: string[] = [];
+        
+        // Check if insurance data exists
+        if (!warehouseData.insuranceTakenBy) {
+          missingFields.push('Insurance Taken By');
+        }
+        
+        // If insurance is taken by someone other than bank, validate policy details
+        if (warehouseData.insuranceTakenBy && warehouseData.insuranceTakenBy !== 'bank') {
+          // Fire policy validation
+          if (!warehouseData.firePolicyCompanyName) missingFields.push('Fire Policy Company Name');
+          if (!warehouseData.firePolicyNumber) missingFields.push('Fire Policy Number');
+          if (!warehouseData.firePolicyAmount) missingFields.push('Fire Policy Amount');
+          if (!warehouseData.firePolicyStartDate) missingFields.push('Fire Policy Start Date');
+          if (!warehouseData.firePolicyEndDate) missingFields.push('Fire Policy End Date');
+
+          // Burglary policy validation
+          if (!warehouseData.burglaryPolicyCompanyName) missingFields.push('Burglary Policy Company Name');
+          if (!warehouseData.burglaryPolicyNumber) missingFields.push('Burglary Policy Number');
+          if (!warehouseData.burglaryPolicyAmount) missingFields.push('Burglary Policy Amount');
+          if (!warehouseData.burglaryPolicyStartDate) missingFields.push('Burglary Policy Start Date');
+          if (!warehouseData.burglaryPolicyEndDate) missingFields.push('Burglary Policy End Date');
+
+          // Client specific validation
+          if (warehouseData.insuranceTakenBy === 'client') {
+            if (!warehouseData.clientName) missingFields.push('Client Name');
+            if (!warehouseData.clientAddress) missingFields.push('Client Address');
+          }
+        }
+
+        // Bank specific validation
+        if (warehouseData.insuranceTakenBy === 'bank' && !warehouseData.selectedBankName) {
+          missingFields.push('Bank Name');
+        }
+
+        return missingFields;
+      };
+
+      try {
+        // Check if warehouse has proper insurance details
+        const warehouseData = inspection.warehouseInspectionData || inspection;
+        const missingInsuranceFields = validateInsurance(warehouseData);
+        
+        if (missingInsuranceFields.length > 0) {
+          toast({
+            title: "Cannot Reactivate Warehouse",
+            description: `Missing insurance details: ${missingInsuranceFields.join(', ')}. Please complete the insurance information before reactivation.`,
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        // If validation passes, proceed with reactivation
+        console.log('Reactivating warehouse:', inspection);
         toast({
-          title: "Cannot Reactivate",
-          description: "Date of Inspection and OE Date are required before reactivation. Please update the form.",
+          title: "Warehouse Reactivated",
+          description: `Warehouse ${inspection.warehouseCode} has been reactivated successfully.`,
+        });
+        
+        // Reload the inspections to reflect the change
+        loadInspections();
+        
+      } catch (error) {
+        console.error('Error reactivating warehouse:', error);
+        toast({
+          title: "Reactivation Failed",
+          description: "An error occurred while reactivating the warehouse.",
           variant: "destructive",
         });
-        return;
       }
-
-      // Validate insurance details
-      const insuranceEntries = inspection.warehouseInspectionData?.insuranceEntries || [];
-      const hasValidInsurance = insuranceEntries.some((entry: any) => 
-        entry.insuranceStartDate && entry.insuranceEndDate && entry.insuranceCompany
-      );
-
-      if (!hasValidInsurance) {
-        toast({
-          title: "Cannot Reactivate",
-          description: "Valid insurance details are required before reactivation. Please add proper insurance information.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // TODO: Implement proper reactivation logic
-      toast({
-        title: "Feature Coming Soon",
-        description: "Warehouse reactivation functionality will be implemented with proper validation.",
-      });
-      console.log('Reactivating warehouse:', inspection);
     };
     
     window.addEventListener('inspectionDataUpdated', handleInspectionUpdate as EventListener);

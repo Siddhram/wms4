@@ -15,6 +15,31 @@ import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
 
+// Helper function to safely create dates
+function safeCreateDate(val: any): Date | null {
+  if (!val) return null;
+  if (val instanceof Date) return val;
+  if (typeof val === 'string' || typeof val === 'number') {
+    const date = new Date(val);
+    return isNaN(date.getTime()) ? null : date;
+  }
+  if (val.seconds) {
+    return new Date(val.seconds * 1000);
+  }
+  return null;
+}
+
+// Helper function to format dates
+function formatDateDDMMYYYY(date: Date | null | undefined): string {
+  if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+    return '';
+  }
+  const day = date.getDate().toString().padStart(2, '0');
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
 interface ClientData {
   id?: string;
   clientId: string;
@@ -102,6 +127,15 @@ export default function InsurancePopup({
   const [clientsData, setClientsData] = useState<ClientData[]>([]);
   const [banksData, setBanksData] = useState<BankData[]>([]);
   const [insuranceBanks, setInsuranceBanks] = useState<{name: string, ifsc: string}[]>([]);
+  
+  // Insurance selection state
+  const [clientInsuranceData, setClientInsuranceData] = useState<any[]>([]);
+  const [agrogreenInsuranceData, setAgrogreenInsuranceData] = useState<any[]>([]);
+  const [selectedClientInsurances, setSelectedClientInsurances] = useState<any[]>([]);
+  const [selectedAgrogreenInsurances, setSelectedAgrogreenInsurances] = useState<any[]>([]);
+  const [additionalInsuranceSections, setAdditionalInsuranceSections] = useState<any[]>([]);
+  const [availableCommodities, setAvailableCommodities] = useState<string[]>([]);
+  const [selectedInsurancePolicy, setSelectedInsurancePolicy] = useState<string>('');
 
   // Load initial data when popup opens
   useEffect(() => {
@@ -114,6 +148,19 @@ export default function InsurancePopup({
         burglaryPolicyStartDate: initialData.burglaryPolicyStartDate || null,
         burglaryPolicyEndDate: initialData.burglaryPolicyEndDate || null,
       }));
+      
+      // Restore selected insurance states if they exist in initial data
+      if ((initialData as any).selectedClientInsurances && Array.isArray((initialData as any).selectedClientInsurances)) {
+        setSelectedClientInsurances((initialData as any).selectedClientInsurances);
+      }
+      
+      if ((initialData as any).selectedAgrogreenInsurances && Array.isArray((initialData as any).selectedAgrogreenInsurances)) {
+        setSelectedAgrogreenInsurances((initialData as any).selectedAgrogreenInsurances);
+      }
+      
+      if ((initialData as any).additionalInsuranceSections && Array.isArray((initialData as any).additionalInsuranceSections)) {
+        setAdditionalInsuranceSections((initialData as any).additionalInsuranceSections);
+      }
     }
   }, [isOpen, initialData]);
 
@@ -122,8 +169,21 @@ export default function InsurancePopup({
     if (isOpen) {
       loadClientsData();
       loadBanksData();
+      loadInsuranceData();
+      loadCommoditiesData();
     }
   }, [isOpen]);
+  
+  // Load insurance data when client or insurance taken by changes
+  useEffect(() => {
+    if (isOpen && insuranceData.insuranceTakenBy) {
+      if (insuranceData.insuranceTakenBy === 'client') {
+        loadClientInsuranceData();
+      } else if (insuranceData.insuranceTakenBy === 'agrogreen') {
+        loadAgrogreenInsuranceData();
+      }
+    }
+  }, [isOpen, insuranceData.insuranceTakenBy, insuranceData.clientName, insuranceData.insuranceCommodity]);
 
   const loadClientsData = async () => {
     try {
@@ -154,6 +214,99 @@ export default function InsurancePopup({
       setInsuranceBanks(allInsuranceBanks);
     } catch (error) {
       console.error('Error loading banks:', error);
+    }
+  };
+
+  const loadInsuranceData = async () => {
+    try {
+      const insuranceSnapshot = await getDocs(collection(db, 'insurance-master'));
+      const insuranceArray = insuranceSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      
+      // Separate insurance data by type
+      const clientInsurance = insuranceArray.filter((ins: any) => ins.insuranceTakenBy === 'client');
+      const agrogreenInsurance = insuranceArray.filter((ins: any) => ins.insuranceTakenBy === 'agrogreen');
+      
+      // Extract unique commodities from all insurance data
+      const commodities = Array.from(new Set(insuranceArray.map((ins: any) => ins.commodity).filter(Boolean))).sort();
+      
+      setClientInsuranceData(clientInsurance);
+      setAgrogreenInsuranceData(agrogreenInsurance);
+      setAvailableCommodities(commodities);
+    } catch (error) {
+      console.error('Error loading insurance data:', error);
+    }
+  };
+
+  const loadClientInsuranceData = async () => {
+    try {
+      const insuranceSnapshot = await getDocs(collection(db, 'insurance-master'));
+      const insuranceArray = insuranceSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      
+      // Filter for client insurance, optionally match with selected client and commodity
+      const clientInsurance = insuranceArray.filter((ins: any) => 
+        ins.insuranceTakenBy === 'client' && 
+        (insuranceData.clientName ? ins.clientName === insuranceData.clientName : true) &&
+        (insuranceData.insuranceCommodity ? ins.commodity === insuranceData.insuranceCommodity : true)
+      );
+      
+      setClientInsuranceData(clientInsurance);
+    } catch (error) {
+      console.error('Error loading client insurance data:', error);
+    }
+  };
+
+  const loadAgrogreenInsuranceData = async () => {
+    try {
+      const insuranceSnapshot = await getDocs(collection(db, 'insurance-master'));
+      const insuranceArray = insuranceSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      
+      // Filter for agrogreen insurance
+      const agrogreenInsurance = insuranceArray.filter((ins: any) => 
+        ins.insuranceTakenBy === 'agrogreen' &&
+        (insuranceData.insuranceCommodity ? ins.commodity === insuranceData.insuranceCommodity : true)
+      );
+      
+      setAgrogreenInsuranceData(agrogreenInsurance);
+    } catch (error) {
+      console.error('Error loading agrogreen insurance data:', error);
+    }
+  };
+
+  const fetchClientInsurances = async (clientName: string) => {
+    try {
+      // Get insurance data from multiple sources
+      const [insuranceMasterSnapshot, clientInsuranceSnapshot] = await Promise.all([
+        getDocs(collection(db, 'insurance-master')),
+        getDocs(collection(db, 'client-insurance'))
+      ]);
+
+      // Process insurance-master data
+      const insuranceMasterData = insuranceMasterSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter((ins: any) => ins.clientName === clientName);
+
+      // Process client-insurance data  
+      const clientInsuranceData = clientInsuranceSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter((ins: any) => ins.clientName === clientName);
+
+      // Combine both sources
+      const combinedInsurances = [...insuranceMasterData, ...clientInsuranceData];
+      
+      return combinedInsurances;
+    } catch (error) {
+      console.error('Error fetching client insurances:', error);
+      return [];
+    }
+  };
+
+  const loadCommoditiesData = async () => {
+    try {
+      const commoditiesSnapshot = await getDocs(collection(db, 'commodities'));
+      const commoditiesArray = commoditiesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      setAvailableCommodities(commoditiesArray);
+    } catch (error) {
+      console.error('Error loading commodities:', error);
     }
   };
 
@@ -270,7 +423,15 @@ export default function InsurancePopup({
       }
     }
 
-    onSave(insuranceData);
+    // Include selected insurance data in the save
+    const dataToSave = {
+      ...insuranceData,
+      selectedClientInsurances,
+      selectedAgrogreenInsurances,
+      additionalInsuranceSections
+    };
+
+    onSave(dataToSave);
   };
 
   const handleCancel = () => {
@@ -286,6 +447,12 @@ export default function InsurancePopup({
         return;
       }
     }
+    
+    // Reset insurance selection states when cancelling
+    setSelectedClientInsurances([]);
+    setSelectedAgrogreenInsurances([]);
+    setAdditionalInsuranceSections([]);
+    
     onClose();
   };
 
@@ -312,19 +479,37 @@ export default function InsurancePopup({
           <CardHeader className="bg-green-50">
             <CardTitle className="text-green-700">Insurance of Stock</CardTitle>
           </CardHeader>
-          <CardContent className="p-6 space-y-4">
+          <CardContent className="p-6 space-y-4 transition-all duration-200 ease-in-out">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="insuranceTakenBy">Insurance Taken By</Label>
                 <Select 
                   value={insuranceData.insuranceTakenBy} 
-                  onValueChange={(value) => setInsuranceData(prev => ({ 
-                    ...prev, 
-                    insuranceTakenBy: value, 
-                    clientName: '', 
-                    clientAddress: '', 
-                    selectedBankName: '' 
-                  }))}
+                  onValueChange={(value) => {
+                    setInsuranceData(prev => ({ 
+                      ...prev, 
+                      insuranceTakenBy: value, 
+                      clientName: '', 
+                      clientAddress: '', 
+                      selectedBankName: '',
+                      // Clear insurance policy details when changing insurance taken by
+                      firePolicyCompanyName: '',
+                      firePolicyNumber: '',
+                      firePolicyAmount: '',
+                      firePolicyStartDate: null,
+                      firePolicyEndDate: null,
+                      burglaryPolicyCompanyName: '',
+                      burglaryPolicyNumber: '',
+                      burglaryPolicyAmount: '',
+                      burglaryPolicyStartDate: null,
+                      burglaryPolicyEndDate: null,
+                    }));
+                    
+                    // Clear selections and additional sections
+                    setSelectedClientInsurances([]);
+                    setSelectedAgrogreenInsurances([]);
+                    setAdditionalInsuranceSections([]);
+                  }}
                 >
                   <SelectTrigger className="text-orange-600">
                     <SelectValue placeholder="Select" />
@@ -340,15 +525,227 @@ export default function InsurancePopup({
 
               <div className="space-y-2">
                 <Label htmlFor="insuranceCommodity">Commodity</Label>
-                <Input
-                  id="insuranceCommodity"
-                  value={insuranceData.insuranceCommodity}
-                  onChange={(e) => setInsuranceData(prev => ({ ...prev, insuranceCommodity: e.target.value }))}
-                  className="text-orange-600"
-                  placeholder="Enter commodity name"
-                />
+                <Select 
+                  value={insuranceData.insuranceCommodity} 
+                  onValueChange={(value) => {
+                    setInsuranceData(prev => ({ ...prev, insuranceCommodity: value }));
+                    
+                    // Clear selections when commodity changes
+                    setSelectedClientInsurances([]);
+                    setSelectedAgrogreenInsurances([]);
+                    setAdditionalInsuranceSections([]);
+                  }}
+                >
+                  <SelectTrigger className="text-orange-600">
+                    <SelectValue placeholder="Select commodity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableCommodities.map((commodity: any) => (
+                      <SelectItem key={commodity.id} value={commodity.commodityName}>
+                        {commodity.commodityName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
+
+
+
+            {/* Insurance Selection Section */}
+            {(insuranceData.insuranceTakenBy === 'client' || insuranceData.insuranceTakenBy === 'agrogreen') && (
+              <div className="border-t pt-4 mt-4">
+                <div className="flex items-center justify-between mb-4">
+                  <Label className="text-green-600 font-medium text-lg">
+                    Select {insuranceData.insuranceTakenBy === 'client' ? 'Client' : 'Agrogreen'} Insurance Policies
+                  </Label>
+                  {((insuranceData.insuranceTakenBy === 'client' && selectedClientInsurances.length > 0) ||
+                    (insuranceData.insuranceTakenBy === 'agrogreen' && selectedAgrogreenInsurances.length > 0)) && (
+                    <div className="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-full">
+                      {insuranceData.insuranceTakenBy === 'client' ? selectedClientInsurances.length : selectedAgrogreenInsurances.length} selected
+                    </div>
+                  )}
+                </div>
+                
+                <div className="border border-green-200 rounded-lg p-4 bg-green-50">
+                  {((insuranceData.insuranceTakenBy === 'client' && selectedClientInsurances.length === 0) ||
+                    (insuranceData.insuranceTakenBy === 'agrogreen' && selectedAgrogreenInsurances.length === 0)) && (
+                    <div className="text-xs text-green-600 mb-3 p-2 bg-green-100 rounded">
+                      💡 <strong>Tip:</strong> Select insurance policies below to automatically fill the Fire Policy and Burglary Policy details sections.
+                    </div>
+                  )}
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {(insuranceData.insuranceTakenBy === 'client' ? clientInsuranceData : agrogreenInsuranceData).length === 0 ? (
+                      <div className="col-span-full text-center py-8 text-gray-500">
+                        {insuranceData.insuranceCommodity ? 
+                          `No ${insuranceData.insuranceTakenBy} insurance policies found for "${insuranceData.insuranceCommodity}" commodity.` :
+                          `Loading ${insuranceData.insuranceTakenBy} insurance policies...`
+                        }
+                      </div>
+                    ) : (
+                      (insuranceData.insuranceTakenBy === 'client' ? clientInsuranceData : agrogreenInsuranceData).map((insurance, index) => (
+                      <div key={index} className="border border-green-300 rounded p-3 bg-white">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <input
+                            type="checkbox"
+                            id={`insurance-popup-${index}`}
+                            checked={
+                              insuranceData.insuranceTakenBy === 'client' 
+                                ? selectedClientInsurances.some(selected => 
+                                    selected.firePolicyNumber === insurance.firePolicyNumber && 
+                                    selected.burglaryPolicyNumber === insurance.burglaryPolicyNumber
+                                  )
+                                : selectedAgrogreenInsurances.some(selected => 
+                                    selected.firePolicyNumber === insurance.firePolicyNumber && 
+                                    selected.burglaryPolicyNumber === insurance.burglaryPolicyNumber
+                                  )
+                            }
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                if (insuranceData.insuranceTakenBy === 'client') {
+                                  setSelectedClientInsurances(prev => [...prev, insurance]);
+                                  // Auto-fill if first selection
+                                  if (selectedClientInsurances.length === 0) {
+                                    setInsuranceData(prev => ({
+                                      ...prev,
+                                      firePolicyCompanyName: insurance.firePolicyCompanyName || '',
+                                      firePolicyNumber: insurance.firePolicyNumber || '',
+                                      firePolicyAmount: insurance.firePolicyAmount || '',
+                                      firePolicyStartDate: safeCreateDate(insurance.firePolicyStartDate),
+                                      firePolicyEndDate: safeCreateDate(insurance.firePolicyEndDate),
+                                      burglaryPolicyCompanyName: insurance.burglaryPolicyCompanyName || '',
+                                      burglaryPolicyNumber: insurance.burglaryPolicyNumber || '',
+                                      burglaryPolicyAmount: insurance.burglaryPolicyAmount || '',
+                                      burglaryPolicyStartDate: safeCreateDate(insurance.burglaryPolicyStartDate),
+                                      burglaryPolicyEndDate: safeCreateDate(insurance.burglaryPolicyEndDate),
+                                    }));
+                                  } else {
+                                    setAdditionalInsuranceSections(prev => [...prev, {
+                                      id: `additional-${Date.now()}-${Math.random()}`,
+                                      insurance: insurance,
+                                      sectionNumber: prev.length + 2
+                                    }]);
+                                  }
+                                } else {
+                                  setSelectedAgrogreenInsurances(prev => [...prev, insurance]);
+                                  // Auto-fill if first selection
+                                  if (selectedAgrogreenInsurances.length === 0) {
+                                    setInsuranceData(prev => ({
+                                      ...prev,
+                                      firePolicyCompanyName: insurance.firePolicyCompanyName || '',
+                                      firePolicyNumber: insurance.firePolicyNumber || '',
+                                      firePolicyAmount: insurance.firePolicyAmount || '',
+                                      firePolicyStartDate: safeCreateDate(insurance.firePolicyStartDate),
+                                      firePolicyEndDate: safeCreateDate(insurance.firePolicyEndDate),
+                                      burglaryPolicyCompanyName: insurance.burglaryPolicyCompanyName || '',
+                                      burglaryPolicyNumber: insurance.burglaryPolicyNumber || '',
+                                      burglaryPolicyAmount: insurance.burglaryPolicyAmount || '',
+                                      burglaryPolicyStartDate: safeCreateDate(insurance.burglaryPolicyStartDate),
+                                      burglaryPolicyEndDate: safeCreateDate(insurance.burglaryPolicyEndDate),
+                                    }));
+                                  } else {
+                                    setAdditionalInsuranceSections(prev => [...prev, {
+                                      id: `additional-${Date.now()}-${Math.random()}`,
+                                      insurance: insurance,
+                                      sectionNumber: prev.length + 2
+                                    }]);
+                                  }
+                                }
+                              } else {
+                                // Handle unchecking
+                                if (insuranceData.insuranceTakenBy === 'client') {
+                                  setSelectedClientInsurances(prev => 
+                                    prev.filter(selected => 
+                                      !(selected.firePolicyNumber === insurance.firePolicyNumber && 
+                                        selected.burglaryPolicyNumber === insurance.burglaryPolicyNumber)
+                                    )
+                                  );
+                                  
+                                  // Clear form if this was the main insurance
+                                  if (insuranceData.firePolicyNumber === insurance.firePolicyNumber && 
+                                      insuranceData.burglaryPolicyNumber === insurance.burglaryPolicyNumber) {
+                                    // Clear and refill with next available
+                                    const remaining = selectedClientInsurances.filter(selected => 
+                                      !(selected.firePolicyNumber === insurance.firePolicyNumber && 
+                                        selected.burglaryPolicyNumber === insurance.burglaryPolicyNumber)
+                                    );
+                                    
+                                    if (remaining.length > 0) {
+                                      const first = remaining[0];
+                                      setInsuranceData(prev => ({
+                                        ...prev,
+                                        firePolicyCompanyName: first.firePolicyCompanyName || '',
+                                        firePolicyNumber: first.firePolicyNumber || '',
+                                        firePolicyAmount: first.firePolicyAmount || '',
+                                        firePolicyStartDate: safeCreateDate(first.firePolicyStartDate),
+                                        firePolicyEndDate: safeCreateDate(first.firePolicyEndDate),
+                                        burglaryPolicyCompanyName: first.burglaryPolicyCompanyName || '',
+                                        burglaryPolicyNumber: first.burglaryPolicyNumber || '',
+                                        burglaryPolicyAmount: first.burglaryPolicyAmount || '',
+                                        burglaryPolicyStartDate: safeCreateDate(first.burglaryPolicyStartDate),
+                                        burglaryPolicyEndDate: safeCreateDate(first.burglaryPolicyEndDate),
+                                      }));
+                                    } else {
+                                      // Clear all fields
+                                      setInsuranceData(prev => ({
+                                        ...prev,
+                                        firePolicyCompanyName: '',
+                                        firePolicyNumber: '',
+                                        firePolicyAmount: '',
+                                        firePolicyStartDate: null,
+                                        firePolicyEndDate: null,
+                                        burglaryPolicyCompanyName: '',
+                                        burglaryPolicyNumber: '',
+                                        burglaryPolicyAmount: '',
+                                        burglaryPolicyStartDate: null,
+                                        burglaryPolicyEndDate: null,
+                                      }));
+                                    }
+                                  }
+                                } else {
+                                  // Similar logic for agrogreen
+                                  setSelectedAgrogreenInsurances(prev => 
+                                    prev.filter(selected => 
+                                      !(selected.firePolicyNumber === insurance.firePolicyNumber && 
+                                        selected.burglaryPolicyNumber === insurance.burglaryPolicyNumber)
+                                    )
+                                  );
+                                }
+                                
+                                // Remove from additional sections
+                                setAdditionalInsuranceSections(prev => 
+                                  prev.filter(section => 
+                                    !(section.insurance.firePolicyNumber === insurance.firePolicyNumber && 
+                                      section.insurance.burglaryPolicyNumber === insurance.burglaryPolicyNumber)
+                                  )
+                                );
+                              }
+                            }}
+                            className="text-green-600"
+                          />
+                          <label htmlFor={`insurance-popup-${index}`} className="text-sm font-medium text-green-700">
+                            Insurance {index + 1}
+                          </label>
+                        </div>
+                        <div className="text-xs text-green-600 space-y-1">
+                          <div><strong>Insurance ID:</strong> {insurance.insuranceId || 'N/A'}</div>
+                          <div><strong>Commodity:</strong> {insurance.commodity}</div>
+                          <div><strong>Fire Policy:</strong> {insurance.firePolicyNumber}</div>
+                          <div><strong>Burglary Policy:</strong> {insurance.burglaryPolicyNumber}</div>
+                          <div><strong>Fire Amount:</strong> ₹{insurance.firePolicyAmount}</div>
+                          <div><strong>Burglary Amount:</strong> ₹{insurance.burglaryPolicyAmount}</div>
+                          {insurance.firePolicyEndDate && (
+                            <div><strong>Fire Policy Expires:</strong> {formatDateDDMMYYYY(safeCreateDate(insurance.firePolicyEndDate))}</div>
+                          )}
+                        </div>
+                      </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Client Name and Address dropdowns for Client selection */}
@@ -430,7 +827,16 @@ export default function InsurancePopup({
             {insuranceData.insuranceTakenBy && insuranceData.insuranceTakenBy !== '' && insuranceData.insuranceTakenBy !== 'bank' && (
               <>
                 <div className="border-t pt-4 mt-4">
-                  <h4 className="text-lg font-medium text-green-700 mb-4">Fire Policy Details</h4>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-lg font-medium text-green-700">Fire Policy Details</h4>
+                    {insuranceData.firePolicyNumber && 
+                     ((insuranceData.insuranceTakenBy === 'client' && selectedClientInsurances.length > 0) ||
+                      (insuranceData.insuranceTakenBy === 'agrogreen' && selectedAgrogreenInsurances.length > 0)) && (
+                      <div className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded">
+                        Auto-filled from selected insurance
+                      </div>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="firePolicyCompanyName">Fire Policy Company Name</Label>
@@ -515,7 +921,16 @@ export default function InsurancePopup({
                 </div>
 
                 <div className="border-t pt-4 mt-4">
-                  <h4 className="text-lg font-medium text-green-700 mb-4">Burglary Policy Details</h4>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-lg font-medium text-green-700">Burglary Policy Details</h4>
+                    {insuranceData.burglaryPolicyNumber && 
+                     ((insuranceData.insuranceTakenBy === 'client' && selectedClientInsurances.length > 0) ||
+                      (insuranceData.insuranceTakenBy === 'agrogreen' && selectedAgrogreenInsurances.length > 0)) && (
+                      <div className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded">
+                        Auto-filled from selected insurance
+                      </div>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="burglaryPolicyCompanyName">Burglary Policy Company Name</Label>
@@ -598,6 +1013,143 @@ export default function InsurancePopup({
                     </div>
                   </div>
                 </div>
+
+                {/* Additional Insurance Sections */}
+                {additionalInsuranceSections.map((section) => (
+                  <div key={section.id}>
+                    {/* Fire Policy Details - Additional Section */}
+                    <div className="border-t pt-4 mt-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-lg font-medium text-green-700">
+                          Fire Policy Details {section.sectionNumber}
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          <div className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">
+                            Auto-filled from: {section.insurance.insuranceId}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Remove this section and uncheck the insurance
+                              setAdditionalInsuranceSections(prev => {
+                                const newSections = prev.filter(s => s.id !== section.id);
+                                // Renumber sections to maintain sequential numbering
+                                return newSections.map((s, index) => ({
+                                  ...s,
+                                  sectionNumber: index + 2
+                                }));
+                              });
+                              
+                              // Remove from appropriate selection array
+                              if (insuranceData.insuranceTakenBy === 'client') {
+                                setSelectedClientInsurances(prev => 
+                                  prev.filter(selected => 
+                                    !(selected.firePolicyNumber === section.insurance.firePolicyNumber && 
+                                      selected.burglaryPolicyNumber === section.insurance.burglaryPolicyNumber)
+                                  )
+                                );
+                              } else {
+                                setSelectedAgrogreenInsurances(prev => 
+                                  prev.filter(selected => 
+                                    !(selected.firePolicyNumber === section.insurance.firePolicyNumber && 
+                                      selected.burglaryPolicyNumber === section.insurance.burglaryPolicyNumber)
+                                  )
+                                );
+                              }
+                            }}
+                            className="text-red-500 hover:text-red-700 text-xs"
+                          >
+                            Remove Section
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Fire Policy Company Name</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.firePolicyCompanyName || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Fire Policy Number</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.firePolicyNumber || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Fire Policy Amount</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            ₹{section.insurance.firePolicyAmount || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Fire Policy Start Date</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.firePolicyStartDate ? formatDateDDMMYYYY(safeCreateDate(section.insurance.firePolicyStartDate) || new Date()) : 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Fire Policy End Date</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.firePolicyEndDate ? formatDateDDMMYYYY(safeCreateDate(section.insurance.firePolicyEndDate) || new Date()) : 'N/A'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Burglary Policy Details - Additional Section */}
+                    <div className="border-t pt-4 mt-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-lg font-medium text-green-700">
+                          Burglary Policy Details {section.sectionNumber}
+                        </h4>
+                        <div className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">
+                          Auto-filled from: {section.insurance.insuranceId}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Burglary Policy Company Name</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.burglaryPolicyCompanyName || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Burglary Policy Number</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.burglaryPolicyNumber || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Burglary Policy Amount</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            ₹{section.insurance.burglaryPolicyAmount || 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Burglary Policy Start Date</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.burglaryPolicyStartDate ? formatDateDDMMYYYY(safeCreateDate(section.insurance.burglaryPolicyStartDate) || new Date()) : 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Burglary Policy End Date</Label>
+                          <div className="p-2 bg-gray-50 rounded border text-green-700">
+                            {section.insurance.burglaryPolicyEndDate ? formatDateDDMMYYYY(safeCreateDate(section.insurance.burglaryPolicyEndDate) || new Date()) : 'N/A'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </>
             )}
 

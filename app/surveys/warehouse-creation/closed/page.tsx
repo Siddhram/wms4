@@ -24,6 +24,7 @@ import {
   Plus,
   Filter
 } from "lucide-react";
+import BlinkingSirenIcon from '@/components/BlinkingSirenIcon';
 import { DataTable } from '@/components/data-table';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -49,6 +50,7 @@ interface InspectionData {
   createdAt: string;
   warehouseInspectionData?: {
     remarks?: string;
+    insuranceEntries?: any[];
   };
 }
 
@@ -75,6 +77,28 @@ interface WarehouseFormData {
   validityOfInsurance?: string | Date | null;
   expiryDate?: string | Date | null;
   oeDate?: string | Date | null;
+}
+
+// Insurance expiry check function
+function getInsuranceAlertStatus(inspection: InspectionData): 'none' | 'expiring' | 'expired' {
+  const insuranceEntries = inspection.warehouseInspectionData?.insuranceEntries || [];
+  if (insuranceEntries.length === 0) return 'none';
+
+  const today = new Date();
+  let hasExpired = false;
+
+  insuranceEntries.forEach((insurance: any) => {
+    [insurance.firePolicyEndDate, insurance.burglaryPolicyEndDate].forEach((date: any) => {
+      if (date) {
+        const endDate = new Date(date);
+        if (endDate < today) {
+          hasExpired = true;
+        }
+      }
+    });
+  });
+
+  return hasExpired ? 'expired' : 'none';
 }
 
 export default function ClosedWarehousePage() {
@@ -594,7 +618,7 @@ export default function ClosedWarehousePage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-center p-2">
-                          <div className="flex space-x-2 justify-center">
+                          <div className="flex space-x-2 justify-center items-center">
                             <Button 
                               variant="outline" 
                               size="sm"
@@ -604,6 +628,11 @@ export default function ClosedWarehousePage() {
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
+                            {getInsuranceAlertStatus(inspection) === 'expired' && (
+                              <div title="Insurance Expired">
+                                <BlinkingSirenIcon color="red" size={20} />
+                              </div>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Search, Download, Plus, Edit, Trash2, Eye } from "lucide-react";
+import { Search, Download, Plus, Edit, Trash2, Eye, AlertTriangle, Lightbulb } from "lucide-react";
 import { useToast } from '@/hooks/use-toast';
 import { DataTable } from '@/components/data-table';
 import { uploadToCloudinary } from '@/lib/cloudinary';
@@ -840,44 +840,74 @@ export default function InwardPage() {
         if (data.warehouseName && (data.status === 'activated'||data.status === 'reactivate')) {
           // Use warehouse name as key to ensure uniqueness
           if (!warehouseMap.has(data.warehouseName)) {
+            // ENHANCED DEBUGGING: Log the entire data structure for this warehouse
+            console.log('=== DEBUGGING WAREHOUSE DATA ===');
+            console.log('Warehouse:', data.warehouseName);
+            console.log('Status:', data.status);
+            console.log('Has top-level insuranceEntries:', !!(data.insuranceEntries && Array.isArray(data.insuranceEntries)));
+            console.log('Has nested insuranceEntries:', !!(data.warehouseInspectionData?.insuranceEntries && Array.isArray(data.warehouseInspectionData.insuranceEntries)));
+            console.log('Has warehouseInspectionData:', !!data.warehouseInspectionData);
+            
+            if (data.warehouseInspectionData) {
+              const warehouseData = data.warehouseInspectionData;
+              console.log('warehouseInspectionData keys:', Object.keys(warehouseData));
+              console.log('insuranceTakenBy:', warehouseData.insuranceTakenBy);
+              console.log('firePolicyNumber:', warehouseData.firePolicyNumber);
+              console.log('burglaryPolicyNumber:', warehouseData.burglaryPolicyNumber);
+              console.log('firePolicyCompanyName:', warehouseData.firePolicyCompanyName);
+              console.log('burglaryPolicyCompanyName:', warehouseData.burglaryPolicyCompanyName);
+            }
+            console.log('=== END DEBUGGING ===');
+            
             // Extract insurance data from the inspection
             let insuranceEntries: any[] = [];
             
             // Check multiple possible locations for insurance data
             if (data.insuranceEntries && Array.isArray(data.insuranceEntries)) {
-              console.log('Found top-level insurance entries for warehouse:', data.warehouseName, data.insuranceEntries.length);
+              console.log('✅ Found top-level insurance entries for warehouse:', data.warehouseName, data.insuranceEntries.length);
               insuranceEntries = data.insuranceEntries;
             } else if (data.warehouseInspectionData?.insuranceEntries && Array.isArray(data.warehouseInspectionData.insuranceEntries)) {
-              console.log('Found nested insurance entries for warehouse:', data.warehouseName, data.warehouseInspectionData.insuranceEntries.length);
+              console.log('✅ Found nested insurance entries for warehouse:', data.warehouseName, data.warehouseInspectionData.insuranceEntries.length);
               insuranceEntries = data.warehouseInspectionData.insuranceEntries;
             } else if (data.warehouseInspectionData) {
-              // Legacy format - convert to new format
-              const legacyData = data.warehouseInspectionData;
-              if (legacyData.firePolicyNumber || legacyData.burglaryPolicyNumber) {
-                console.log('Found legacy insurance format for warehouse:', data.warehouseName);
+              // Check for current insurance format (from the recent validation changes)
+              const warehouseData = data.warehouseInspectionData;
+              if (warehouseData.insuranceTakenBy && (warehouseData.firePolicyNumber || warehouseData.burglaryPolicyNumber)) {
+                console.log('✅ Found current insurance format for warehouse:', data.warehouseName);
                 insuranceEntries = [{
-                  id: `legacy_${Date.now()}`,
-                  insuranceTakenBy: legacyData.insuranceTakenBy || '',
-                  insuranceCommodity: legacyData.insuranceCommodity || '',
-                  clientName: legacyData.clientName || '',
-                  clientAddress: legacyData.clientAddress || '',
-                  selectedBankName: legacyData.selectedBankName || '',
-                  firePolicyCompanyName: legacyData.firePolicyCompanyName || '',
-                  firePolicyNumber: legacyData.firePolicyNumber || '',
-                  firePolicyAmount: legacyData.firePolicyAmount || '',
-                  firePolicyStartDate: legacyData.firePolicyStartDate || null,
-                  firePolicyEndDate: legacyData.firePolicyEndDate || null,
-                  burglaryPolicyCompanyName: legacyData.burglaryPolicyCompanyName || '',
-                  burglaryPolicyNumber: legacyData.burglaryPolicyNumber || '',
-                  burglaryPolicyAmount: legacyData.burglaryPolicyAmount || '',
-                  burglaryPolicyStartDate: legacyData.burglaryPolicyStartDate || null,
-                  burglaryPolicyEndDate: legacyData.burglaryPolicyEndDate || null,
-                  createdAt: new Date(legacyData.createdAt || Date.now())
+                  id: `current_${Date.now()}`,
+                  insuranceId: `INS_${data.warehouseName}_${Date.now()}`,
+                  insuranceTakenBy: warehouseData.insuranceTakenBy || '',
+                  insuranceCommodity: warehouseData.insuranceCommodity || '',
+                  clientName: warehouseData.clientName || '',
+                  clientAddress: warehouseData.clientAddress || '',
+                  selectedBankName: warehouseData.selectedBankName || '',
+                  firePolicyCompanyName: warehouseData.firePolicyCompanyName || '',
+                  firePolicyNumber: warehouseData.firePolicyNumber || '',
+                  firePolicyAmount: warehouseData.firePolicyAmount || '0',
+                  firePolicyStartDate: warehouseData.firePolicyStartDate || null,
+                  firePolicyEndDate: warehouseData.firePolicyEndDate || null,
+                  burglaryPolicyCompanyName: warehouseData.burglaryPolicyCompanyName || '',
+                  burglaryPolicyNumber: warehouseData.burglaryPolicyNumber || '',
+                  burglaryPolicyAmount: warehouseData.burglaryPolicyAmount || '0',
+                  burglaryPolicyStartDate: warehouseData.burglaryPolicyStartDate || null,
+                  burglaryPolicyEndDate: warehouseData.burglaryPolicyEndDate || null,
+                  remainingFirePolicyAmount: warehouseData.firePolicyAmount || '0',
+                  remainingBurglaryPolicyAmount: warehouseData.burglaryPolicyAmount || '0',
+                  createdAt: new Date(warehouseData.createdAt || Date.now())
                 }];
+              } else {
+                console.log('❌ No insurance data found for warehouse:', data.warehouseName);
+                console.log('   - insuranceTakenBy:', warehouseData.insuranceTakenBy);
+                console.log('   - firePolicyNumber:', warehouseData.firePolicyNumber);
+                console.log('   - burglaryPolicyNumber:', warehouseData.burglaryPolicyNumber);
               }
+            } else {
+              console.log('❌ No warehouseInspectionData found for warehouse:', data.warehouseName);
             }
             
             // Store warehouse data with insurance entries
+            console.log(`📦 Storing warehouse "${data.warehouseName}" with ${insuranceEntries.length} insurance entries`);
             warehouseMap.set(data.warehouseName, {
               ...data,
               insuranceEntries: insuranceEntries
@@ -886,7 +916,12 @@ export default function InwardPage() {
         }
       });
       setWarehouses(Array.from(warehouseMap.values()));
-      console.log('Warehouses loaded with insurance data:', Array.from(warehouseMap.values()));
+      console.log('🏁 Final warehouses count:', warehouseMap.size);
+      console.log('🏁 Warehouses with insurance data:', Array.from(warehouseMap.values()).filter(w => w.insuranceEntries && w.insuranceEntries.length > 0).length);
+      console.log('🏁 All warehouses:', Array.from(warehouseMap.values()).map(w => ({ 
+        name: w.warehouseName, 
+        insuranceCount: w.insuranceEntries ? w.insuranceEntries.length : 0 
+      })));
       
       // Reservations
       const reservationSnap = await getDocs(collection(db, 'reservation'));
@@ -1292,19 +1327,88 @@ export default function InwardPage() {
       console.error('Error checking reservation:', err);
     }
 
-    // Check inspection insurance entries for the warehouse
+    // Check insurance coverage for the warehouse - prioritize insurance master collection
     try {
       if (warehouseName) {
-        const inspectionsCollection = collection(db, 'inspections');
-        const q = query(inspectionsCollection, where('warehouseName', '==', warehouseName));
-        const querySnapshot = await getDocs(q);
         let insuranceEntries: any[] = [];
-        if (!querySnapshot.empty) {
-          const inspectionData = querySnapshot.docs[0].data();
-          if (inspectionData.insuranceEntries && Array.isArray(inspectionData.insuranceEntries)) {
-            insuranceEntries = inspectionData.insuranceEntries;
-          } else if (inspectionData.warehouseInspectionData?.insuranceEntries && Array.isArray(inspectionData.warehouseInspectionData.insuranceEntries)) {
-            insuranceEntries = inspectionData.warehouseInspectionData.insuranceEntries;
+        
+        // First check insurance master collection for current coverage
+        console.log('🔍 Checking insurance coverage for warehouse:', warehouseName);
+        const insuranceMasterCollection = collection(db, 'insurance');
+        const masterQuery = query(
+          insuranceMasterCollection,
+          where('warehouseName', '==', warehouseName),
+          where('state', '==', baseForm.state),
+          where('branch', '==', baseForm.branch),
+          where('location', '==', baseForm.location)
+        );
+        
+        const masterSnapshot = await getDocs(masterQuery);
+        if (!masterSnapshot.empty) {
+          console.log('✅ Found insurance in master collection:', masterSnapshot.docs.length, 'policies');
+          insuranceEntries = masterSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+              insuranceId: data.insuranceCode || doc.id,
+              insuranceTakenBy: data.insuranceType || 'client',
+              firePolicyEndDate: data.firePolicyEndDate,
+              burglaryPolicyEndDate: data.burglaryPolicyEndDate,
+              firePolicyRemainingAmount: data.firePolicyRemainingAmount,
+              burglaryPolicyRemainingAmount: data.burglaryPolicyRemainingAmount,
+              commodityName: data.commodityName,
+              clientName: data.clientName
+            };
+          });
+        } else {
+          console.log('⚠️ No insurance found in master collection, checking inspections as fallback...');
+          // Fallback to inspections collection
+          const inspectionsCollection = collection(db, 'inspections');
+          const q = query(inspectionsCollection, where('warehouseName', '==', warehouseName));
+          const querySnapshot = await getDocs(q);
+          if (!querySnapshot.empty) {
+            const inspectionData = querySnapshot.docs[0].data();
+            if (inspectionData.insuranceEntries && Array.isArray(inspectionData.insuranceEntries)) {
+              insuranceEntries = inspectionData.insuranceEntries;
+            } else if (inspectionData.warehouseInspectionData?.insuranceEntries && Array.isArray(inspectionData.warehouseInspectionData.insuranceEntries)) {
+              insuranceEntries = inspectionData.warehouseInspectionData.insuranceEntries;
+            }
+          }
+        }
+
+        // Check if insurance exists at all - block inward if no insurance found
+        if (!insuranceEntries || insuranceEntries.length === 0) {
+          const msg = `No Insurance Found - This warehouse does not have any insurance coverage. Insurance is required to process inward entries.`;
+          setInlineAlert({ title: 'No Insurance Coverage', message: msg, severity: 'error' });
+          setPreventInward(true);
+          return;
+        }
+
+        // Check if insurance exists for the specific commodity/client combination
+        if (baseForm.commodity && clientName) {
+          const matchingInsurance = insuranceEntries.find((ins: any) => 
+            (ins.commodityName === baseForm.commodity || ins.insuranceCommodity === baseForm.commodity) &&
+            (ins.clientName === clientName)
+          );
+          
+          if (!matchingInsurance) {
+            const msg = `No Insurance for Commodity - No insurance coverage found for commodity "${baseForm.commodity}" and client "${clientName}". Insurance for this specific commodity-client combination is required.`;
+            setInlineAlert({ title: 'No Commodity Insurance', message: msg, severity: 'error' });
+            setPreventInward(true);
+            return;
+          }
+          
+          // Check if there's sufficient remaining insurance amount
+          if (matchingInsurance.firePolicyRemainingAmount !== undefined || matchingInsurance.burglaryPolicyRemainingAmount !== undefined) {
+            const fireRemaining = parseFloat(matchingInsurance.firePolicyRemainingAmount || '0');
+            const burglaryRemaining = parseFloat(matchingInsurance.burglaryPolicyRemainingAmount || '0');
+            const totalValue = parseFloat(baseForm.totalValue || '0');
+            
+            if (totalValue > 0 && (fireRemaining + burglaryRemaining) < totalValue) {
+              const msg = `Insufficient Insurance Coverage - Total inward value (₹${totalValue.toLocaleString()}) exceeds available insurance coverage (₹${(fireRemaining + burglaryRemaining).toLocaleString()}). Please contact administration to increase insurance coverage.`;
+              setInlineAlert({ title: 'Insufficient Insurance', message: msg, severity: 'error' });
+              setPreventInward(true);
+              return;
+            }
           }
         }
 
@@ -1637,52 +1741,208 @@ export default function InwardPage() {
     fetchInsuranceData(commodityName);
   };
 
-  // Fetch insurance data based on selected criteria
-  const fetchInsuranceData = (commodityName: string) => {
+  // Function to refresh insurance data after submission
+  const refreshInsuranceData = async () => {
+    if (form.commodity && form.warehouseName) {
+      await fetchInsuranceData(form.commodity);
+    }
+  };
+
+  // Fetch insurance data directly from Insurance Master collection (latest amounts)
+  const fetchInsuranceData = async (commodityName: string) => {
     if (!form.state || !form.branch || !form.location || !form.warehouseName || !commodityName) {
+      console.log('❌ Missing required filters for insurance fetch');
       return;
     }
 
-    // Find matching insurance entries from the inspection module
-    const matchingInsuranceEntries = insuranceEntries.filter((insurance: any) => 
-      insurance.insuranceCommodity === commodityName
-    );
+    console.log('🔍 FETCHING INSURANCE FROM MASTER - Filters:', {
+      warehouseName: form.warehouseName,
+      state: form.state,
+      branch: form.branch,
+      location: form.location,
+      commodity: commodityName,
+      variety: form.varietyName
+    });
 
-    if (matchingInsuranceEntries.length > 0) {
-      // Use the first matching insurance entry for backward compatibility
-      const firstInsurance = matchingInsuranceEntries[0];
-      setBaseForm(f => ({
-        ...f,
-        insuranceManagedBy: firstInsurance.insuranceTakenBy || '',
-        firePolicyNumber: firstInsurance.firePolicyNumber || '',
-        firePolicyAmount: firstInsurance.firePolicyAmount || '',
-        firePolicyStart: firstInsurance.firePolicyStartDate || '',
-        firePolicyEnd: firstInsurance.firePolicyEndDate || '',
-        burglaryPolicyNumber: firstInsurance.burglaryPolicyNumber || '',
-        burglaryPolicyAmount: firstInsurance.burglaryPolicyAmount || '',
-        burglaryPolicyStart: firstInsurance.burglaryPolicyStartDate || '',
-        burglaryPolicyEnd: firstInsurance.burglaryPolicyEndDate || '',
-        firePolicyCompanyName: firstInsurance.firePolicyCompanyName || '',
-        burglaryPolicyCompanyName: firstInsurance.burglaryPolicyCompanyName || '',
-        bankFundedBy: firstInsurance.selectedBankName || '',
-      }));
-    } else {
-      // Clear insurance fields if no matching insurance found
-      setBaseForm(f => ({
-        ...f,
-        insuranceManagedBy: '',
-        firePolicyNumber: '',
-        firePolicyAmount: '',
-        firePolicyStart: '',
-        firePolicyEnd: '',
-        burglaryPolicyNumber: '',
-        burglaryPolicyAmount: '',
-        burglaryPolicyStart: '',
-        burglaryPolicyEnd: '',
-        firePolicyCompanyName: '',
-        burglaryPolicyCompanyName: '',
-        bankFundedBy: '',
-      }));
+    try {
+      // Debug: Let's see ALL insurance documents to understand the data structure
+      console.log('🔍 DEBUG: Fetching ALL insurance documents to check structure...');
+      const allInsuranceDocs = await getDocs(collection(db, 'insurance'));
+      console.log('📋 Total insurance documents:', allInsuranceDocs.docs.length);
+      
+      allInsuranceDocs.docs.forEach((doc, index) => {
+        const data = doc.data();
+        console.log(`Insurance Doc ${index + 1}:`, {
+          id: doc.id,
+          warehouseName: data.warehouseName,
+          state: data.state,
+          branch: data.branch,
+          location: data.location,
+          commodityName: data.commodityName,
+          varietyName: data.varietyName,
+          firePolicyAmount: data.firePolicyAmount,
+          firePolicyRemainingAmount: data.firePolicyRemainingAmount,
+          burglaryPolicyAmount: data.burglaryPolicyAmount,
+          burglaryPolicyRemainingAmount: data.burglaryPolicyRemainingAmount
+        });
+      });
+
+      // Try simpler query with just warehouse name and commodity
+      const insuranceMasterCollection = collection(db, 'insurance');
+      const simpleQuery = query(
+        insuranceMasterCollection,
+        where('warehouseName', '==', form.warehouseName),
+        where('commodityName', '==', commodityName)
+      );
+      
+      console.log('📊 Executing simple query on insurance collection...');
+      const querySnapshot = await getDocs(simpleQuery);
+      console.log('📊 Query result - Documents found:', querySnapshot.docs.length);
+      
+      if (!querySnapshot.empty) {
+        const insuranceMasterDoc = querySnapshot.docs[0];
+        const insuranceData = insuranceMasterDoc.data();
+        
+        console.log('✅ Found insurance data in master collection:', insuranceData);
+        
+        // Create insurance entry with current amounts from master collection
+        const insuranceEntry = {
+          id: `ins_master_${Date.now()}`,
+          insuranceId: insuranceData.insuranceCode || `INS_${form.warehouseName}_${Date.now()}`,
+          warehouseName: form.warehouseName,
+          state: form.state,
+          branch: form.branch,
+          location: form.location,
+          insuranceCommodity: commodityName,
+          varietyName: form.varietyName,
+          insuranceTakenBy: insuranceData.insuranceType || '',
+          clientName: insuranceData.clientName || '',
+          selectedBankName: insuranceData.bankFundedBy || '',
+          firePolicyCompanyName: insuranceData.firePolicyCompanyName || '',
+          firePolicyNumber: insuranceData.firePolicyNumber || '',
+          firePolicyAmount: insuranceData.firePolicyAmount || '0',
+          firePolicyStartDate: insuranceData.firePolicyStartDate || null,
+          firePolicyEndDate: insuranceData.firePolicyEndDate || null,
+          burglaryPolicyCompanyName: insuranceData.burglaryPolicyCompanyName || '',
+          burglaryPolicyNumber: insuranceData.burglaryPolicyNumber || '',
+          burglaryPolicyAmount: insuranceData.burglaryPolicyAmount || '0',
+          burglaryPolicyStartDate: insuranceData.burglaryPolicyStartDate || null,
+          burglaryPolicyEndDate: insuranceData.burglaryPolicyEndDate || null,
+          // Use remaining amounts from master collection (most up-to-date)
+          remainingFirePolicyAmount: insuranceData.firePolicyRemainingAmount || insuranceData.firePolicyAmount || '0',
+          remainingBurglaryPolicyAmount: insuranceData.burglaryPolicyRemainingAmount || insuranceData.burglaryPolicyAmount || '0'
+        };
+
+        setInsuranceEntries([insuranceEntry]);
+        console.log('✅ Insurance entries set from master collection:', [insuranceEntry]);
+        
+        // Auto-fill form fields with current amounts
+        setBaseForm(f => ({
+          ...f,
+          insuranceManagedBy: insuranceData.insuranceType || '',
+          firePolicyNumber: insuranceData.firePolicyNumber || '',
+          firePolicyAmount: insuranceData.firePolicyRemainingAmount || insuranceData.firePolicyAmount || '',
+          firePolicyStart: insuranceData.firePolicyStartDate || '',
+          firePolicyEnd: insuranceData.firePolicyEndDate || '',
+          burglaryPolicyNumber: insuranceData.burglaryPolicyNumber || '',
+          burglaryPolicyAmount: insuranceData.burglaryPolicyRemainingAmount || insuranceData.burglaryPolicyAmount || '',
+          burglaryPolicyStart: insuranceData.burglaryPolicyStartDate || '',
+          burglaryPolicyEnd: insuranceData.burglaryPolicyEndDate || '',
+          firePolicyCompanyName: insuranceData.firePolicyCompanyName || '',
+          burglaryPolicyCompanyName: insuranceData.burglaryPolicyCompanyName || '',
+          bankFundedBy: insuranceData.bankFundedBy || '',
+        }));
+      } else {
+        console.log('❌ No insurance data found in master collection, trying inspections as fallback...');
+        
+        // Fallback to inspections collection if not found in master
+        const inspectionsCollection = collection(db, 'inspections');
+        const inspectionQuery = query(
+          inspectionsCollection,
+          where('warehouseName', '==', form.warehouseName),
+          where('status', 'in', ['activated', 'reactivate'])
+        );
+        
+        const inspectionSnapshot = await getDocs(inspectionQuery);
+        let foundInsurance: any = null;
+
+        inspectionSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          const warehouseData = data.warehouseInspectionData;
+          
+          if (warehouseData && warehouseData.insuranceTakenBy && 
+              (warehouseData.firePolicyNumber || warehouseData.burglaryPolicyNumber)) {
+            foundInsurance = warehouseData;
+            console.log('✅ Found insurance data in inspections (fallback):', foundInsurance);
+          }
+        });
+
+        if (foundInsurance) {
+          const insuranceEntry = {
+            id: `ins_fallback_${Date.now()}`,
+            insuranceId: `INS_${form.warehouseName}_${Date.now()}`,
+            warehouseName: form.warehouseName,
+            state: form.state,
+            branch: form.branch,
+            location: form.location,
+            insuranceCommodity: commodityName,
+            varietyName: form.varietyName,
+            insuranceTakenBy: foundInsurance.insuranceTakenBy || '',
+            clientName: foundInsurance.clientName || '',
+            selectedBankName: foundInsurance.selectedBankName || '',
+            firePolicyCompanyName: foundInsurance.firePolicyCompanyName || '',
+            firePolicyNumber: foundInsurance.firePolicyNumber || '',
+            firePolicyAmount: foundInsurance.firePolicyAmount || '0',
+            firePolicyStartDate: foundInsurance.firePolicyStartDate || null,
+            firePolicyEndDate: foundInsurance.firePolicyEndDate || null,
+            burglaryPolicyCompanyName: foundInsurance.burglaryPolicyCompanyName || '',
+            burglaryPolicyNumber: foundInsurance.burglaryPolicyNumber || '',
+            burglaryPolicyAmount: foundInsurance.burglaryPolicyAmount || '0',
+            burglaryPolicyStartDate: foundInsurance.burglaryPolicyStartDate || null,
+            burglaryPolicyEndDate: foundInsurance.burglaryPolicyEndDate || null,
+            remainingFirePolicyAmount: foundInsurance.firePolicyAmount || '0',
+            remainingBurglaryPolicyAmount: foundInsurance.burglaryPolicyAmount || '0'
+          };
+
+          setInsuranceEntries([insuranceEntry]);
+          setBaseForm(f => ({
+            ...f,
+            insuranceManagedBy: foundInsurance.insuranceTakenBy || '',
+            firePolicyNumber: foundInsurance.firePolicyNumber || '',
+            firePolicyAmount: foundInsurance.firePolicyAmount || '',
+            firePolicyStart: foundInsurance.firePolicyStartDate || '',
+            firePolicyEnd: foundInsurance.firePolicyEndDate || '',
+            burglaryPolicyNumber: foundInsurance.burglaryPolicyNumber || '',
+            burglaryPolicyAmount: foundInsurance.burglaryPolicyAmount || '',
+            burglaryPolicyStart: foundInsurance.burglaryPolicyStartDate || '',
+            burglaryPolicyEnd: foundInsurance.burglaryPolicyEndDate || '',
+            firePolicyCompanyName: foundInsurance.firePolicyCompanyName || '',
+            burglaryPolicyCompanyName: foundInsurance.burglaryPolicyCompanyName || '',
+            bankFundedBy: foundInsurance.selectedBankName || '',
+          }));
+        } else {
+          console.log('❌ No insurance data found in either collection');
+          setInsuranceEntries([]);
+          setBaseForm(f => ({
+            ...f,
+            insuranceManagedBy: '',
+            firePolicyNumber: '',
+            firePolicyAmount: '',
+            firePolicyStart: '',
+            firePolicyEnd: '',
+            burglaryPolicyNumber: '',
+            burglaryPolicyAmount: '',
+            burglaryPolicyStart: '',
+            burglaryPolicyEnd: '',
+            firePolicyCompanyName: '',
+            burglaryPolicyCompanyName: '',
+            bankFundedBy: '',
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error fetching insurance:', error);
+      setInsuranceEntries([]);
     }
   };
 
@@ -2556,6 +2816,84 @@ export default function InwardPage() {
           await updateDoc(docRef, { insuranceEntries: updatedList });
         }
       }
+
+      // ✅ UPDATE INSURANCE MASTER COLLECTION
+      // Update the insurance master collection with deducted amounts
+      try {
+        console.log('🔧 UPDATING INSURANCE MASTER COLLECTION');
+        const insuranceMasterCollection = collection(db, 'insurance');
+        const insuranceMasterQuery = query(
+          insuranceMasterCollection,
+          where('warehouseName', '==', form.warehouseName),
+          where('commodityName', '==', form.commodity),
+          where('varietyName', '==', form.varietyName)
+        );
+        
+        const insuranceMasterSnapshot = await getDocs(insuranceMasterQuery);
+        
+        if (!insuranceMasterSnapshot.empty) {
+          const insuranceMasterDoc = insuranceMasterSnapshot.docs[0];
+          const insuranceMasterData = insuranceMasterDoc.data();
+          
+          // Get current total value to deduct
+          const totalValueToDeduct = parseFloat(baseForm.totalValue) || 0;
+          
+          // Calculate current used amounts (add to existing used amounts)
+          const currentFireUsed = parseFloat(insuranceMasterData.firePolicyUsedAmount || '0');
+          const currentBurglaryUsed = parseFloat(insuranceMasterData.burglaryPolicyUsedAmount || '0');
+          
+          const newFireUsed = currentFireUsed + totalValueToDeduct;
+          const newBurglaryUsed = currentBurglaryUsed + totalValueToDeduct;
+          
+          // Calculate remaining amounts
+          const totalFireAmount = parseFloat(insuranceMasterData.firePolicyAmount || '0');
+          const totalBurglaryAmount = parseFloat(insuranceMasterData.burglaryPolicyAmount || '0');
+          
+          const newFireRemaining = Math.max(0, totalFireAmount - newFireUsed);
+          const newBurglaryRemaining = Math.max(0, totalBurglaryAmount - newBurglaryUsed);
+          
+          console.log('💰 INSURANCE MASTER DEDUCTION:', {
+            warehouseName: form.warehouseName,
+            commodity: form.commodity,
+            variety: form.varietyName,
+            totalValueToDeduct,
+            fire: {
+              totalAmount: totalFireAmount,
+              previousUsed: currentFireUsed,
+              newUsed: newFireUsed,
+              newRemaining: newFireRemaining
+            },
+            burglary: {
+              totalAmount: totalBurglaryAmount,
+              previousUsed: currentBurglaryUsed,
+              newUsed: newBurglaryUsed,
+              newRemaining: newBurglaryRemaining
+            }
+          });
+          
+          // Update the insurance master document
+          await updateDoc(doc(db, 'insurance', insuranceMasterDoc.id), {
+            firePolicyUsedAmount: newFireUsed.toFixed(2),
+            firePolicyRemainingAmount: newFireRemaining.toFixed(2),
+            burglaryPolicyUsedAmount: newBurglaryUsed.toFixed(2),
+            burglaryPolicyRemainingAmount: newBurglaryRemaining.toFixed(2),
+            lastUpdated: new Date().toISOString()
+          });
+          
+          console.log('✅ Insurance master collection updated successfully');
+          
+        } else {
+          console.log('⚠️ No matching insurance master record found for:', {
+            warehouseName: form.warehouseName,
+            commodity: form.commodity,
+            variety: form.varietyName
+          });
+        }
+        
+      } catch (insuranceMasterError) {
+        console.error('❌ Error updating insurance master collection:', insuranceMasterError);
+        // Don't fail the operation, just log the error
+      }
         }
       } catch (insuranceError) {
         console.error('Error updating insurance data:', insuranceError);
@@ -2570,6 +2908,9 @@ export default function InwardPage() {
       handleModalClose();
       setDataVersion(v => v + 1);
       dispatchDataUpdate(); // Notify other modules of data changes
+      
+      // Refresh insurance data to show updated amounts
+      await refreshInsuranceData();
     } catch (error: any) {
       console.error('Error saving inward entries to Firebase:', error);
       console.error('Error details:', {
@@ -3835,6 +4176,34 @@ export default function InwardPage() {
           inspectionInsuranceEntries = inspectionData.insuranceEntries;
         } else if (inspectionData.warehouseInspectionData?.insuranceEntries && Array.isArray(inspectionData.warehouseInspectionData.insuranceEntries)) {
           inspectionInsuranceEntries = inspectionData.warehouseInspectionData.insuranceEntries;
+        } else if (inspectionData.warehouseInspectionData) {
+          // Check for current insurance format (from recent validation changes)
+          const warehouseData = inspectionData.warehouseInspectionData;
+          if (warehouseData.insuranceTakenBy && (warehouseData.firePolicyNumber || warehouseData.burglaryPolicyNumber)) {
+            console.log('Found current insurance format in edit mode, converting to entry format for warehouse:', row.warehouseName);
+            inspectionInsuranceEntries = [{
+              id: `current_${Date.now()}`,
+              insuranceId: `INS_${row.warehouseName}_${Date.now()}`,
+              insuranceTakenBy: warehouseData.insuranceTakenBy || '',
+              insuranceCommodity: warehouseData.insuranceCommodity || '',
+              clientName: warehouseData.clientName || '',
+              clientAddress: warehouseData.clientAddress || '',
+              selectedBankName: warehouseData.selectedBankName || '',
+              firePolicyCompanyName: warehouseData.firePolicyCompanyName || '',
+              firePolicyNumber: warehouseData.firePolicyNumber || '',
+              firePolicyAmount: warehouseData.firePolicyAmount || '0',
+              firePolicyStartDate: warehouseData.firePolicyStartDate || null,
+              firePolicyEndDate: warehouseData.firePolicyEndDate || null,
+              burglaryPolicyCompanyName: warehouseData.burglaryPolicyCompanyName || '',
+              burglaryPolicyNumber: warehouseData.burglaryPolicyNumber || '',
+              burglaryPolicyAmount: warehouseData.burglaryPolicyAmount || '0',
+              burglaryPolicyStartDate: warehouseData.burglaryPolicyStartDate || null,
+              burglaryPolicyEndDate: warehouseData.burglaryPolicyEndDate || null,
+              remainingFirePolicyAmount: warehouseData.firePolicyAmount || '0',
+              remainingBurglaryPolicyAmount: warehouseData.burglaryPolicyAmount || '0',
+              createdAt: new Date(warehouseData.createdAt || Date.now())
+            }];
+          }
         }
       }
     }
@@ -3997,58 +4366,103 @@ export default function InwardPage() {
     }
     setIsFormApproved(row.status === 'approved');
     
-    // Fetch insurance data from inspection collection
+    // Fetch insurance data from insurance master collection (single source of truth)
     try {
-      const inspectionsCollection = collection(db, 'inspections');
-      const q = query(inspectionsCollection, where('warehouseName', '==', row.warehouseName));
-      const querySnapshot = await getDocs(q);
+      console.log('🔍 SR/WR: Fetching insurance from master collection for:', row.warehouseName);
+      let insuranceEntries: any[] = [];
       
-      if (!querySnapshot.empty) {
-        const inspectionData = querySnapshot.docs[0].data();
-        let insuranceEntries: any[] = [];
+      // First check insurance master collection
+      if (row.warehouseName && row.state && row.branch && row.location) {
+        const insuranceMasterCollection = collection(db, 'insurance');
+        const masterQuery = query(
+          insuranceMasterCollection,
+          where('warehouseName', '==', row.warehouseName),
+          where('state', '==', row.state),
+          where('branch', '==', row.branch),
+          where('location', '==', row.location)
+        );
         
-        // Check multiple possible locations for insurance data
-        if (inspectionData.insuranceEntries && Array.isArray(inspectionData.insuranceEntries)) {
-          console.log('Found top-level insurance entries:', inspectionData.insuranceEntries.length);
-          insuranceEntries = inspectionData.insuranceEntries;
-        } else if (inspectionData.warehouseInspectionData?.insuranceEntries && Array.isArray(inspectionData.warehouseInspectionData.insuranceEntries)) {
-          console.log('Found nested insurance entries:', inspectionData.warehouseInspectionData.insuranceEntries.length);
-          insuranceEntries = inspectionData.warehouseInspectionData.insuranceEntries;
-        } else if (inspectionData.warehouseInspectionData) {
-          // Legacy format - convert to new format
-          const legacyData = inspectionData.warehouseInspectionData;
-          if (legacyData.firePolicyNumber || legacyData.burglaryPolicyNumber) {
-            console.log('Found legacy insurance format, converting to new format');
-            insuranceEntries = [{
-              id: `legacy_${Date.now()}`,
-              insuranceTakenBy: legacyData.insuranceTakenBy || '',
-              insuranceCommodity: legacyData.insuranceCommodity || '',
-              clientName: legacyData.clientName || '',
-              clientAddress: legacyData.clientAddress || '',
-              selectedBankName: legacyData.selectedBankName || '',
-              firePolicyCompanyName: legacyData.firePolicyCompanyName || '',
-              firePolicyNumber: legacyData.firePolicyNumber || '',
-              firePolicyAmount: legacyData.firePolicyAmount || '',
-              firePolicyStartDate: legacyData.firePolicyStartDate || null,
-              firePolicyEndDate: legacyData.firePolicyEndDate || null,
-              burglaryPolicyCompanyName: legacyData.burglaryPolicyCompanyName || '',
-              burglaryPolicyNumber: legacyData.burglaryPolicyNumber || '',
-              burglaryPolicyAmount: legacyData.burglaryPolicyAmount || '',
-              burglaryPolicyStartDate: legacyData.burglaryPolicyStartDate || null,
-              burglaryPolicyEndDate: legacyData.burglaryPolicyEndDate || null,
-              createdAt: new Date(legacyData.createdAt || Date.now())
-            }];
+        const masterSnapshot = await getDocs(masterQuery);
+        if (!masterSnapshot.empty) {
+          console.log('✅ SR/WR: Found insurance in master collection:', masterSnapshot.docs.length);
+          insuranceEntries = masterSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+              insuranceId: data.insuranceCode || doc.id,
+              insuranceTakenBy: data.insuranceType || 'client',
+              insuranceCommodity: data.commodityName,
+              commodityName: data.commodityName,
+              clientName: data.clientName,
+              firePolicyCompanyName: data.firePolicyCompanyName,
+              firePolicyNumber: data.firePolicyNumber,
+              firePolicyAmount: data.firePolicyAmount,
+              firePolicyStartDate: data.firePolicyStartDate,
+              firePolicyEndDate: data.firePolicyEndDate,
+              firePolicyRemainingAmount: data.firePolicyRemainingAmount,
+              burglaryPolicyCompanyName: data.burglaryPolicyCompanyName,
+              burglaryPolicyNumber: data.burglaryPolicyNumber,
+              burglaryPolicyAmount: data.burglaryPolicyAmount,
+              burglaryPolicyStartDate: data.burglaryPolicyStartDate,
+              burglaryPolicyEndDate: data.burglaryPolicyEndDate,
+              burglaryPolicyRemainingAmount: data.burglaryPolicyRemainingAmount,
+              createdAt: data.createdAt || new Date()
+            };
+          });
+        } else {
+          console.log('⚠️ SR/WR: No insurance in master, checking inspections as fallback...');
+          
+          // Fallback to inspections collection
+          const inspectionsCollection = collection(db, 'inspections');
+          const q = query(inspectionsCollection, where('warehouseName', '==', row.warehouseName));
+          const querySnapshot = await getDocs(q);
+          
+          if (!querySnapshot.empty) {
+            const inspectionData = querySnapshot.docs[0].data();
+            
+            // Check multiple possible locations for insurance data
+            if (inspectionData.insuranceEntries && Array.isArray(inspectionData.insuranceEntries)) {
+              console.log('Found top-level insurance entries:', inspectionData.insuranceEntries.length);
+              insuranceEntries = inspectionData.insuranceEntries;
+            } else if (inspectionData.warehouseInspectionData?.insuranceEntries && Array.isArray(inspectionData.warehouseInspectionData.insuranceEntries)) {
+              console.log('Found nested insurance entries:', inspectionData.warehouseInspectionData.insuranceEntries.length);
+              insuranceEntries = inspectionData.warehouseInspectionData.insuranceEntries;
+            } else if (inspectionData.warehouseInspectionData) {
+              // Legacy format - convert to new format
+              const legacyData = inspectionData.warehouseInspectionData;
+              if (legacyData.firePolicyNumber || legacyData.burglaryPolicyNumber) {
+                console.log('Found legacy insurance format, converting to new format');
+                insuranceEntries = [{
+                  id: `legacy_${Date.now()}`,
+                  insuranceTakenBy: legacyData.insuranceTakenBy || '',
+                  insuranceCommodity: legacyData.insuranceCommodity || '',
+                  clientName: legacyData.clientName || '',
+                  clientAddress: legacyData.clientAddress || '',
+                  selectedBankName: legacyData.selectedBankName || '',
+                  firePolicyCompanyName: legacyData.firePolicyCompanyName || '',
+                  firePolicyNumber: legacyData.firePolicyNumber || '',
+                  firePolicyAmount: legacyData.firePolicyAmount || '',
+                  firePolicyStartDate: legacyData.firePolicyStartDate || null,
+                  firePolicyEndDate: legacyData.firePolicyEndDate || null,
+                  burglaryPolicyCompanyName: legacyData.burglaryPolicyCompanyName || '',
+                  burglaryPolicyNumber: legacyData.burglaryPolicyNumber || '',
+                  burglaryPolicyAmount: legacyData.burglaryPolicyAmount || '',
+                  burglaryPolicyStartDate: legacyData.burglaryPolicyStartDate || null,
+                  burglaryPolicyEndDate: legacyData.burglaryPolicyEndDate || null,
+                  createdAt: new Date(legacyData.createdAt || Date.now())
+                }];
+              }
+            }
           }
         }
         
-        console.log('Insurance entries fetched from inspection:', insuranceEntries);
+        console.log('✅ SR/WR: Insurance entries loaded:', insuranceEntries.length, insuranceEntries);
         setInspectionInsuranceData(insuranceEntries);
       } else {
-        console.log('No inspection found for warehouse:', row.warehouseName);
+        console.log('⚠️ SR/WR: Missing warehouse location data, cannot fetch insurance');
         setInspectionInsuranceData([]);
       }
     } catch (error) {
-      console.error('Error fetching insurance data from inspection:', error);
+      console.error('❌ SR/WR: Error fetching insurance data:', error);
       setInspectionInsuranceData([]);
     }
   };
@@ -4637,26 +5051,66 @@ export default function InwardPage() {
     setCIRReadOnly(true);
     setShowCIRModal(true);
 
-    // Fetch insurance entries from inspection collection for the selected warehouse
-    let inspectionInsuranceEntries = [];
-    if (row.warehouseName) {
-      const inspectionsCollection = collection(db, 'inspections');
-      const q = query(inspectionsCollection, where('warehouseName', '==', row.warehouseName));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        const inspectionData = querySnapshot.docs[0].data();
-        if (inspectionData.insuranceEntries && Array.isArray(inspectionData.insuranceEntries)) {
-          inspectionInsuranceEntries = inspectionData.insuranceEntries;
-        } else if (inspectionData.warehouseInspectionData?.insuranceEntries && Array.isArray(inspectionData.warehouseInspectionData.insuranceEntries)) {
-          inspectionInsuranceEntries = inspectionData.warehouseInspectionData.insuranceEntries;
+    // Fetch insurance entries from insurance master collection (single source of truth)
+    let insuranceEntries = [];
+    if (row.warehouseName && row.state && row.branch && row.location) {
+      console.log('🔍 CIR: Fetching insurance from master collection for:', row.warehouseName);
+      
+      // First check insurance master collection
+      const insuranceMasterCollection = collection(db, 'insurance');
+      const masterQuery = query(
+        insuranceMasterCollection,
+        where('warehouseName', '==', row.warehouseName),
+        where('state', '==', row.state),
+        where('branch', '==', row.branch),
+        where('location', '==', row.location)
+      );
+      
+      const masterSnapshot = await getDocs(masterQuery);
+      if (!masterSnapshot.empty) {
+        console.log('✅ CIR: Found insurance in master collection:', masterSnapshot.docs.length);
+        insuranceEntries = masterSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            insuranceId: data.insuranceCode || doc.id,
+            insuranceTakenBy: data.insuranceType || 'client',
+            firePolicyEndDate: data.firePolicyEndDate,
+            burglaryPolicyEndDate: data.burglaryPolicyEndDate,
+            firePolicyAmount: data.firePolicyAmount,
+            burglaryPolicyAmount: data.burglaryPolicyAmount,
+            firePolicyRemainingAmount: data.firePolicyRemainingAmount,
+            burglaryPolicyRemainingAmount: data.burglaryPolicyRemainingAmount,
+            firePolicyCompanyName: data.firePolicyCompanyName,
+            burglaryPolicyCompanyName: data.burglaryPolicyCompanyName,
+            firePolicyNumber: data.firePolicyNumber,
+            burglaryPolicyNumber: data.burglaryPolicyNumber,
+            firePolicyStartDate: data.firePolicyStartDate,
+            burglaryPolicyStartDate: data.burglaryPolicyStartDate,
+            commodityName: data.commodityName,
+            clientName: data.clientName
+          };
+        });
+      } else {
+        console.log('⚠️ CIR: No insurance in master, checking inspections as fallback...');
+        // Fallback to inspections collection
+        const inspectionsCollection = collection(db, 'inspections');
+        const q = query(inspectionsCollection, where('warehouseName', '==', row.warehouseName));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          const inspectionData = querySnapshot.docs[0].data();
+          if (inspectionData.insuranceEntries && Array.isArray(inspectionData.insuranceEntries)) {
+            insuranceEntries = inspectionData.insuranceEntries;
+          } else if (inspectionData.warehouseInspectionData?.insuranceEntries && Array.isArray(inspectionData.warehouseInspectionData.insuranceEntries)) {
+            insuranceEntries = inspectionData.warehouseInspectionData.insuranceEntries;
+          }
         }
       }
     }
 
-    // Find the correct insurance entry
+    // Find the correct insurance entry from master collection
     let yourInsurance = null;
-    if (row.selectedInsurance && inspectionInsuranceEntries.length > 0) {
-      yourInsurance = inspectionInsuranceEntries.find(
+    if (row.selectedInsurance && insuranceEntries.length > 0) {
+      yourInsurance = insuranceEntries.find(
         (ins: any) =>
           ins.insuranceId === row.selectedInsurance.insuranceId &&
           ins.insuranceTakenBy === row.selectedInsurance.insuranceTakenBy
@@ -4712,57 +5166,90 @@ export default function InwardPage() {
     patchFields.dateOfTesting = row.dateOfTesting || '';
     patchFields.labResults = row.labResults || [];
 
-    // Set CIR modal data with all required fields
+    // Set CIR modal data with all required fields including insurance data
     setCIRModalData({
       ...row,
       ...patchFields,
       yourInsurance,
       inwardEntries,
       labParameterNames,
+      insuranceEntries, // Add insurance data from master collection
     });
     setCIRRemarks(row.remarks || ''); // <-- Set remarks from row if present
   };
 
   const handleCIRApprove = async () => {
     if (cirModalData) {
-      // Update cirStatus in Firestore
-      const inwardCollection = collection(db, 'inward');
-      const q = query(inwardCollection, where('inwardId', '==', cirModalData.inwardId));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        const docRef = doc(db, 'inward', querySnapshot.docs[0].id);
-        await updateDoc(docRef, { cirStatus: 'Approved', remarks: cirRemarks });
+      try {
+        console.log('🔄 CIR: Approving entry with ID:', cirModalData.inwardId);
+        // Update cirStatus in Firestore
+        const inwardCollection = collection(db, 'inward');
+        const q = query(inwardCollection, where('inwardId', '==', cirModalData.inwardId));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          const docRef = doc(db, 'inward', querySnapshot.docs[0].id);
+          await updateDoc(docRef, { cirStatus: 'Approved', remarks: cirRemarks });
+          console.log('✅ CIR: Successfully approved entry');
+          
+          // Refresh the data to show updated status
+          await fetchData();
+          console.log('✅ CIR: Data refreshed after approval');
+        } else {
+          console.error('❌ CIR: No document found with inwardId:', cirModalData.inwardId);
+        }
+        setShowCIRModal(false);
+      } catch (error) {
+        console.error('❌ CIR: Error approving entry:', error);
       }
-      setShowCIRModal(false);
-      // Optionally trigger a re-fetch or state update
     }
   };
 
   const handleCIRReject = async () => {
     if (cirModalData) {
-      const inwardCollection = collection(db, 'inward');
-      const q = query(inwardCollection, where('inwardId', '==', cirModalData.inwardId));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        const docRef = doc(db, 'inward', querySnapshot.docs[0].id);
-        await updateDoc(docRef, { cirStatus: 'Rejected', remarks: cirRemarks });
+      try {
+        console.log('🔄 CIR: Rejecting entry with ID:', cirModalData.inwardId);
+        const inwardCollection = collection(db, 'inward');
+        const q = query(inwardCollection, where('inwardId', '==', cirModalData.inwardId));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          const docRef = doc(db, 'inward', querySnapshot.docs[0].id);
+          await updateDoc(docRef, { cirStatus: 'Rejected', remarks: cirRemarks });
+          console.log('✅ CIR: Successfully rejected entry');
+          
+          // Refresh the data to show updated status
+          await fetchData();
+          console.log('✅ CIR: Data refreshed after rejection');
+        }
+        setShowCIRModal(false);
+      } catch (error) {
+        console.error('❌ CIR: Error rejecting entry:', error);
       }
-      setShowCIRModal(false);
     }
   };
 
   const handleCIRResubmit = async () => {
     if (cirModalData) {
-      const inwardCollection = collection(db, 'inward');
-      const q = query(inwardCollection, where('inwardId', '==', cirModalData.inwardId));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        const docRef = doc(db, 'inward', querySnapshot.docs[0].id);
-        await updateDoc(docRef, { cirStatus: 'Resubmitted', remarks: cirRemarks });
+      try {
+        console.log('🔄 CIR: Resubmitting entry with ID:', cirModalData.inwardId);
+        const inwardCollection = collection(db, 'inward');
+        const q = query(inwardCollection, where('inwardId', '==', cirModalData.inwardId));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          const docRef = doc(db, 'inward', querySnapshot.docs[0].id);
+          await updateDoc(docRef, { cirStatus: 'Resubmitted', remarks: cirRemarks });
+          console.log('✅ CIR: Successfully resubmitted entry');
+          
+          // Refresh the data to show updated status
+          await fetchData();
+          console.log('✅ CIR: Data refreshed after resubmission');
+        }
+        setShowCIRModal(false);
+        
+        // Open edit inward modal for this entry
+        handleEdit(cirModalData);
+      } catch (error) {
+        console.error('❌ CIR: Error resubmitting entry:', error);
       }
-      setShowCIRModal(false);
-      // Open edit inward modal for this entry
-      handleEdit(cirModalData);
     }
   };
 
@@ -4985,60 +5472,74 @@ export default function InwardPage() {
             </div>
           )}
           {/* Add more fields as needed, following the Add/Edit Inward modal structure */}
-          {/* Your Insurance Section */}
-          {cirModalData?.yourInsurance && (
+          {/* Insurance Section - From Master Collection */}
+          {cirModalData?.insuranceEntries && Array.isArray(cirModalData.insuranceEntries) && cirModalData.insuranceEntries.length > 0 && (
             <div className="border-t pt-6 mb-6">
-              <h3 className="text-xl font-semibold mb-4 text-blue-700">Your Insurance</h3>
-              <div className="border border-blue-200 rounded-lg p-6 bg-blue-50">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-lg font-medium text-blue-700">Insurance ID: {cirModalData.yourInsurance.insuranceId}</h4>
-                  <div className="text-sm text-blue-600 font-medium">
-                    {cirModalData.yourInsurance.insuranceTakenBy} - {cirModalData.yourInsurance.insuranceCommodity}
+              <h3 className="text-xl font-semibold mb-4 text-blue-700">Insurance Details</h3>
+              {cirModalData.insuranceEntries.map((insurance: any, index: number) => (
+                <div key={index} className="border border-blue-200 rounded-lg p-6 bg-blue-50 mb-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-lg font-medium text-blue-700">Insurance ID: {insurance.insuranceId}</h4>
+                    <div className="text-sm text-blue-600 font-medium">
+                      {insurance.insuranceTakenBy} - {insurance.commodityName}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <Label className="block font-semibold mb-1">Insurance Taken By</Label>
+                      <Input value={insurance.insuranceTakenBy || ''} readOnly />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Commodity</Label>
+                      <Input value={insurance.commodityName || ''} readOnly />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Client Name</Label>
+                      <Input value={insurance.clientName || ''} readOnly />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Fire Policy Number</Label>
+                      <Input value={insurance.firePolicyNumber || ''} readOnly />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Fire Policy Amount (Original)</Label>
+                      <Input value={formatAmount(insurance.firePolicyAmount)} readOnly />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Fire Policy Remaining Amount</Label>
+                      <Input value={formatAmount(insurance.firePolicyRemainingAmount)} readOnly className="bg-green-50" />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Fire Policy Start Date</Label>
+                      <Input value={normalizeDate(insurance.firePolicyStartDate)} readOnly />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Fire Policy End Date</Label>
+                      <Input value={normalizeDate(insurance.firePolicyEndDate)} readOnly />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Burglary Policy Number</Label>
+                      <Input value={insurance.burglaryPolicyNumber || ''} readOnly />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Burglary Policy Amount (Original)</Label>
+                      <Input value={formatAmount(insurance.burglaryPolicyAmount)} readOnly />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Burglary Policy Remaining Amount</Label>
+                      <Input value={formatAmount(insurance.burglaryPolicyRemainingAmount)} readOnly className="bg-green-50" />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Burglary Policy Start Date</Label>
+                      <Input value={normalizeDate(insurance.burglaryPolicyStartDate)} readOnly />
+                    </div>
+                    <div>
+                      <Label className="block font-semibold mb-1">Burglary Policy End Date</Label>
+                      <Input value={normalizeDate(insurance.burglaryPolicyEndDate)} readOnly />
+                    </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <Label className="block font-semibold mb-1">Insurance Taken By</Label>
-                    <Input value={cirModalData.yourInsurance.insuranceTakenBy || ''} readOnly />
-                  </div>
-                  <div>
-                    <Label className="block font-semibold mb-1">Commodity</Label>
-                    <Input value={cirModalData.yourInsurance.insuranceCommodity || ''} readOnly />
-                  </div>
-                  <div>
-                    <Label className="block font-semibold mb-1">Fire Policy Number</Label>
-                    <Input value={cirModalData.yourInsurance.firePolicyNumber || ''} readOnly />
-                  </div>
-                  <div>
-                    <Label className="block font-semibold mb-1">Fire Policy Amount</Label>
-                    <Input value={formatAmount(cirModalData.yourInsurance.firePolicyAmount)} readOnly />
-                  </div>
-                  <div>
-                    <Label className="block font-semibold mb-1">Fire Policy Start Date</Label>
-                    <Input value={normalizeDate(cirModalData.yourInsurance.firePolicyStartDate)} readOnly />
-                  </div>
-                  <div>
-                    <Label className="block font-semibold mb-1">Fire Policy End Date</Label>
-                    <Input value={normalizeDate(cirModalData.yourInsurance.firePolicyEndDate)} readOnly />
-                  </div>
-                  <div>
-                    <Label className="block font-semibold mb-1">Burglary Policy Number</Label>
-                    <Input value={cirModalData.yourInsurance.burglaryPolicyNumber || ''} readOnly />
-                  </div>
-                  <div>
-                    <Label className="block font-semibold mb-1">Burglary Policy Amount</Label>
-                    <Input value={formatAmount(cirModalData.yourInsurance.burglaryPolicyAmount)} readOnly />
-                  </div>
-                  <div>
-                    <Label className="block font-semibold mb-1">Burglary Policy Start Date</Label>
-                    <Input value={normalizeDate(cirModalData.yourInsurance.burglaryPolicyStartDate)} readOnly />
-                  </div>
-                  <div>
-                    <Label className="block font-semibold mb-1">Burglary Policy End Date</Label>
-                    <Input value={normalizeDate(cirModalData.yourInsurance.burglaryPolicyEndDate)} readOnly />
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
           )}
           {/* Saved Inward Entries Section */}
@@ -5541,12 +6042,19 @@ export default function InwardPage() {
                   if (warehouseName && form.client) {
                     fetchAvailableReservations(warehouseName, form.client);
                   }
+                  
+                  const selectedWarehouse = filteredWarehouses.find((w: any) => w.warehouseName === warehouseName);
+                  
                   setBaseForm(f => ({ 
                     ...f, 
                     warehouseName: warehouseName,
-                    warehouseCode: '',
-                    warehouseAddress: '',
-                    businessType: '',
+                    warehouseCode: selectedWarehouse?.warehouseCode || '',
+                    warehouseAddress: selectedWarehouse?.warehouseInspectionData?.address || selectedWarehouse?.warehouseAddress || '',
+                    businessType: selectedWarehouse?.businessType || '',
+                    bankName: selectedWarehouse?.bankName || '',
+                    bankBranch: selectedWarehouse?.bankBranch || '',
+                    bankState: selectedWarehouse?.bankState || '',
+                    ifscCode: selectedWarehouse?.ifscCode || '',
                     // Clear insurance data when warehouse changes
                     insuranceManagedBy: '',
                     firePolicyNumber: '',
@@ -5563,105 +6071,15 @@ export default function InwardPage() {
                     selectedInsurance: null,
                   }));
                   
-                  // Reset insurance type and selection when warehouse changes
+                  // Reset insurance selections
                   setSelectedInsuranceType('all');
                   setSelectedInsuranceIndex(null);
                   setSelectedInsuranceInfoType('');
                   setSelectedInsuranceInfoIndex(null);
+                  setInsuranceEntries([]);
                   
-                  const selectedWarehouse = filteredWarehouses.find((w: any) => w.warehouseName === warehouseName);
-                    if (selectedWarehouse) {
-                      setBaseForm(f => ({
-                        ...f,
-                        warehouseCode: selectedWarehouse.warehouseCode || '',
-                        warehouseAddress: selectedWarehouse.warehouseInspectionData?.address || selectedWarehouse.warehouseAddress || '',
-                        businessType: selectedWarehouse.businessType || '',
-                        // Auto-fill bank information from inspection
-                        bankName: selectedWarehouse.bankName || '',
-                        bankBranch: selectedWarehouse.bankBranch || '',
-                        bankState: selectedWarehouse.bankState || '',
-                        ifscCode: selectedWarehouse.ifscCode || ''
-                      }));
-                      
-                      // Fetch insurance entries from inspection module
-                    let insuranceEntries: any[] = [];
-                    
-                    // First check if insurance data is already loaded with the warehouse
-                    if (selectedWarehouse.insuranceEntries && selectedWarehouse.insuranceEntries.length > 0) {
-                      insuranceEntries = selectedWarehouse.insuranceEntries;
-                      console.log('Insurance entries from loaded warehouse data:', insuranceEntries);
-                    } else {
-                      // If not loaded, fetch from inspection collection
-                      try {
-                        const inspectionsCollection = collection(db, 'inspections');
-                        const q = query(inspectionsCollection, where('warehouseName', '==', warehouseName));
-                        const querySnapshot = await getDocs(q);
-                        
-                        if (!querySnapshot.empty) {
-                          const inspectionData = querySnapshot.docs[0].data();
-                          
-                          // Check multiple possible locations for insurance data
-                          if (inspectionData.insuranceEntries && Array.isArray(inspectionData.insuranceEntries)) {
-                            console.log('Found top-level insurance entries:', inspectionData.insuranceEntries.length);
-                            insuranceEntries = inspectionData.insuranceEntries;
-                          } else if (inspectionData.warehouseInspectionData?.insuranceEntries && Array.isArray(inspectionData.warehouseInspectionData.insuranceEntries)) {
-                            console.log('Found nested insurance entries:', inspectionData.warehouseInspectionData.insuranceEntries.length);
-                            insuranceEntries = inspectionData.warehouseInspectionData.insuranceEntries;
-                          } else if (inspectionData.warehouseInspectionData) {
-                            // Legacy format - convert to new format
-                            const legacyData = inspectionData.warehouseInspectionData;
-                            if (legacyData.firePolicyNumber || legacyData.burglaryPolicyNumber) {
-                              console.log('Found legacy insurance format, converting to new format');
-                              insuranceEntries = [{
-                                id: `legacy_${Date.now()}`,
-                                insuranceTakenBy: legacyData.insuranceTakenBy || '',
-                                insuranceCommodity: legacyData.insuranceCommodity || '',
-                                clientName: legacyData.clientName || '',
-                                clientAddress: legacyData.clientAddress || '',
-                                selectedBankName: legacyData.selectedBankName || '',
-                                firePolicyCompanyName: legacyData.firePolicyCompanyName || '',
-                                firePolicyNumber: legacyData.firePolicyNumber || '',
-                                firePolicyAmount: legacyData.firePolicyAmount || '',
-                                firePolicyStartDate: legacyData.firePolicyStartDate || null,
-                                firePolicyEndDate: legacyData.firePolicyEndDate || null,
-                                burglaryPolicyCompanyName: legacyData.burglaryPolicyCompanyName || '',
-                                burglaryPolicyNumber: legacyData.burglaryPolicyNumber || '',
-                                burglaryPolicyAmount: legacyData.burglaryPolicyAmount || '',
-                                burglaryPolicyStartDate: legacyData.burglaryPolicyStartDate || null,
-                                burglaryPolicyEndDate: legacyData.burglaryPolicyEndDate || null,
-                                createdAt: new Date(legacyData.createdAt || Date.now())
-                              }];
-                            }
-                          }
-                        }
-                      } catch (error) {
-                        console.error('Error fetching insurance data from inspection:', error);
-                      }
-                    }
-                    
-                    // Debug insurance entries before setting
-                    console.log('=== INSURANCE ENTRIES DEBUG ===');
-                    console.log('Warehouse:', warehouseName);
-                    console.log('Insurance entries count:', insuranceEntries.length);
-                    insuranceEntries.forEach((entry: any, index: number) => {
-                      console.log(`Entry ${index + 1}:`, {
-                        id: entry.id,
-                        insuranceId: entry.insuranceId,
-                        firePolicyAmount: entry.firePolicyAmount,
-                        firePolicyAmountType: typeof entry.firePolicyAmount,
-                        burglaryPolicyAmount: entry.burglaryPolicyAmount,
-                        burglaryPolicyAmountType: typeof entry.burglaryPolicyAmount,
-                        firePolicyNumber: entry.firePolicyNumber,
-                        burglaryPolicyNumber: entry.burglaryPolicyNumber
-                      });
-                    });
-                    console.log('=== END INSURANCE ENTRIES DEBUG ===');
-                    
-                    setInsuranceEntries(insuranceEntries);
-                    console.log('Insurance entries set for warehouse:', warehouseName, insuranceEntries);
-                  } else {
-                    setInsuranceEntries([]);
-                  }
+                  console.log('✅ Warehouse selected:', warehouseName);
+                  console.log('� Insurance will be fetched when commodity is selected');
                 }} disabled={!form.location}>
                   <SelectTrigger><SelectValue placeholder="Select Warehouse" /></SelectTrigger>
                   <SelectContent>
@@ -5842,6 +6260,21 @@ export default function InwardPage() {
                     placeholder="Auto-calculated"
                     className="bg-gray-50"
                 />
+                  {/* Insurance Deduction Preview */}
+                  {baseForm.totalValue && parseFloat(baseForm.totalValue) > 0 && insuranceEntries.length > 0 && (
+                    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="h-4 w-4 text-blue-600" />
+                        <span className="text-sm font-semibold text-blue-800">Insurance Deduction Preview</span>
+                      </div>
+                      <div className="text-xs text-blue-700 space-y-1">
+                        <div>💰 Amount to be deducted: <span className="font-semibold">₹{parseFloat(baseForm.totalValue).toLocaleString()}</span></div>
+                        <div>🔥 Fire Policy: <span className="font-semibold">₹{parseFloat(baseForm.totalValue).toLocaleString()}</span> will be deducted</div>
+                        <div>🛡️ Burglary Policy: <span className="font-semibold">₹{parseFloat(baseForm.totalValue).toLocaleString()}</span> will be deducted</div>
+                        <div className="text-blue-600 italic">Note: This amount will be deducted from both policies when you submit the form.</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -5991,6 +6424,29 @@ export default function InwardPage() {
             {!isEditMode && insuranceEntries.length > 0 && (
               <div className="border-t pt-6">
                 <h3 className="text-xl font-semibold mb-6 text-orange-700">Insurance Information (From Inspection Module)</h3>
+                
+                {/* Insurance Summary */}
+                {insuranceEntries.length > 0 && (
+                  <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <h4 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
+                      <Lightbulb className="h-4 w-4" />
+                      Insurance Coverage Summary
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      {insuranceEntries.map((entry, index) => (
+                        <div key={index} className="space-y-2">
+                          <div className="font-medium text-green-700">
+                            {entry.insuranceTakenBy} Insurance
+                          </div>
+                          <div className="space-y-1 text-green-600">
+                            <div>🔥 Fire Policy: ₹{parseFloat(entry.remainingFirePolicyAmount || entry.firePolicyAmount || '0').toLocaleString()} remaining</div>
+                            <div>🛡️ Burglary Policy: ₹{parseFloat(entry.remainingBurglaryPolicyAmount || entry.burglaryPolicyAmount || '0').toLocaleString()} remaining</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 
                                 {/* Insurance Type Selection for Information */}
                 <div className="mb-6">
@@ -6246,7 +6702,14 @@ export default function InwardPage() {
 
 
 
-            {form.commodity && insuranceEntries.length === 0 && (
+            {(() => {
+              console.log('🚨 INSURANCE CHECK DEBUG:');
+              console.log('form.commodity:', form.commodity);
+              console.log('insuranceEntries:', insuranceEntries);
+              console.log('insuranceEntries.length:', insuranceEntries.length);
+              console.log('Should show "No insurance data found" message:', !!(form.commodity && insuranceEntries.length === 0));
+              return form.commodity && insuranceEntries.length === 0;
+            })() && (
               <div className="border-t pt-4">
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <p className="text-yellow-800 text-sm">
@@ -7148,39 +7611,79 @@ export default function InwardPage() {
                 
                 <div>
                   <Label className="font-semibold">Validity Start Date</Label>
-                  <Input value={srGenerationDate || selectedRowForSR.srGenerationDate || ''} readOnly placeholder="Auto-set on Approve" />
+                  <Input 
+                    value={(() => {
+                      // Use SR Generation Date if available, otherwise use current date
+                      const startDate = srGenerationDate || selectedRowForSR?.srGenerationDate;
+                      if (startDate) {
+                        return startDate;
+                      }
+                      // If no SR generation date, use today's date
+                      return new Date().toISOString().slice(0, 10);
+                    })()}
+                    readOnly 
+                    placeholder="Auto-calculated"
+                  />
                 </div>
                 <div>
                   <Label className="font-semibold">Validity End Date</Label>
                   <Input
                     value={(() => {
+                      console.log('🔍 Calculating Validity End Date...');
+                      console.log('Selected Row Insurance:', selectedRowForSR?.selectedInsurance);
+                      console.log('Available Insurance Data:', inspectionInsuranceData);
+                      
                       // Find insurance match
                       let insurance = null;
-                      if (selectedRowForSR?.selectedInsurance && inspectionInsuranceData.length) {
-                        insurance = inspectionInsuranceData.find(
-                          (ins: any) =>
-                            ins.insuranceId === selectedRowForSR.selectedInsurance.insuranceId &&
-                            ins.insuranceTakenBy === selectedRowForSR.selectedInsurance.insuranceTakenBy
-                        );
-                      }
-                      // If insurance taken by bank, 9 months after WR Generation Date
-                      if (insurance && insurance.insuranceTakenBy === 'bank') {
-                        if (selectedRowForSR.srGenerationDate) {
-                          const start = new Date(selectedRowForSR.srGenerationDate);
-                          start.setMonth(start.getMonth() + 9);
-                          return start.toISOString().slice(0, 10);
+                      
+                      // If no selected insurance but have insurance data, use the first one
+                      if (inspectionInsuranceData && inspectionInsuranceData.length > 0) {
+                        if (selectedRowForSR?.selectedInsurance) {
+                          insurance = inspectionInsuranceData.find(
+                            (ins: any) =>
+                              ins.insuranceId === selectedRowForSR.selectedInsurance.insuranceId &&
+                              ins.insuranceTakenBy === selectedRowForSR.selectedInsurance.insuranceTakenBy
+                          );
                         }
-                        return '';
+                        
+                        // Fallback to first insurance if no match found
+                        if (!insurance) {
+                          insurance = inspectionInsuranceData[0];
+                          console.log('🔄 Using first available insurance:', insurance);
+                        }
                       }
-                      // Otherwise, use fire policy end date
-                      if (insurance && insurance.firePolicyEndDate) {
-                        return normalizeDate(insurance.firePolicyEndDate);
+                      
+                      if (insurance) {
+                        console.log('✅ Found insurance:', insurance.insuranceTakenBy, insurance.firePolicyEndDate);
+                        
+                        // If insurance taken by bank, Fire Policy End Date + 9 months
+                        if (insurance.insuranceTakenBy === 'bank') {
+                          if (insurance.firePolicyEndDate) {
+                            const fireEndDate = new Date(insurance.firePolicyEndDate);
+                            fireEndDate.setMonth(fireEndDate.getMonth() + 9);
+                            const result = fireEndDate.toISOString().slice(0, 10);
+                            console.log('🏦 Bank insurance: Fire end date + 9 months =', result);
+                            return result;
+                          }
+                        } else {
+                          // For all other insurance types, use fire policy end date
+                          if (insurance.firePolicyEndDate) {
+                            const result = normalizeDate(insurance.firePolicyEndDate);
+                            console.log('🏢 Other insurance: Fire end date =', result);
+                            return result;
+                          }
+                        }
                       }
-                      // Fallback: empty
-                      return '';
+                      
+                      console.log('⚠️ No valid insurance or date found, using fallback');
+                      // Fallback: use start date + 6 months if no insurance found
+                      const startDate = srGenerationDate || selectedRowForSR?.srGenerationDate || new Date().toISOString().slice(0, 10);
+                      const fallbackDate = new Date(startDate);
+                      fallbackDate.setMonth(fallbackDate.getMonth() + 6);
+                      return fallbackDate.toISOString().slice(0, 10);
                     })()}
                     readOnly
-                    placeholder="Auto-set on Approve"
+                    placeholder="Auto-calculated"
                   />
                 </div>
               </div>
@@ -7843,60 +8346,74 @@ export default function InwardPage() {
                 </div>
               )}
               {/* Add more fields as needed, following the Add/Edit Inward modal structure */}
-              {/* Your Insurance Section */}
-              {cirModalData?.yourInsurance && (
+              {/* Insurance Section - From Master Collection */}
+              {cirModalData?.insuranceEntries && Array.isArray(cirModalData.insuranceEntries) && cirModalData.insuranceEntries.length > 0 && (
                 <div className="border-t pt-6 mb-6">
-                  <h3 className="text-xl font-semibold mb-4 text-blue-700">Your Insurance</h3>
-                  <div className="border border-blue-200 rounded-lg p-6 bg-blue-50">
-                    <div className="flex items-center justify-between mb-4">
-                      {/* <h4 className="text-lg font-medium text-blue-700">Insurance ID: {cirModalData.yourInsurance.insuranceId}</h4> */}
-                      {/* <div className="text-sm text-blue-600 font-medium">
-                        {cirModalData.yourInsurance.insuranceTakenBy} - {cirModalData.yourInsurance.insuranceCommodity}
-                      </div> */}
+                  <h3 className="text-xl font-semibold mb-4 text-blue-700">Insurance Details</h3>
+                  {cirModalData.insuranceEntries.map((insurance: any, index: number) => (
+                    <div key={index} className="border border-blue-200 rounded-lg p-6 bg-blue-50 mb-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-lg font-medium text-blue-700">Insurance ID: {insurance.insuranceId}</h4>
+                        <div className="text-sm text-blue-600 font-medium">
+                          {insurance.insuranceTakenBy} - {insurance.commodityName}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <Label className="block font-semibold mb-1">Insurance Taken By</Label>
+                          <Input value={insurance.insuranceTakenBy || ''} readOnly />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Commodity</Label>
+                          <Input value={insurance.commodityName || ''} readOnly />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Client Name</Label>
+                          <Input value={insurance.clientName || ''} readOnly />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Fire Policy Number</Label>
+                          <Input value={insurance.firePolicyNumber || ''} readOnly />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Fire Policy Amount (Original)</Label>
+                          <Input value={formatAmount(insurance.firePolicyAmount)} readOnly />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Fire Policy Remaining Amount</Label>
+                          <Input value={formatAmount(insurance.firePolicyRemainingAmount)} readOnly className="bg-green-50" />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Fire Policy Start Date</Label>
+                          <Input value={normalizeDate(insurance.firePolicyStartDate)} readOnly />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Fire Policy End Date</Label>
+                          <Input value={normalizeDate(insurance.firePolicyEndDate)} readOnly />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Burglary Policy Number</Label>
+                          <Input value={insurance.burglaryPolicyNumber || ''} readOnly />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Burglary Policy Amount (Original)</Label>
+                          <Input value={formatAmount(insurance.burglaryPolicyAmount)} readOnly />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Burglary Policy Remaining Amount</Label>
+                          <Input value={formatAmount(insurance.burglaryPolicyRemainingAmount)} readOnly className="bg-green-50" />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Burglary Policy Start Date</Label>
+                          <Input value={normalizeDate(insurance.burglaryPolicyStartDate)} readOnly />
+                        </div>
+                        <div>
+                          <Label className="block font-semibold mb-1">Burglary Policy End Date</Label>
+                          <Input value={normalizeDate(insurance.burglaryPolicyEndDate)} readOnly />
+                        </div>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                      <div>
-                        <Label className="block font-semibold mb-1">Insurance Taken By</Label>
-                        <Input value={cirModalData.yourInsurance.insuranceTakenBy || ''} readOnly />
-                      </div>
-                      <div>
-                        <Label className="block font-semibold mb-1">Commodity</Label>
-                        <Input value={cirModalData.yourInsurance.insuranceCommodity || ''} readOnly />
-                      </div>
-                      <div>
-                        <Label className="block font-semibold mb-1">Fire Policy Number</Label>
-                        <Input value={cirModalData.yourInsurance.firePolicyNumber || ''} readOnly />
-                      </div>
-                      <div>
-                        <Label className="block font-semibold mb-1">Fire Policy Amount</Label>
-                        <Input value={formatAmount(cirModalData.yourInsurance.firePolicyAmount)} readOnly />
-                      </div>
-                      <div>
-                        <Label className="block font-semibold mb-1">Fire Policy Start Date</Label>
-                        <Input value={normalizeDate(cirModalData.yourInsurance.firePolicyStartDate)} readOnly />
-                      </div>
-                      <div>
-                        <Label className="block font-semibold mb-1">Fire Policy End Date</Label>
-                        <Input value={normalizeDate(cirModalData.yourInsurance.firePolicyEndDate)} readOnly />
-                      </div>
-                      <div>
-                        <Label className="block font-semibold mb-1">Burglary Policy Number</Label>
-                        <Input value={cirModalData.yourInsurance.burglaryPolicyNumber || ''} readOnly />
-                      </div>
-                      <div>
-                        <Label className="block font-semibold mb-1">Burglary Policy Amount</Label>
-                        <Input value={formatAmount(cirModalData.yourInsurance.burglaryPolicyAmount)} readOnly />
-                      </div>
-                      <div>
-                        <Label className="block font-semibold mb-1">Burglary Policy Start Date</Label>
-                        <Input value={normalizeDate(cirModalData.yourInsurance.burglaryPolicyStartDate)} readOnly />
-                      </div>
-                      <div>
-                        <Label className="block font-semibold mb-1">Burglary Policy End Date</Label>
-                        <Input value={normalizeDate(cirModalData.yourInsurance.burglaryPolicyEndDate)} readOnly />
-                      </div>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               )}
               {/* Saved Inward Entries Section */}
