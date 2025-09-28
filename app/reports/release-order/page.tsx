@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Download, Calendar, Filter, X, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { Search, Download, Calendar, Filter, X, ArrowLeft, Eye, EyeOff, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { db } from '@/lib/firebase';
@@ -62,6 +62,10 @@ export default function ReleaseOrderReportsPage() {
     'bankState', 'ifscCode', 'inwardBag', 'inwardQty', 'roNumber', 'roDate', 'roBags', 'roQty',
     'roCode', 'balanceBag', 'balanceQty'
   ]);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Column definitions for 25 columns matching the image parameters
   const allColumns = [
@@ -374,6 +378,11 @@ export default function ReleaseOrderReportsPage() {
     return Array.from(new Set(roData.map(item => item.status).filter(Boolean)));
   }, [roData]);
 
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, warehouseFilter, clientFilter, itemsPerPage]);
+
   // Filter data based on search and filters
   const filteredData = useMemo(() => {
     let filtered = roData;
@@ -411,6 +420,19 @@ export default function ReleaseOrderReportsPage() {
     
     return filtered;
   }, [roData, searchTerm, statusFilter, warehouseFilter, clientFilter]);
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = filteredData.slice(startIndex, endIndex);
+
+  // Pagination functions
+  const goToFirstPage = () => setCurrentPage(1);
+  const goToPreviousPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
+  const goToNextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
+  const goToLastPage = () => setCurrentPage(totalPages);
+  const goToPage = (page: number) => setCurrentPage(page);
 
   // Export filtered data to CSV
   const exportToCSV = () => {
@@ -770,8 +792,8 @@ export default function ReleaseOrderReportsPage() {
         {/* Results Summary */}
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-600">
-            Showing {filteredData.length} of {roData.length} records
-            {hasActiveFilters && ` (filtered)`}
+            Showing {startIndex + 1}-{Math.min(endIndex, filteredData.length)} of {filteredData.length} entries
+            {filteredData.length !== roData.length && ` (filtered from ${roData.length} total)`}
             {startDate && endDate && ` | Date Range: ${startDate} to ${endDate}`}
           </div>
           {hasActiveFilters && (
@@ -816,7 +838,7 @@ export default function ReleaseOrderReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredData.map((item) => (
+                  {paginatedData.map((item) => (
                     <tr key={item.id} className="hover:bg-gray-50">
                       {visibleColumns.includes('state') && (
                         <td className="border border-gray-200 px-4 py-2">
@@ -956,6 +978,77 @@ export default function ReleaseOrderReportsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Pagination Controls */}
+        {filteredData.length > 0 && (
+          <Card>
+            <CardContent className="flex items-center justify-between space-x-2 py-4">
+              <div className="flex items-center space-x-2">
+                <p className="text-sm font-medium">
+                  Page {currentPage} of {totalPages}
+                </p>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToFirstPage}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronsLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToPreviousPage}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                
+                {/* Page Numbers */}
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  const pageNumber = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
+                  if (pageNumber <= totalPages) {
+                    return (
+                      <Button
+                        key={pageNumber}
+                        variant={currentPage === pageNumber ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => goToPage(pageNumber)}
+                      >
+                        {pageNumber}
+                      </Button>
+                    );
+                  }
+                  return null;
+                })}
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToNextPage}
+                  disabled={currentPage === totalPages}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToLastPage}
+                  disabled={currentPage === totalPages}
+                >
+                  <ChevronsRight className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="text-sm text-gray-500">
+                {filteredData.length} total entries
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </DashboardLayout>
   );

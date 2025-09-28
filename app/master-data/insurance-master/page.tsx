@@ -30,7 +30,7 @@ interface InsuranceData {
   location: string;
   commodityName: string;
   varietyName: string;
-  insuranceType: 'bank-funded' | 'client' | 'agrogreen';
+  insuranceType: 'bank-funded' | 'client' | 'agrogreen' | 'warehouse-owner';
   clientName?: string;
   clientCode?: string;
   clientAddress?: string;
@@ -230,15 +230,18 @@ export default function InsuranceMasterPage() {
       accessorKey: "insuranceType",
       header: "Insurance Type",
       cell: ({ row }) => {
-        const type = row.getValue("insuranceType") as 'bank-funded' | 'client' | 'agrogreen';
+        const type = row.getValue("insuranceType") as 'bank-funded' | 'client' | 'agrogreen' | 'warehouse-owner';
         const colorMap: Record<string, string> = {
           'bank-funded': 'bg-blue-100 text-blue-800 border-blue-300',
           'client': 'bg-green-100 text-green-800 border-green-300',
-          'agrogreen': 'bg-orange-100 text-orange-800 border-orange-300'
+          'agrogreen': 'bg-orange-100 text-orange-800 border-orange-300',
+          'warehouse-owner': 'bg-purple-100 text-purple-800 border-purple-300'
         };
         return (
           <span className={`px-2 py-1 text-xs rounded-full border ${colorMap[type] || 'bg-gray-100 text-gray-800 border-gray-300'}`}>
-            {type === 'bank-funded' ? 'Bank Funded' : type.charAt(0).toUpperCase() + type.slice(1)}
+            {type === 'bank-funded' ? 'Bank Funded' : 
+             type === 'warehouse-owner' ? 'Warehouse Owner' : 
+             type.charAt(0).toUpperCase() + type.slice(1)}
           </span>
         );
       }
@@ -542,6 +545,7 @@ export default function InsuranceMasterPage() {
         'Commodity': insurance.commodityName,
         'Variety Name': insurance.varietyName,
         'Insurance Type': insurance.insuranceType === 'bank-funded' ? 'Bank Funded' : 
+                        insurance.insuranceType === 'warehouse-owner' ? 'Warehouse Owner' :
                         insurance.insuranceType.charAt(0).toUpperCase() + insurance.insuranceType.slice(1),
         'Client Name': insurance.clientName || '-',
         'Client Code': insurance.clientCode || '-',
@@ -892,13 +896,13 @@ export default function InsuranceMasterPage() {
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button
-              onClick={() => router.push('/dashboard')}
-              variant="outline"
-              className="border-orange-300 text-orange-600 hover:bg-orange-50"
-            >
-              ← Dashboard
-            </Button>
+            <Button 
+               onClick={() => router.push('/dashboard')} 
+                variant="ghost" 
+                className="flex items-center justify-center bg-orange-500 text-white hover:bg-orange-600 w-full lg:w-auto px-4 py-3"
+                >
+                ← Dashboard
+             </Button>
             <h1 className="text-3xl font-bold">Insurance Master Module</h1>
           </div>
           {/* Add Insurance button at top right corner */}
@@ -1029,6 +1033,7 @@ export default function InsuranceMasterPage() {
                       <SelectItem value="bank-funded">Bank Funded</SelectItem>
                       <SelectItem value="client">Client</SelectItem>
                       <SelectItem value="agrogreen">Agrogreen</SelectItem>
+                      <SelectItem value="warehouse-owner">Warehouse Owner</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1080,7 +1085,7 @@ export default function InsuranceMasterPage() {
 
               {/* Commodity Selection (Multiple selection support) */}
               <div className="space-y-4">
-                <Label className="text-green-600 font-medium text-lg">Commodity & Variety Selection (Multiple Selection Supported)</Label>
+                <Label className="text-green-600 font-medium text-lg">Commodity & Variety Selection </Label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-green-600 font-medium">Commodity <span className="text-red-500">*</span></Label>
@@ -1098,33 +1103,6 @@ export default function InsuranceMasterPage() {
                             {commodity.commodityName}
                           </SelectItem>
                         ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-green-600 font-medium">Variety <span className="text-red-500">*</span></Label>
-                    <Select
-                      value={formData.varietyName || ''}
-                      onValueChange={(value) => {
-                        handleInputChange('varietyName', value);
-                        if (formData.commodityName) {
-                          handleCommoditySelection(formData.commodityName, value);
-                        }
-                      }}
-                      required
-                    >
-                      <SelectTrigger className="border-orange-300 focus:border-orange-500">
-                        <SelectValue placeholder="Select variety" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {commodities
-                          .find(c => c.commodityName === formData.commodityName)
-                          ?.varieties?.map(variety => (
-                            <SelectItem key={variety.varietyId} value={variety.varietyName}>
-                              {variety.varietyName}
-                            </SelectItem>
-                          )) || []}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1222,7 +1200,8 @@ export default function InsuranceMasterPage() {
                 </div>
               )}
 
-              {/* Fire Policy Details */}
+              {/* Fire Policy Details - Hidden for Bank Funded */}
+              {formData.insuranceType !== 'bank-funded' && (
               <div className="space-y-4 border border-red-200 rounded-lg p-4 bg-red-50">
                 <h3 className="text-red-800 font-semibold text-lg">🔥 Fire Policy Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1284,8 +1263,10 @@ export default function InsuranceMasterPage() {
                   </div>
                 </div>
               </div>
+              )}
 
-              {/* Burglary Policy Details */}
+              {/* Burglary Policy Details - Hidden for Bank Funded */}
+              {formData.insuranceType !== 'bank-funded' && (
               <div className="space-y-4 border border-orange-200 rounded-lg p-4 bg-orange-50">
                 <h3 className="text-orange-800 font-semibold text-lg">🛡️ Burglary Policy Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1347,6 +1328,7 @@ export default function InsuranceMasterPage() {
                   </div>
                 </div>
               </div>
+              )}
 
               {/* Modal Footer */}
               <div className="flex justify-end space-x-4 pt-4 border-t">
@@ -1488,6 +1470,7 @@ export default function InsuranceMasterPage() {
                       <SelectItem value="bank-funded">Bank Funded</SelectItem>
                       <SelectItem value="client">Client</SelectItem>
                       <SelectItem value="agrogreen">Agrogreen</SelectItem>
+                      <SelectItem value="warehouse-owner">Warehouse Owner</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1558,7 +1541,8 @@ export default function InsuranceMasterPage() {
                 </div>
               </div>
 
-              {/* Fire Policy Details */}
+              {/* Fire Policy Details - Hidden for Bank Funded */}
+              {formData.insuranceType !== 'bank-funded' && (
               <div className="space-y-4 border border-red-200 rounded-lg p-4 bg-red-50">
                 <h3 className="text-red-800 font-semibold text-lg">🔥 New Fire Policy Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1620,8 +1604,10 @@ export default function InsuranceMasterPage() {
                   </div>
                 </div>
               </div>
+              )}
 
-              {/* Burglary Policy Details */}
+              {/* Burglary Policy Details - Hidden for Bank Funded */}
+              {formData.insuranceType !== 'bank-funded' && (
               <div className="space-y-4 border border-orange-200 rounded-lg p-4 bg-orange-50">
                 <h3 className="text-orange-800 font-semibold text-lg">🛡️ New Burglary Policy Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1683,6 +1669,7 @@ export default function InsuranceMasterPage() {
                   </div>
                 </div>
               </div>
+              )}
 
               <div className="flex justify-end space-x-4 pt-4 border-t">
                 <Button

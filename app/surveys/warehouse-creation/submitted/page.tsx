@@ -6,10 +6,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -337,6 +338,12 @@ export default function SubmittedWarehousePage() {
   const [selectedInspection, setSelectedInspection] = useState<InspectionData | null>(null);
   const [showInspectionForm, setShowInspectionForm] = useState(false);
   
+  // Resubmission dialog states
+  const [showResubmissionDialog, setShowResubmissionDialog] = useState(false);
+  const [resubmissionRemarks, setResubmissionRemarks] = useState('');
+  const [resubmissionInspection, setResubmissionInspection] = useState<InspectionData | null>(null);
+  const [isSubmittingResubmission, setIsSubmittingResubmission] = useState(false);
+  
   // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [stateFilter, setStateFilter] = useState('all-states');
@@ -499,12 +506,10 @@ export default function SubmittedWarehousePage() {
     };
 
     const handleResubmitWarehouse = (event: CustomEvent) => {
-      // TODO: Implement resubmission logic with remarks
-      console.log('Requesting resubmission for warehouse:', event.detail);
-      toast({
-        title: "Feature Coming Soon",
-        description: "Warehouse resubmission request with remarks will be implemented.",
-      });
+      const inspection = event.detail;
+      setResubmissionInspection(inspection);
+      setResubmissionRemarks('');
+      setShowResubmissionDialog(true);
     };
     
     window.addEventListener('inspectionDataUpdated', handleInspectionUpdate as EventListener);
@@ -679,6 +684,67 @@ export default function SubmittedWarehousePage() {
     window.dispatchEvent(new CustomEvent('inspectionDataUpdated', { 
       detail: { source: 'submitted-warehouse', action: 'statusChange' } 
     }));
+  };
+
+  // Handle the actual resubmission with remarks
+  const handleSubmitResubmission = async () => {
+    if (!resubmissionInspection || !resubmissionRemarks.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter remarks for resubmission.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmittingResubmission(true);
+
+    try {
+      // Update the warehouse status to 'resubmitted' and add checker remarks
+      const inspectionRef = doc(db, 'inspections', resubmissionInspection.id);
+      await updateDoc(inspectionRef, {
+        status: 'resubmitted',
+        checkerRemarks: resubmissionRemarks.trim(),
+        resubmissionRequestedAt: new Date().toISOString(),
+        resubmissionRequestedBy: 'checker' // You might want to add actual user info here
+      });
+
+      toast({
+        title: "Resubmission Requested",
+        description: `Warehouse ${resubmissionInspection.warehouseCode} has been moved to resubmitted section with your remarks.`,
+        variant: "default",
+      });
+
+      // Close dialog and reset states
+      setShowResubmissionDialog(false);
+      setResubmissionInspection(null);
+      setResubmissionRemarks('');
+
+      // Reload inspections to reflect the change
+      loadInspections();
+      
+      // Dispatch event for cross-module reflection
+      window.dispatchEvent(new CustomEvent('inspectionDataUpdated', { 
+        detail: { source: 'submitted-warehouse', action: 'resubmit', inspectionId: resubmissionInspection.id } 
+      }));
+
+    } catch (error) {
+      console.error('Error requesting resubmission:', error);
+      toast({
+        title: "Resubmission Failed",
+        description: "There was an error processing the resubmission request. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmittingResubmission(false);
+    }
+  };
+
+  // Handle canceling resubmission dialog
+  const handleCancelResubmission = () => {
+    setShowResubmissionDialog(false);
+    setResubmissionInspection(null);
+    setResubmissionRemarks('');
   };
 
   // Clear all filters
@@ -901,6 +967,80 @@ export default function SubmittedWarehousePage() {
                 onStatusChange={handleStatusChange}
               />
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Resubmission Dialog */}
+        <Dialog open={showResubmissionDialog} onOpenChange={(open) => {
+          if (!open) {
+            handleCancelResubmission();
+          }
+        }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-semibold text-purple-700">
+                Request Resubmission
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">
+                  Warehouse Code: <span className="font-bold text-purple-600">
+                    {resubmissionInspection?.warehouseCode}
+                  </span>
+                </Label>
+                <Label className="text-sm font-medium text-gray-700">
+                  Inspection Code: <span className="font-bold text-purple-600">
+                    {resubmissionInspection?.inspectionCode}
+                  </span>
+                </Label>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="resubmissionRemarks" className="text-sm font-medium text-gray-700">
+                  Remarks for Resubmission <span className="text-red-500">*</span>
+                </Label>
+                <Textarea
+                  id="resubmissionRemarks"
+                  value={resubmissionRemarks}
+                  onChange={(e) => setResubmissionRemarks(e.target.value)}
+                  placeholder="Enter the reason for requesting resubmission and specific issues that need to be addressed..."
+                  className="min-h-[120px] border-purple-300 focus:border-purple-500"
+                  maxLength={500}
+                />
+                <div className="text-xs text-gray-500 text-right">
+                  {resubmissionRemarks.length}/500 characters
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={handleCancelResubmission}
+                  disabled={isSubmittingResubmission}
+                  className="border-gray-300 text-gray-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSubmitResubmission}
+                  disabled={isSubmittingResubmission || !resubmissionRemarks.trim()}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  {isSubmittingResubmission ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="w-4 h-4 mr-2" />
+                      Request Resubmission
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
       </div>

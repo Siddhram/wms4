@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
 import { useRoleAccess } from '@/hooks/use-role-access';
@@ -21,7 +21,8 @@ import {
   X,
   ArrowLeft,
   FileText,
-  AlertCircle
+  AlertCircle,
+  Send
 } from "lucide-react";
 import BlinkingSirenIcon from '@/components/BlinkingSirenIcon';
 import { DataTable } from '@/components/data-table';
@@ -267,13 +268,13 @@ const resubmittedColumns = [
             variant="outline" 
             size="sm"
             onClick={() => {
-              const event = new CustomEvent('resubmitForm', { detail: inspection });
+              const event = new CustomEvent('submitWarehouse', { detail: inspection });
               document.dispatchEvent(event);
             }}
             className="border-green-300 text-green-600 hover:bg-green-50"
-            title="Submit Corrected Form"
+            title="Submit to Approval Process"
           >
-            <FileText className="w-4 h-4" />
+            <Send className="w-4 h-4" />
           </Button>
           {insuranceStatus === 'expired' && (
             <div title="Insurance Expired">
@@ -405,17 +406,24 @@ export default function ResubmittedWarehousePage() {
       });
       console.log('Resubmitting form for:', inspection);
     };
+
+    const handleSubmitWarehouseEvent = (event: CustomEvent) => {
+      const inspection = event.detail;
+      handleSubmitWarehouse(inspection);
+    };
     
     window.addEventListener('inspectionDataUpdated', handleInspectionUpdate as EventListener);
     document.addEventListener('viewResubmittedDetails', handleViewDetails as EventListener);
     document.addEventListener('viewCheckerRemarks', handleViewCheckerRemarks as EventListener);
     document.addEventListener('resubmitForm', handleResubmitForm as EventListener);
+    document.addEventListener('submitWarehouse', handleSubmitWarehouseEvent as EventListener);
     
     return () => {
       window.removeEventListener('inspectionDataUpdated', handleInspectionUpdate as EventListener);
       document.removeEventListener('viewResubmittedDetails', handleViewDetails as EventListener);
       document.removeEventListener('viewCheckerRemarks', handleViewCheckerRemarks as EventListener);
       document.removeEventListener('resubmitForm', handleResubmitForm as EventListener);
+      document.removeEventListener('submitWarehouse', handleSubmitWarehouseEvent as EventListener);
     };
   }, [loadInspections, toast]);
 
@@ -561,6 +569,103 @@ export default function ResubmittedWarehousePage() {
     }));
   };
 
+  // Handle warehouse submission
+  const handleSubmitWarehouse = async (inspection: InspectionData) => {
+    try {
+      // Validate that form has required data before allowing submission
+      if (!inspection.warehouseInspectionData || Object.keys(inspection.warehouseInspectionData).length === 0) {
+        toast({
+          title: "Cannot Submit",
+          description: "Please fill out the survey form before submitting. The form appears to be empty.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Update the status from 'resubmitted' to 'submitted' in Firebase
+      const inspectionRef = doc(db, 'inspections', inspection.id);
+      await updateDoc(inspectionRef, {
+        status: 'submitted',
+        submittedAt: new Date().toISOString(),
+        resubmittedAt: new Date().toISOString() // Keep track of when it was resubmitted
+      });
+
+      toast({
+        title: "Successfully Submitted",
+        description: `Warehouse ${inspection.warehouseCode} has been moved to submitted section.`,
+        variant: "default",
+      });
+
+      // Reload inspections to reflect the change
+      loadInspections();
+      
+      // Dispatch event for cross-module reflection
+      window.dispatchEvent(new CustomEvent('inspectionDataUpdated', { 
+        detail: { source: 'resubmitted-warehouse', action: 'submit', inspectionId: inspection.id } 
+      }));
+
+    } catch (error) {
+      console.error('Error submitting warehouse:', error);
+      toast({
+        title: "Submission Failed",
+        description: "There was an error submitting the warehouse. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle bulk submission of all resubmitted warehouses
+  const handleBulkSubmit = async () => {
+    const warehousesToSubmit = filteredAndSortedInspections.filter(inspection => 
+      inspection.warehouseInspectionData && Object.keys(inspection.warehouseInspectionData).length > 0
+    );
+
+    if (warehousesToSubmit.length === 0) {
+      toast({
+        title: "No Valid Warehouses",
+        description: "No warehouses with complete survey data found to submit.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Submit all valid warehouses
+      const promises = warehousesToSubmit.map(async (inspection) => {
+        const inspectionRef = doc(db, 'inspections', inspection.id);
+        return updateDoc(inspectionRef, {
+          status: 'submitted',
+          submittedAt: new Date().toISOString(),
+          resubmittedAt: new Date().toISOString()
+        });
+      });
+
+      await Promise.all(promises);
+
+      toast({
+        title: "Bulk Submission Successful",
+        description: `${warehousesToSubmit.length} warehouses have been submitted successfully.`,
+        variant: "default",
+      });
+
+      // Reload inspections to reflect the changes
+      loadInspections();
+      
+      // Dispatch event for cross-module reflection
+      window.dispatchEvent(new CustomEvent('inspectionDataUpdated', { 
+        detail: { source: 'resubmitted-warehouse', action: 'bulkSubmit', count: warehousesToSubmit.length } 
+      }));
+
+    } catch (error) {
+      console.error('Error in bulk submission:', error);
+      toast({
+        title: "Bulk Submission Failed",
+        description: "There was an error submitting some warehouses. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Clear all filters
   const clearAllFilters = () => {
     setSearchTerm('');
@@ -596,16 +701,26 @@ export default function ResubmittedWarehousePage() {
             </h1>
           </div>
           
-          {/* Export Button */}
+          {/* Action Buttons */}
           <div className="flex space-x-2">
             {filteredAndSortedInspections.length > 0 && (
-              <Button 
-                onClick={exportToCSV}
-                className="bg-blue-500 hover:bg-blue-600 text-white"
-              >
-                <Download className="mr-2 h-4 w-4" />
-                Export CSV
-              </Button>
+              <>
+                <Button 
+                  onClick={handleBulkSubmit}
+                  className="bg-green-500 hover:bg-green-600 text-white"
+                  title="Submit all valid warehouses to approval process"
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  Submit All
+                </Button>
+                <Button 
+                  onClick={exportToCSV}
+                  className="bg-blue-500 hover:bg-blue-600 text-white"
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Export CSV
+                </Button>
+              </>
             )}
           </div>
         </div>

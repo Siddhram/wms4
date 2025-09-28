@@ -492,8 +492,10 @@ export default function WarehouseInspectionForm({
   const [selectedClientInsurances, setSelectedClientInsurances] = useState<any[]>([]);
   const [additionalInsuranceSections, setAdditionalInsuranceSections] = useState<any[]>([]);
   const [agrogreenInsuranceData, setAgrogreenInsuranceData] = useState<any[]>([]);
+  const [warehouseInsuranceData, setWarehouseInsuranceData] = useState<any[]>([]);
   const [selectedInsurancePolicy, setSelectedInsurancePolicy] = useState<string>('');
   const [selectedAgrogreenInsurances, setSelectedAgrogreenInsurances] = useState<any[]>([]);
+  const [selectedWarehouseInsurances, setSelectedWarehouseInsurances] = useState<any[]>([]);
   const [additionalInsuranceClientData, setAdditionalInsuranceClientData] = useState<{[key: string]: any[]}>({});
   const [commodityInsuranceData, setCommodityInsuranceData] = useState<any[]>([]);
 
@@ -3509,6 +3511,8 @@ export default function WarehouseInspectionForm({
                     setSelectedClientInsurances([]);
                     setAgrogreenInsuranceData([]);
                     setSelectedAgrogreenInsurances([]);
+                    setWarehouseInsuranceData([]);
+                    setSelectedWarehouseInsurances([]);
                     
                     // Load Agrogreen insurance data if Agrogreen is selected
                     if (value === 'agrogreen') {
@@ -3531,6 +3535,32 @@ export default function WarehouseInspectionForm({
                       } catch (error) {
                         console.error('Error loading Agrogreen insurance data:', error);
                         setAgrogreenInsuranceData([]);
+                      }
+                    }
+                    
+                    // Load Warehouse Owner insurance data if Warehouse Owner is selected
+                    if (value === 'warehouse owner') {
+                      try {
+                        console.log('Loading Warehouse Owner insurance data');
+                        const insuranceDocs = await getDocs(collection(db, 'insurance'));
+                        if (!insuranceDocs.empty) {
+                          const warehouseInsurances = insuranceDocs.docs
+                            .map(doc => ({
+                              id: doc.id,
+                              ...doc.data(),
+                              sourceDocumentId: doc.id,
+                              sourceCollection: 'insurance'
+                            }))
+                            .filter(insurance => insurance.insuranceType === 'warehouse-owner');
+                          console.log('Found Warehouse Owner insurance data:', warehouseInsurances);
+                          setWarehouseInsuranceData(warehouseInsurances);
+                        } else {
+                          console.log('No Warehouse Owner insurance data found');
+                          setWarehouseInsuranceData([]);
+                        }
+                      } catch (error) {
+                        console.error('Error loading Warehouse Owner insurance data:', error);
+                        setWarehouseInsuranceData([]);
                       }
                     }
                   }}
@@ -3983,8 +4013,29 @@ export default function WarehouseInspectionForm({
                                 onChange={(e) => {
                                   if (e.target.checked) {
                                     setSelectedAgrogreenInsurances(prev => [...prev, insurance]);
-                                    // REMOVED: Auto-fill form data with selected insurance
-                                    // Only add to selection state, don't auto-fill form
+                                    
+                                    // Auto-fill form data with selected insurance (first selection fills main form)
+                                    if (selectedAgrogreenInsurances.length === 0) {
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        // Fire Policy Details
+                                        firePolicyCompanyName: insurance.firePolicyCompanyName || '',
+                                        firePolicyNumber: insurance.firePolicyNumber || '',
+                                        firePolicyAmount: insurance.firePolicyAmount || '',
+                                        firePolicyStartDate: safeCreateDate(insurance.firePolicyStartDate),
+                                        firePolicyEndDate: safeCreateDate(insurance.firePolicyEndDate),
+                                        // Burglary Policy Details
+                                        burglaryPolicyCompanyName: insurance.burglaryPolicyCompanyName || '',
+                                        burglaryPolicyNumber: insurance.burglaryPolicyNumber || '',
+                                        burglaryPolicyAmount: insurance.burglaryPolicyAmount || '',
+                                        burglaryPolicyStartDate: safeCreateDate(insurance.burglaryPolicyStartDate),
+                                        burglaryPolicyEndDate: safeCreateDate(insurance.burglaryPolicyEndDate),
+                                        // Remaining amounts from insurance
+                                        remainingFirePolicyAmount: insurance.remainingFirePolicyAmount || '',
+                                        remainingBurglaryPolicyAmount: insurance.remainingBurglaryPolicyAmount || '',
+                                      }));
+                                      console.log('Auto-filled form with Agrogreen insurance:', insurance);
+                                    }
                                   } else {
                                     setSelectedAgrogreenInsurances(prev => 
                                       prev.filter(selected => 
@@ -3992,6 +4043,30 @@ export default function WarehouseInspectionForm({
                                           selected.burglaryPolicyNumber === insurance.burglaryPolicyNumber)
                                       )
                                     );
+                                    
+                                    // Clear form data if this was the insurance that filled the main form
+                                    if (formData.firePolicyNumber === insurance.firePolicyNumber && 
+                                        formData.burglaryPolicyNumber === insurance.burglaryPolicyNumber) {
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        // Clear Fire Policy Details
+                                        firePolicyCompanyName: '',
+                                        firePolicyNumber: '',
+                                        firePolicyAmount: '',
+                                        firePolicyStartDate: null,
+                                        firePolicyEndDate: null,
+                                        // Clear Burglary Policy Details
+                                        burglaryPolicyCompanyName: '',
+                                        burglaryPolicyNumber: '',
+                                        burglaryPolicyAmount: '',
+                                        burglaryPolicyStartDate: null,
+                                        burglaryPolicyEndDate: null,
+                                        // Clear remaining amounts
+                                        remainingFirePolicyAmount: '',
+                                        remainingBurglaryPolicyAmount: '',
+                                      }));
+                                      console.log('Cleared form data when unchecking Agrogreen insurance');
+                                    }
                                   }
                                 }}
                                 className="text-green-600"
@@ -4022,6 +4097,111 @@ export default function WarehouseInspectionForm({
                   </div>
                 </div>
               )}
+
+              {/* Warehouse Owner Insurance Selection */}
+              {formData.insuranceTakenBy === 'warehouse owner' && warehouseInsuranceData.length > 0 && (
+                <div className="md:col-span-2">
+                  <div className="space-y-2">
+                    <Label className="text-orange-600 font-medium">Select Warehouse Owner Insurance Policies</Label>
+                    <div className="border border-orange-200 rounded-lg p-4 bg-orange-50">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {warehouseInsuranceData.map((insurance, index) => (
+                          <div key={index} className="border border-orange-300 rounded p-3 bg-white">
+                            <div className="flex items-center space-x-2 mb-2">
+                              <input
+                                type="checkbox"
+                                id={`warehouse-insurance-${index}`}
+                                checked={selectedWarehouseInsurances.some(selected => 
+                                  selected.firePolicyNumber === insurance.firePolicyNumber && 
+                                  selected.burglaryPolicyNumber === insurance.burglaryPolicyNumber
+                                )}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedWarehouseInsurances(prev => [...prev, insurance]);
+                                    
+                                    // Auto-fill form data with selected insurance (first selection fills main form)
+                                    if (selectedWarehouseInsurances.length === 0) {
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        // Fire Policy Details
+                                        firePolicyCompanyName: insurance.firePolicyCompanyName || '',
+                                        firePolicyNumber: insurance.firePolicyNumber || '',
+                                        firePolicyAmount: insurance.firePolicyAmount || '',
+                                        firePolicyStartDate: safeCreateDate(insurance.firePolicyStartDate),
+                                        firePolicyEndDate: safeCreateDate(insurance.firePolicyEndDate),
+                                        // Burglary Policy Details
+                                        burglaryPolicyCompanyName: insurance.burglaryPolicyCompanyName || '',
+                                        burglaryPolicyNumber: insurance.burglaryPolicyNumber || '',
+                                        burglaryPolicyAmount: insurance.burglaryPolicyAmount || '',
+                                        burglaryPolicyStartDate: safeCreateDate(insurance.burglaryPolicyStartDate),
+                                        burglaryPolicyEndDate: safeCreateDate(insurance.burglaryPolicyEndDate),
+                                        // Remaining amounts from insurance
+                                        remainingFirePolicyAmount: insurance.remainingFirePolicyAmount || '',
+                                        remainingBurglaryPolicyAmount: insurance.remainingBurglaryPolicyAmount || '',
+                                      }));
+                                      console.log('Auto-filled form with Warehouse Owner insurance:', insurance);
+                                    }
+                                  } else {
+                                    setSelectedWarehouseInsurances(prev => 
+                                      prev.filter(selected => 
+                                        !(selected.firePolicyNumber === insurance.firePolicyNumber && 
+                                          selected.burglaryPolicyNumber === insurance.burglaryPolicyNumber)
+                                      )
+                                    );
+                                    
+                                    // Clear form data if this was the insurance that filled the main form
+                                    if (formData.firePolicyNumber === insurance.firePolicyNumber && 
+                                        formData.burglaryPolicyNumber === insurance.burglaryPolicyNumber) {
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        // Clear Fire Policy Details
+                                        firePolicyCompanyName: '',
+                                        firePolicyNumber: '',
+                                        firePolicyAmount: '',
+                                        firePolicyStartDate: null,
+                                        firePolicyEndDate: null,
+                                        // Clear Burglary Policy Details
+                                        burglaryPolicyCompanyName: '',
+                                        burglaryPolicyNumber: '',
+                                        burglaryPolicyAmount: '',
+                                        burglaryPolicyStartDate: null,
+                                        burglaryPolicyEndDate: null,
+                                        // Clear remaining amounts
+                                        remainingFirePolicyAmount: '',
+                                        remainingBurglaryPolicyAmount: '',
+                                      }));
+                                      console.log('Cleared form data when unchecking Warehouse Owner insurance');
+                                    }
+                                  }
+                                }}
+                                className="text-orange-600"
+                              />
+                              <label htmlFor={`warehouse-insurance-${index}`} className="text-sm font-medium text-orange-700">
+                                Warehouse Insurance {index + 1}
+                              </label>
+                            </div>
+                            <div className="text-xs text-orange-600 space-y-1">
+                              <div><strong>Insurance ID:</strong> {insurance.insuranceId || 'N/A'}</div>
+                              <div><strong>Commodity:</strong> {insurance.commodity}</div>
+                              <div><strong>Fire Policy:</strong> {insurance.firePolicyNumber}</div>
+                              <div><strong>Burglary Policy:</strong> {insurance.burglaryPolicyNumber}</div>
+                              <div><strong>Fire Amount:</strong> ₹{insurance.firePolicyAmount}</div>
+                              <div><strong>Burglary Amount:</strong> ₹{insurance.burglaryPolicyAmount}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {selectedWarehouseInsurances.length > 0 && (
+                        <div className="mt-3 p-2 bg-orange-100 rounded">
+                          <div className="text-sm font-medium text-orange-700">
+                            Selected: {selectedWarehouseInsurances.length} warehouse insurance policy(ies)
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Fire Policy Section - Show for all except bank */}
@@ -4030,10 +4210,22 @@ export default function WarehouseInspectionForm({
                 <div className="border-t pt-4 mt-4">
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="text-lg font-medium text-green-700">Fire Policy Details</h4>
-                    {formData.firePolicyNumber && selectedClientInsurances.length > 0 && (
-                      <div className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded">
-                        Auto-filled from selected insurance
-                      </div>
+                    {formData.firePolicyNumber && (
+                      (selectedClientInsurances.length > 0 && (
+                        <div className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded">
+                          Auto-filled from selected client insurance
+                        </div>
+                      )) ||
+                      (selectedAgrogreenInsurances.length > 0 && (
+                        <div className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded">
+                          Auto-filled from selected Agrogreen insurance
+                        </div>
+                      )) ||
+                      (selectedWarehouseInsurances.length > 0 && (
+                        <div className="text-xs bg-orange-100 text-orange-600 px-2 py-1 rounded">
+                          Auto-filled from selected warehouse insurance
+                        </div>
+                      ))
                     )}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -4144,10 +4336,22 @@ export default function WarehouseInspectionForm({
                 <div className="border-t pt-4 mt-4">
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="text-lg font-medium text-green-700">Burglary Policy Details</h4>
-                    {formData.burglaryPolicyNumber && selectedClientInsurances.length > 0 && (
-                      <div className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded">
-                        Auto-filled from selected insurance
-                      </div>
+                    {formData.burglaryPolicyNumber && (
+                      (selectedClientInsurances.length > 0 && (
+                        <div className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded">
+                          Auto-filled from selected client insurance
+                        </div>
+                      )) ||
+                      (selectedAgrogreenInsurances.length > 0 && (
+                        <div className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded">
+                          Auto-filled from selected Agrogreen insurance
+                        </div>
+                      )) ||
+                      (selectedWarehouseInsurances.length > 0 && (
+                        <div className="text-xs bg-orange-100 text-orange-600 px-2 py-1 rounded">
+                          Auto-filled from selected warehouse insurance
+                        </div>
+                      ))
                     )}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Download, Calendar, Filter, X, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { Search, Download, Calendar, Filter, X, ArrowLeft, Eye, EyeOff, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { db } from '@/lib/firebase';
@@ -64,6 +64,10 @@ export default function InwardReportsPage() {
   const [loading, setLoading] = useState(false);
   const [inwardData, setInwardData] = useState<InwardReportData[]>([]);
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Column definitions matching the exact format requested
   const allColumns = [
@@ -289,6 +293,17 @@ export default function InwardReportsPage() {
     return filtered;
   }, [inwardData, searchTerm, warehouseFilter, clientFilter]);
 
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = filteredData.slice(startIndex, endIndex);
+  
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, warehouseFilter, clientFilter, itemsPerPage]);
+
   // Export filtered data to CSV
   const exportToCSV = () => {
     if (filteredData.length === 0) return;
@@ -362,6 +377,13 @@ export default function InwardReportsPage() {
 
   const hasActiveFilters = searchTerm || warehouseFilter !== 'all' || clientFilter !== 'all';
   const visibleColumnsData = allColumns.filter(col => visibleColumns.includes(col.key));
+
+  // Pagination functions
+  const goToFirstPage = () => setCurrentPage(1);
+  const goToPreviousPage = () => setCurrentPage(prev => Math.max(1, prev - 1));
+  const goToNextPage = () => setCurrentPage(prev => Math.min(totalPages, prev + 1));
+  const goToLastPage = () => setCurrentPage(totalPages);
+  const goToPage = (page: number) => setCurrentPage(page);
 
   return (
     <DashboardLayout>
@@ -549,9 +571,10 @@ export default function InwardReportsPage() {
         {/* Results Summary & Active Filters */}
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-600">
-            Showing {filteredData.length} of {inwardData.length} records
-            {hasActiveFilters && ` (filtered)`}
+            Showing {filteredData.length > 0 ? startIndex + 1 : 0} to {Math.min(endIndex, filteredData.length)} of {filteredData.length} records
+            {hasActiveFilters && ` (filtered from ${inwardData.length} total)`}
             {startDate && endDate && ` | Date Range: ${startDate} to ${endDate}`}
+            {totalPages > 1 && ` | Page ${currentPage} of ${totalPages}`}
           </div>
           
           {/* Active Filter Badges */}
@@ -601,7 +624,7 @@ export default function InwardReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredData.map((item, index) => (
+                  {paginatedData.map((item, index) => (
                     <tr key={item.id} className="hover:bg-gray-50">
                       {visibleColumns.includes('state') && (
                         <td className="border border-gray-200 px-4 py-2">{item.state || 'N/A'}</td>
@@ -713,6 +736,85 @@ export default function InwardReportsPage() {
                 </div>
               )}
             </div>
+            
+            {/* Pagination Controls */}
+            {filteredData.length > 0 && (
+              <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200">
+                <div className="text-sm text-gray-700">
+                  Showing {startIndex + 1} to {Math.min(endIndex, filteredData.length)} of {filteredData.length} entries
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={goToFirstPage}
+                    disabled={currentPage === 1}
+                    className="h-8 w-8 p-0"
+                  >
+                    <ChevronsLeft className="h-4 w-4" />
+                  </Button>
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={goToPreviousPage}
+                    disabled={currentPage === 1}
+                    className="h-8 w-8 p-0"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  
+                  <div className="flex items-center space-x-1">
+                    {/* Show page numbers */}
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNumber;
+                      if (totalPages <= 5) {
+                        pageNumber = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNumber = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNumber = totalPages - 4 + i;
+                      } else {
+                        pageNumber = currentPage - 2 + i;
+                      }
+                      
+                      return (
+                        <Button
+                          key={pageNumber}
+                          variant={currentPage === pageNumber ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => goToPage(pageNumber)}
+                          className="h-8 w-8 p-0"
+                        >
+                          {pageNumber}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={goToNextPage}
+                    disabled={currentPage === totalPages}
+                    className="h-8 w-8 p-0"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={goToLastPage}
+                    disabled={currentPage === totalPages}
+                    className="h-8 w-8 p-0"
+                  >
+                    <ChevronsRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
