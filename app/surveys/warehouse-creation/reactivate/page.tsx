@@ -688,7 +688,7 @@ export default function ReactivateWarehousePage() {
               className="inline-flex items-center text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
             >
               <ArrowLeft className="w-5 h-5 mr-2" />
-              Dashboard
+              Warehouse Creation
             </button>
           </div>
           

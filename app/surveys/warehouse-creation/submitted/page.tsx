@@ -280,42 +280,6 @@ const submittedColumns = [
           >
             <Eye className="w-4 h-4" />
           </Button>
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={() => {
-              const event = new CustomEvent('activateWarehouse', { detail: inspection });
-              document.dispatchEvent(event);
-            }}
-            className="border-green-300 text-green-600 hover:bg-green-50"
-            title="Proceed to Activate"
-          >
-            <CheckCircle className="w-4 h-4" />
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={() => {
-              const event = new CustomEvent('rejectWarehouse', { detail: inspection });
-              document.dispatchEvent(event);
-            }}
-            className="border-red-300 text-red-600 hover:bg-red-50"
-            title="Reject"
-          >
-            <XCircle className="w-4 h-4" />
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={() => {
-              const event = new CustomEvent('resubmitWarehouse', { detail: inspection });
-              document.dispatchEvent(event);
-            }}
-            className="border-purple-300 text-purple-600 hover:bg-purple-50"
-            title="Request Resubmission"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </Button>
           {insuranceStatus === 'expired' && (
             <div title="Insurance Expired">
               <BlinkingSirenIcon color="red" size={20} />
@@ -771,7 +735,7 @@ export default function SubmittedWarehousePage() {
               className="inline-flex items-center text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
             >
               <ArrowLeft className="w-5 h-5 mr-2" />
-              Dashboard
+              Warehouse Creation
             </button>
           </div>
           
@@ -965,6 +929,26 @@ export default function SubmittedWarehousePage() {
                 initialData={selectedInspection}
                 mode="edit"
                 onStatusChange={handleStatusChange}
+                // Pass action handlers for submitted status
+                onActivate={async () => {
+                  const event = new CustomEvent('activateWarehouse', { detail: selectedInspection });
+                  document.dispatchEvent(event);
+                  setShowInspectionForm(false);
+                  setSelectedInspection(null);
+                }}
+                onReject={async () => {
+                  const event = new CustomEvent('rejectWarehouse', { detail: selectedInspection });
+                  document.dispatchEvent(event);
+                  setShowInspectionForm(false);
+                  setSelectedInspection(null);
+                }}
+                onResubmit={async () => {
+                  const event = new CustomEvent('resubmitWarehouse', { detail: selectedInspection });
+                  document.dispatchEvent(event);
+                  setShowInspectionForm(false);
+                  setSelectedInspection(null);
+                }}
+                showSubmittedActions={true}
               />
             )}
           </DialogContent>

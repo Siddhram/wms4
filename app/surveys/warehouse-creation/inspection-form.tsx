@@ -24,6 +24,11 @@ interface WarehouseInspectionFormProps {
   initialData?: any;
   mode?: 'create' | 'view' | 'edit';
   onStatusChange?: (warehouseCode: string, newStatus: string) => void;
+  // Action handlers for submitted status
+  onActivate?: () => Promise<void>;
+  onReject?: () => Promise<void>;
+  onResubmit?: () => Promise<void>;
+  showSubmittedActions?: boolean;
 }
 
 interface WarehouseData {
@@ -272,7 +277,11 @@ export default function WarehouseInspectionForm({
   onClose, 
   initialData, 
   mode = 'create',
-  onStatusChange 
+  onStatusChange,
+  onActivate,
+  onReject,
+  onResubmit,
+  showSubmittedActions = false
 }: WarehouseInspectionFormProps) {
   const { toast } = useToast();
   const { 
@@ -6028,51 +6037,32 @@ export default function WarehouseInspectionForm({
               </Button>
             )}
             
-            {/* SUBMITTED state - initial view */}
-            {formData.status === 'submitted' && !formData.showActivationButtons && canApproveSurvey(formData.status) && (
-              <>
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  className="border-blue-500 text-blue-600 hover:bg-blue-50 action-button"
-                  onClick={() => handleStatusAction('edit')}
-                >
-                  Edit
-                </Button>
-                <Button 
-                  type="button" 
-                  className="bg-orange-500 hover:bg-orange-600 action-button"
-                  onClick={() => setFormData(prev => ({ ...prev, showActivationButtons: true }))}
-                >
-                  Proceed to Activate
-                </Button>
-              </>
-            )}
-            
-            {/* SUBMITTED state - activation buttons showing */}
-            {formData.status === 'submitted' && formData.showActivationButtons && canApproveSurvey(formData.status) && (
+            {/* SUBMITTED state - action buttons from props */}
+            {console.log('Debug: showSubmittedActions:', showSubmittedActions, 'status:', formData.status, 'onActivate:', !!onActivate)}
+            {/* Temporary: Show buttons regardless of conditions for testing */}
+            {showSubmittedActions && (
               <>
                 <Button 
                   type="button" 
                   className="bg-green-500 hover:bg-green-600 action-button"
-                  onClick={() => handleStatusAction('activate')}
+                  onClick={() => console.log('Activate clicked')}
                 >
-                  Activate
+                  Proceed to Activate
                 </Button>
                 <Button 
                   type="button" 
                   variant="destructive"
                   className="action-button"
-                  onClick={() => handleStatusAction('reject')}
+                  onClick={() => console.log('Reject clicked')}
                 >
                   Reject
                 </Button>
                 <Button 
                   type="button" 
                   className="bg-purple-500 hover:bg-purple-600 action-button"
-                  onClick={() => handleStatusAction('resubmit')}
+                  onClick={() => console.log('Resubmit clicked')}
                 >
-                  Resubmission
+                  Request Resubmission
                 </Button>
               </>
             )}

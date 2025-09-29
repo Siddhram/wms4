@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
 import { useRoleAccess } from '@/hooks/use-role-access';
@@ -19,7 +19,8 @@ import {
   Eye,
   Search,
   X,
-  ArrowLeft
+  ArrowLeft,
+  Trash2
 } from "lucide-react";
 import BlinkingSirenIcon from '@/components/BlinkingSirenIcon';
 import { DataTable } from '@/components/data-table';
@@ -69,8 +70,36 @@ function getInsuranceAlertStatus(inspection: InspectionData): 'none' | 'expiring
   return hasExpired ? 'expired' : 'none';
 }
 
-// Define columns for DataTable
-const pendingColumns = [
+// Delete function
+const handleDelete = async (id: string, inspectionCode: string, toast: any, loadInspections: () => void) => {
+  try {
+    // Delete from Firebase database
+    await deleteDoc(doc(db, 'inspections', id));
+    
+    // Dispatch event for cross-module reflection
+    window.dispatchEvent(new CustomEvent('inspectionDataUpdated', { 
+      detail: { action: 'delete', deletedId: id, source: 'pending-warehouse' } 
+    }));
+    
+    toast({
+      title: "Deleted",
+      description: `Inspection ${inspectionCode} deleted successfully`,
+    });
+
+    // Reload inspections data
+    loadInspections();
+  } catch (error) {
+    console.error('Error deleting inspection:', error);
+    toast({
+      title: "Error",
+      description: "Failed to delete inspection",
+      variant: "destructive",
+    });
+  }
+};
+
+// Define columns for DataTable - Note: userRole will be passed as parameter
+const createPendingColumns = (userRole: string, toast: any, loadInspections: () => void) => [
   {
     accessorKey: "inspectionCode",
     header: "Inspection Code",
@@ -247,6 +276,24 @@ const pendingColumns = [
           >
             <Eye className="w-4 h-4" />
           </Button>
+          
+          {/* Delete Button - Only for Checker and Admin */}
+          {(userRole === 'checker' || userRole === 'admin') && (
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => {
+                if (confirm(`Are you sure you want to delete inspection ${inspection.inspectionCode}? This action cannot be undone.`)) {
+                  handleDelete(inspection.id, inspection.inspectionCode, toast, loadInspections);
+                }
+              }}
+              className="border-red-300 text-red-600 hover:bg-red-50"
+              title="Delete Inspection"
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          )}
+          
           {insuranceStatus === 'expired' && (
             <div title="Insurance Expired">
               <BlinkingSirenIcon color="red" size={20} />
@@ -352,6 +399,12 @@ export default function PendingWarehousePage() {
       document.removeEventListener('viewInspectionDetails', handleViewDetails as EventListener);
     };
   }, [loadInspections]);
+
+  // Create columns with userRole and functions passed as parameters
+  const pendingColumns = useMemo(() => 
+    createPendingColumns(userRole, toast, loadInspections), 
+    [userRole, toast, loadInspections]
+  );
 
   // Filter and sort inspections data
   const filteredAndSortedInspections = useMemo(() => {
@@ -516,7 +569,7 @@ export default function PendingWarehousePage() {
               className="inline-flex items-center text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
             >
               <ArrowLeft className="w-5 h-5 mr-2" />
-              Dashboard
+              Warehouse Creation
             </button>
           </div>
           

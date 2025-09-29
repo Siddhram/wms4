@@ -461,7 +461,7 @@ export default function CommodityModulePage() {
     const sortedData = [...dataToExport].sort((a, b) => a.commodityId.localeCompare(b.commodityId));
 
     const headers = [
-      'Commodity ID', 'Commodity Name', 'Variety ID', 'Variety Name', 'Location', 'Branch Name', 'Rate (Rs.)', 'Particulars', 'Commodity Created Date', 'Variety Created Date'
+      'Commodity ID', 'Commodity Name', 'Variety ID', 'Variety Name', 'Location', 'Rate (Rs.)', 'Particulars', 'Commodity Created Date', 'Variety Created Date'
     ];
 
     const csvData = [headers];
@@ -1148,22 +1148,11 @@ export default function CommodityModulePage() {
                       <p className="text-green-600">{varietyFormData.locationName || 'Not specified'}</p>
                     </div>
                     <div>
-                      <span className="font-medium text-green-700">Branch Name:</span>
-                      <p className="text-green-600">{varietyFormData.branchName || 'Not specified'}</p>
-                    </div>
-                    <div>
                       <span className="font-medium text-green-700">Location ID:</span>
                       <p className="text-green-600">{varietyFormData.locationId}</p>
                     </div>
                   </div>
-                  {/* Debug information - remove this in production */}
-                  <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
-                    <strong>Debug:</strong> {JSON.stringify({
-                      locationId: varietyFormData.locationId,
-                      locationName: varietyFormData.locationName,
-                      branchName: varietyFormData.branchName
-                    }, null, 2)}
-                  </div>
+                
                 </div>
               )}
 

@@ -437,28 +437,37 @@ export default function InspectionCreationPage() {
         const inspection = row.original;
         return (
           <div className="flex space-x-2 justify-center">
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => handleEdit(inspection)}
-              className="border-orange-300 text-orange-600 hover:bg-orange-50"
-              title="Edit Inspection"
-            >
-              <Edit className="w-4 h-4" />
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => {
-                if (confirm(`Are you sure you want to delete inspection ${inspection.inspectionCode}? This action cannot be undone.`)) {
-                  handleDelete(inspection.id);
-                }
-              }}
-              className="border-red-300 text-red-600 hover:bg-red-50"
-              title="Delete Inspection"
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
+            {/* Edit Button - Only for Checker and Admin */}
+            {(userRole === 'checker' || userRole === 'admin') && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => handleEdit(inspection)}
+                className="border-orange-300 text-orange-600 hover:bg-orange-50"
+                title="Edit Inspection"
+              >
+                <Edit className="w-4 h-4" />
+              </Button>
+            )}
+            
+            {/* Delete Button - Only for Checker and Admin */}
+            {(userRole === 'checker' || userRole === 'admin') && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  if (confirm(`Are you sure you want to delete inspection ${inspection.inspectionCode}? This action cannot be undone.`)) {
+                    handleDelete(inspection.id);
+                  }
+                }}
+                className="border-red-300 text-red-600 hover:bg-red-50"
+                title="Delete Inspection"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
+            
+            {/* Add Bank Button - Available for all roles */}
             <Button 
               variant="outline" 
               size="sm"
