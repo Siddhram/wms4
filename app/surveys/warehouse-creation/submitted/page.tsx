@@ -442,6 +442,15 @@ export default function SubmittedWarehousePage() {
         
         // If validation passes, proceed with activation
         console.log('Activating warehouse:', inspection);
+        
+        // Update the warehouse status to 'activated' in the database
+        const inspectionRef = doc(db, 'inspections', inspection.id);
+        await updateDoc(inspectionRef, {
+          status: 'activated',
+          activatedAt: new Date().toISOString(),
+          activatedBy: 'checker' // You might want to add actual user info here
+        });
+        
         toast({
           title: "Warehouse Activated",
           description: `Warehouse ${inspection.warehouseCode} has been activated successfully.`,
@@ -460,13 +469,36 @@ export default function SubmittedWarehousePage() {
       }
     };
 
-    const handleRejectWarehouse = (event: CustomEvent) => {
-      // TODO: Implement rejection logic with remarks
-      console.log('Rejecting warehouse:', event.detail);
-      toast({
-        title: "Feature Coming Soon",
-        description: "Warehouse rejection with remarks will be implemented.",
-      });
+    const handleRejectWarehouse = async (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const inspection = customEvent.detail;
+      
+      try {
+        // Update the warehouse status to 'rejected' in the database
+        const inspectionRef = doc(db, 'inspections', inspection.id);
+        await updateDoc(inspectionRef, {
+          status: 'rejected',
+          rejectedAt: new Date().toISOString(),
+          rejectedBy: 'checker', // You might want to add actual user info here
+          rejectionRemarks: 'Rejected by checker' // You might want to add a dialog for rejection remarks
+        });
+        
+        toast({
+          title: "Warehouse Rejected",
+          description: `Warehouse ${inspection.warehouseCode} has been rejected.`,
+        });
+        
+        // Reload the inspections to reflect the change
+        loadInspections();
+        
+      } catch (error) {
+        console.error('Error rejecting warehouse:', error);
+        toast({
+          title: "Rejection Failed",
+          description: "An error occurred while rejecting the warehouse.",
+          variant: "destructive",
+        });
+      }
     };
 
     const handleResubmitWarehouse = (event: CustomEvent) => {

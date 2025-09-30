@@ -6005,30 +6005,32 @@ export default function WarehouseInspectionForm({
           </Button>
           
           <div className="flex space-x-4">
-            {/* Save button - always available for editing */}
-            <Button 
-              type="button" 
-              className="bg-blue-500 hover:bg-blue-600 action-button"
-              onClick={async () => {
-                try {
-                  await saveFormData();
-                  toast({
-                    title: "Saved",
-                    description: "Changes saved successfully",
-                  });
-                } catch (error) {
-                  console.error('Save error:', error);
-                  const errorMessage = error instanceof Error ? error.message : "Failed to save changes";
-                  toast({
-                    title: "Error",
-                    description: errorMessage,
-                    variant: "destructive",
-                  });
-                }
-              }}
-            >
-              Save Changes
-            </Button>
+            {/* Save button - hide for activated status */}
+            {formData.status !== 'activated' && (
+              <Button 
+                type="button" 
+                className="bg-blue-500 hover:bg-blue-600 action-button"
+                onClick={async () => {
+                  try {
+                    await saveFormData();
+                    toast({
+                      title: "Saved",
+                      description: "Changes saved successfully",
+                    });
+                  } catch (error) {
+                    console.error('Save error:', error);
+                    const errorMessage = error instanceof Error ? error.message : "Failed to save changes";
+                    toast({
+                      title: "Error",
+                      description: errorMessage,
+                      variant: "destructive",
+                    });
+                  }
+                }}
+              >
+                Save Changes
+              </Button>
+            )}
             
             {/* PENDING state only */}
             {(formData.status === 'pending' || !formData.status || formData.status === '') && canEditSurvey(formData.status || 'pending') && (
@@ -6038,61 +6040,48 @@ export default function WarehouseInspectionForm({
             )}
             
             {/* SUBMITTED state - action buttons from props */}
-            {console.log('Debug: showSubmittedActions:', showSubmittedActions, 'status:', formData.status, 'onActivate:', !!onActivate)}
-            {/* Temporary: Show buttons regardless of conditions for testing */}
             {showSubmittedActions && (
               <>
-                <Button 
-                  type="button" 
-                  className="bg-green-500 hover:bg-green-600 action-button"
-                  onClick={() => console.log('Activate clicked')}
-                >
-                  Proceed to Activate
-                </Button>
-                <Button 
-                  type="button" 
-                  variant="destructive"
-                  className="action-button"
-                  onClick={() => console.log('Reject clicked')}
-                >
-                  Reject
-                </Button>
-                <Button 
-                  type="button" 
-                  className="bg-purple-500 hover:bg-purple-600 action-button"
-                  onClick={() => console.log('Resubmit clicked')}
-                >
-                  Request Resubmission
-                </Button>
+                {onActivate && (
+                  <Button 
+                    type="button" 
+                    className="bg-green-500 hover:bg-green-600 action-button"
+                    onClick={onActivate}
+                  >
+                    Proceed to Activate
+                  </Button>
+                )}
+                {onReject && (
+                  <Button 
+                    type="button" 
+                    variant="destructive"
+                    className="action-button"
+                    onClick={onReject}
+                  >
+                    Reject
+                  </Button>
+                )}
+                {onResubmit && (
+                  <Button 
+                    type="button" 
+                    className="bg-purple-500 hover:bg-purple-600 action-button"
+                    onClick={onResubmit}
+                  >
+                    Request Resubmission
+                  </Button>
+                )}
               </>
             )}
             
-            {/* ACTIVATED state - Checker can close, reject, or resubmit */}
+            {/* ACTIVATED state - Only show Close button */}
             {formData.status === 'activated' && canApproveSurvey(formData.status) && (
-              <>
-                <Button 
-                  type="button" 
-                  className="bg-red-500 hover:bg-red-600 action-button"
-                  onClick={() => handleStatusAction('close')}
-                >
-                  Close
-                </Button>
-                <Button 
-                  type="button" 
-                  variant="destructive"
-                  className="action-button"
-                  onClick={() => handleStatusAction('reject')}
-                >
-                  Reject
-                </Button>
-                <Button 
-                  type="button" 
-                  className="bg-purple-500 hover:bg-purple-600 action-button"
-                  onClick={() => handleStatusAction('resubmit')}
-                >
-                  Resubmit
-                </Button>
-              </>
+              <Button 
+                type="button" 
+                className="bg-red-500 hover:bg-red-600 action-button"
+                onClick={() => handleStatusAction('close')}
+              >
+                Close
+              </Button>
             )}
             
             {/* RESUBMITTED state */}
