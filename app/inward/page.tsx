@@ -308,8 +308,8 @@ export default function InwardPage() {
     
     // Sort by inward code in ascending order (default) or descending
     filtered.sort((a, b) => {
-      const aCode = (a.inwardCode || '').toString();
-      const bCode = (b.inwardCode || '').toString();
+      const aCode = (a.inwardId || '').toString();
+      const bCode = (b.inwardId || '').toString();
       
       if (sortDirection === 'asc') {
         return aCode.localeCompare(bCode, undefined, { numeric: true, sensitivity: 'base' });
@@ -1334,7 +1334,7 @@ export default function InwardPage() {
           const today = new Date();
           today.setHours(0,0,0,0);
           if (resEnd < today) {
-            const msg = `Reservation Expired - The reservation end date (${formatToDDMMYYYY(resEnd)}) has expired. Please update the reservation details in the Reservation & Billing section to continue with inward operations`;
+            const msg = `Reservation Expired - The reservation end date (${formatToDDMMYYYY(resEnd)}) has expired. You must first update the reservation status of this warehouse with billing parameters in the Reservation Master before inward entry can be processed.`;
             setInlineAlert({ title: 'Reservation Expired', message: msg, severity: 'error' });
             setPreventInward(true);
             return;
@@ -1444,13 +1444,13 @@ export default function InwardPage() {
             const fireEnd = match.firePolicyEndDate ? new Date(match.firePolicyEndDate) : (match.firePolicyEnd ? new Date(match.firePolicyEnd) : null);
             const burglaryEnd = match.burglaryPolicyEndDate ? new Date(match.burglaryPolicyEndDate) : (match.burglaryPolicyEnd ? new Date(match.burglaryPolicyEnd) : null);
             if (fireEnd instanceof Date && !isNaN(fireEnd.getTime()) && fireEnd < today) {
-              const msg = `Insurance Expired - The insurance end date (${formatToDDMMYYYY(fireEnd)}) has expired.`;
+              const msg = `Insurance Expired - The fire insurance end date (${formatToDDMMYYYY(fireEnd)}) has expired. You must first update the insurance data for this warehouse in both Insurance Master and Survey before inward entry can be processed.`;
               setInlineAlert({ title: 'Insurance Expired', message: msg, severity: 'error' });
               setPreventInward(true);
               return;
             }
             if (burglaryEnd instanceof Date && !isNaN(burglaryEnd.getTime()) && burglaryEnd < today) {
-              const msg = `Insurance Expired - The insurance end date (${formatToDDMMYYYY(burglaryEnd)}) has expired.`;
+              const msg = `Insurance Expired - The burglary insurance end date (${formatToDDMMYYYY(burglaryEnd)}) has expired. You must first update the insurance data for this warehouse in both Insurance Master and Survey before inward entry can be processed.`;
               setInlineAlert({ title: 'Insurance Expired', message: msg, severity: 'error' });
               setPreventInward(true);
               return;
@@ -1466,13 +1466,13 @@ export default function InwardPage() {
             const fireEnd = ins.firePolicyEndDate ? new Date(ins.firePolicyEndDate) : (ins.firePolicyEnd ? new Date(ins.firePolicyEnd) : null);
             const burglaryEnd = ins.burglaryPolicyEndDate ? new Date(ins.burglaryPolicyEndDate) : (ins.burglaryPolicyEnd ? new Date(ins.burglaryPolicyEnd) : null);
             if (fireEnd instanceof Date && !isNaN(fireEnd.getTime()) && fireEnd < today) {
-              const msg = `Insurance Expired - The insurance end date (${formatToDDMMYYYY(fireEnd)}) has expired.`;
+              const msg = `Insurance Expired - The fire insurance end date (${formatToDDMMYYYY(fireEnd)}) has expired. You must first update the insurance data for this warehouse in both Insurance Master and Survey before inward entry can be processed.`;
               setInlineAlert({ title: 'Insurance Expired', message: msg, severity: 'error' });
               setPreventInward(true);
               return;
             }
             if (burglaryEnd instanceof Date && !isNaN(burglaryEnd.getTime()) && burglaryEnd < today) {
-              const msg = `Insurance Expired - The insurance end date (${formatToDDMMYYYY(burglaryEnd)}) has expired.`;
+              const msg = `Insurance Expired - The burglary insurance end date (${formatToDDMMYYYY(burglaryEnd)}) has expired. You must first update the insurance data for this warehouse in both Insurance Master and Survey before inward entry can be processed.`;
               setInlineAlert({ title: 'Insurance Expired', message: msg, severity: 'error' });
               setPreventInward(true);
               return;
@@ -1491,13 +1491,13 @@ export default function InwardPage() {
       const today = new Date();
       today.setHours(0,0,0,0);
       if (fireEnd instanceof Date && !isNaN(fireEnd.getTime()) && fireEnd < today) {
-        const msg = `Insurance Expired - The insurance end date (${formatToDDMMYYYY(fireEnd)}) has expired.`;
+        const msg = `Insurance Expired - The fire insurance end date (${formatToDDMMYYYY(fireEnd)}) has expired. You must first update the insurance data for this warehouse in both Insurance Master and Survey before inward entry can be processed.`;
         setInlineAlert({ title: 'Insurance Expired', message: msg, severity: 'error' });
         setPreventInward(true);
         return;
       }
       if (burglaryEnd instanceof Date && !isNaN(burglaryEnd.getTime()) && burglaryEnd < today) {
-        const msg = `Insurance Expired - The insurance end date (${formatToDDMMYYYY(burglaryEnd)}) has expired.`;
+        const msg = `Insurance Expired - The burglary insurance end date (${formatToDDMMYYYY(burglaryEnd)}) has expired. You must first update the insurance data for this warehouse in both Insurance Master and Survey before inward entry can be processed.`;
         setInlineAlert({ title: 'Insurance Expired', message: msg, severity: 'error' });
         setPreventInward(true);
         return;
@@ -3255,6 +3255,18 @@ export default function InwardPage() {
 
   // Add new inward entry
   const addNewInwardEntry = () => {
+    // Check if inward is prevented due to expired reservation or insurance
+    if (preventInward) {
+      const tTitle = inlineAlert?.title || alertTitle || 'Action Blocked';
+      const tDesc = inlineAlert?.message || alertMessage || 'Cannot proceed due to expired reservation or insurance.';
+      toast({
+        title: tTitle,
+        description: tDesc,
+        variant: 'destructive'
+      });
+      return;
+    }
+
     if (!validateStackBags()) {
       alert('Total bags must equal the sum of all stack bags. Please check your entries.');
       return;
@@ -3637,53 +3649,62 @@ export default function InwardPage() {
       return value ?? '';
     };
 
-    // Function to create detailed rows including nested data
+    // Function to create detailed rows for multiple vehicle entries and their stacks
     const createDetailedRows = (dataToExport: any[]) => {
       const detailedRows: any[] = [];
       
       dataToExport.forEach((row) => {
-        // Main row data
-        const mainRowData = visibleColumns.map(col => {
-          const cellValue = getCellContent(row, col);
-          const stringValue = String(cellValue).replace(/"/g, '""');
-          return `"${stringValue}"`;
-        }).join(',');
+        // Check if we have multiple vehicle entries (inwardEntries)
+        const vehicleEntries = row.inwardEntries && Array.isArray(row.inwardEntries) && row.inwardEntries.length > 0
+          ? row.inwardEntries
+          : [null]; // If no vehicle entries, create one row with main data
         
-        detailedRows.push(mainRowData);
-        
-        // Add detailed stack information if stacks exist
-        if (row.stacks && Array.isArray(row.stacks) && row.stacks.length > 0) {
-          row.stacks.forEach((stack: any, stackIndex: number) => {
-            const stackDetailRow = visibleColumns.map(col => {
-              if (col.accessorKey === 'inwardCode') {
-                return `"  └─ Stack ${stackIndex + 1}"`;
-              } else if (col.accessorKey === 'stacks') {
-                return `"Stack: ${stack.stackNumber}, Bags: ${stack.numberOfBags}"`;
-              } else if (col.accessorKey === 'commodity') {
-                return `"Stack Details"`;
+        vehicleEntries.forEach((vehicleEntry: any, vehicleIndex: number) => {
+          // For each vehicle entry, check if it has stacks
+          const stacks = vehicleEntry?.stacks && Array.isArray(vehicleEntry.stacks) && vehicleEntry.stacks.length > 0
+            ? vehicleEntry.stacks
+            : (row.stacks && Array.isArray(row.stacks) && row.stacks.length > 0 ? row.stacks : [null]);
+          
+          stacks.forEach((stack: any, stackIndex: number) => {
+            // Create a row with repeated main data + vehicle data + stack data
+            const csvRow = visibleColumns.map(col => {
+              const { accessorKey } = col;
+              let value;
+              
+              // Vehicle-specific data (if available)
+              if (vehicleEntry && accessorKey === 'vehicleNumber') {
+                value = vehicleEntry.vehicleNumber || row.vehicleNumber || '';
+              } else if (vehicleEntry && accessorKey === 'getpassNumber') {
+                value = vehicleEntry.getpassNumber || row.getpassNumber || '';
+              } else if (vehicleEntry && accessorKey === 'weightBridge') {
+                value = vehicleEntry.weightBridge || row.weightBridge || '';
+              } else if (vehicleEntry && accessorKey === 'weightBridgeSlipNumber') {
+                value = vehicleEntry.weightBridgeSlipNumber || row.weightBridgeSlipNumber || '';
+              } else if (vehicleEntry && accessorKey === 'grossWeight') {
+                value = vehicleEntry.grossWeight || row.grossWeight || '';
+              } else if (vehicleEntry && accessorKey === 'tareWeight') {
+                value = vehicleEntry.tareWeight || row.tareWeight || '';
+              } else if (vehicleEntry && accessorKey === 'netWeight') {
+                value = vehicleEntry.netWeight || row.netWeight || '';
+              } else if (vehicleEntry && accessorKey === 'averageWeight') {
+                value = vehicleEntry.averageWeight || row.averageWeight || '';
+              } 
+              // Stack-specific data
+              else if (stack && accessorKey === 'stacks') {
+                value = `${stack.stackNumber || ''} (${stack.numberOfBags || 0} bags)`;
               }
-              return '""'; // Empty for other columns
+              // Main row data for all other columns
+              else {
+                value = getCellContent(row, col);
+              }
+              
+              const stringValue = String(value).replace(/"/g, '""');
+              return `"${stringValue}"`;
             }).join(',');
             
-            detailedRows.push(stackDetailRow);
+            detailedRows.push(csvRow);
           });
-        }
-        
-        // Add lab results details if available
-        if (row.labResults && Array.isArray(row.labResults) && row.labResults.length > 0) {
-          const labDetailRow = visibleColumns.map(col => {
-            if (col.accessorKey === 'inwardCode') {
-              return `"  └─ Lab Results"`;
-            } else if (col.accessorKey === 'labResults') {
-              return `"${row.labResults.join('; ')}"`;
-            } else if (col.accessorKey === 'commodity') {
-              return `"Lab Parameters: ${row.dateOfSampling || 'N/A'}"`;
-            }
-            return '""';
-          }).join(',');
-          
-          detailedRows.push(labDetailRow);
-        }
+        });
       });
       
       return detailedRows;
@@ -5932,6 +5953,9 @@ export default function InwardPage() {
               setIsEditMode(false);
               setEditingRow(null);
               resetForm();
+              // Clear any previous validation states
+              setPreventInward(false);
+              setInlineAlert(null);
               setShowAddModal(true);
             }}>
               + Add Inward
