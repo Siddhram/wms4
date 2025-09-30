@@ -770,7 +770,7 @@ export default function InwardPage() {
               // Lab parameters from document level
               dateOfSampling: data.dateOfSampling || '-',
               dateOfTesting: data.dateOfTesting || '-',
-              labResults: data.labResults || [],
+              labResults: migrateLabResults(data.labResults || [], data.commodity, data.variety),
               stacks: data.inwardEntries[0]?.stacks || [],
               
               // Additional fields for multiple entries
@@ -1100,7 +1100,7 @@ export default function InwardPage() {
     totalQuantity: '',
     dateOfSampling: '',
     dateOfTesting: '',
-    labResults: [] as string[],
+    labResults: [] as Array<{parameterName: string, value: string}>,
     labResultsValidation: [] as boolean[],
     stacks: [
       {
@@ -1979,7 +1979,10 @@ export default function InwardPage() {
     const particulars = variety?.particulars || [];
     setCurrentEntryForm(f => ({
       ...f,
-      labResults: Array(particulars.length).fill(''),
+      labResults: particulars.map((particular: any) => ({
+        parameterName: particular.particularName || '',
+        value: ''
+      })),
       labResultsValidation: Array(particulars.length).fill(true)
     }));
   };
@@ -3628,7 +3631,29 @@ export default function InwardPage() {
         return value.map((s: any) => `${s.stackNumber} (${s.numberOfBags} bags)`).join('; ');
       }
       if (accessorKey === 'labResults' && Array.isArray(value)) {
-        return value.join(', ');
+        // Enhanced lab results with parameter names - now using stored objects
+        if (value.length > 0) {
+          return value.map((result: any) => {
+            // Handle both new object format and legacy string format
+            if (typeof result === 'object' && result.parameterName && result.value) {
+              return `${result.parameterName}-${result.value}`;
+            } else if (typeof result === 'string') {
+              // Legacy fallback - try to get parameter names from commodity/variety
+              const commodity = commodities.find(c => c.commodityName === row.commodity);
+              const variety = commodity?.varieties?.find(v => v.varietyName === row.variety);
+              const particulars = variety?.particulars || [];
+              const index = value.indexOf(result);
+              const paramName = particulars[index]?.particularName || `Parameter${index + 1}`;
+              return `${paramName}-${result}`;
+            }
+            return result;
+          }).join(',');
+        }
+        return '';
+      }
+      // Handle Base Receipt field
+      if (accessorKey === 'bankReceipt' || accessorKey === 'baseReceiptNo') {
+        return row.baseReceiptNo || row.bankReceipt || '-';
       }
       // Handle insurance data that might be undefined
       if (accessorKey === 'firePolicyAmount' || accessorKey === 'burglaryPolicyAmount' || 
@@ -3649,7 +3674,7 @@ export default function InwardPage() {
       return value ?? '';
     };
 
-    // Function to create detailed rows for multiple vehicle entries and their stacks
+    // Function to create rows for multiple vehicle entries (one row per vehicle with combined stack info)
     const createDetailedRows = (dataToExport: any[]) => {
       const detailedRows: any[] = [];
       
@@ -3660,50 +3685,51 @@ export default function InwardPage() {
           : [null]; // If no vehicle entries, create one row with main data
         
         vehicleEntries.forEach((vehicleEntry: any, vehicleIndex: number) => {
-          // For each vehicle entry, check if it has stacks
-          const stacks = vehicleEntry?.stacks && Array.isArray(vehicleEntry.stacks) && vehicleEntry.stacks.length > 0
-            ? vehicleEntry.stacks
-            : (row.stacks && Array.isArray(row.stacks) && row.stacks.length > 0 ? row.stacks : [null]);
-          
-          stacks.forEach((stack: any, stackIndex: number) => {
-            // Create a row with repeated main data + vehicle data + stack data
-            const csvRow = visibleColumns.map(col => {
-              const { accessorKey } = col;
-              let value;
-              
-              // Vehicle-specific data (if available)
-              if (vehicleEntry && accessorKey === 'vehicleNumber') {
-                value = vehicleEntry.vehicleNumber || row.vehicleNumber || '';
-              } else if (vehicleEntry && accessorKey === 'getpassNumber') {
-                value = vehicleEntry.getpassNumber || row.getpassNumber || '';
-              } else if (vehicleEntry && accessorKey === 'weightBridge') {
-                value = vehicleEntry.weightBridge || row.weightBridge || '';
-              } else if (vehicleEntry && accessorKey === 'weightBridgeSlipNumber') {
-                value = vehicleEntry.weightBridgeSlipNumber || row.weightBridgeSlipNumber || '';
-              } else if (vehicleEntry && accessorKey === 'grossWeight') {
-                value = vehicleEntry.grossWeight || row.grossWeight || '';
-              } else if (vehicleEntry && accessorKey === 'tareWeight') {
-                value = vehicleEntry.tareWeight || row.tareWeight || '';
-              } else if (vehicleEntry && accessorKey === 'netWeight') {
-                value = vehicleEntry.netWeight || row.netWeight || '';
-              } else if (vehicleEntry && accessorKey === 'averageWeight') {
-                value = vehicleEntry.averageWeight || row.averageWeight || '';
-              } 
-              // Stack-specific data
-              else if (stack && accessorKey === 'stacks') {
-                value = `${stack.stackNumber || ''} (${stack.numberOfBags || 0} bags)`;
-              }
-              // Main row data for all other columns
-              else {
-                value = getCellContent(row, col);
-              }
-              
-              const stringValue = String(value).replace(/"/g, '""');
-              return `"${stringValue}"`;
-            }).join(',');
+          // Create ONE row per vehicle entry with all stack details combined
+          const csvRow = visibleColumns.map(col => {
+            const { accessorKey } = col;
+            let value;
             
-            detailedRows.push(csvRow);
-          });
+            // Vehicle-specific data (if available)
+            if (vehicleEntry && accessorKey === 'vehicleNumber') {
+              value = vehicleEntry.vehicleNumber || row.vehicleNumber || '';
+            } else if (vehicleEntry && accessorKey === 'getpassNumber') {
+              value = vehicleEntry.getpassNumber || row.getpassNumber || '';
+            } else if (vehicleEntry && accessorKey === 'weightBridge') {
+              value = vehicleEntry.weightBridge || row.weightBridge || '';
+            } else if (vehicleEntry && accessorKey === 'weightBridgeSlipNumber') {
+              value = vehicleEntry.weightBridgeSlipNumber || row.weightBridgeSlipNumber || '';
+            } else if (vehicleEntry && accessorKey === 'grossWeight') {
+              value = vehicleEntry.grossWeight || row.grossWeight || '';
+            } else if (vehicleEntry && accessorKey === 'tareWeight') {
+              value = vehicleEntry.tareWeight || row.tareWeight || '';
+            } else if (vehicleEntry && accessorKey === 'netWeight') {
+              value = vehicleEntry.netWeight || row.netWeight || '';
+            } else if (vehicleEntry && accessorKey === 'averageWeight') {
+              value = vehicleEntry.averageWeight || row.averageWeight || '';
+            } 
+            // Stack-specific data - combine all stacks for this vehicle
+            else if (accessorKey === 'stacks') {
+              const stacks = vehicleEntry?.stacks && Array.isArray(vehicleEntry.stacks) && vehicleEntry.stacks.length > 0
+                ? vehicleEntry.stacks
+                : (row.stacks && Array.isArray(row.stacks) && row.stacks.length > 0 ? row.stacks : []);
+              
+              if (stacks.length > 0) {
+                value = stacks.map((stack: any) => `${stack.stackNumber || ''} (${stack.numberOfBags || 0} bags)`).join('; ');
+              } else {
+                value = '';
+              }
+            }
+            // Main row data for all other columns
+            else {
+              value = getCellContent(row, col);
+            }
+            
+            const stringValue = String(value).replace(/"/g, '""');
+            return `"${stringValue}"`;
+          }).join(',');
+          
+          detailedRows.push(csvRow);
         });
       });
       
@@ -3820,6 +3846,33 @@ export default function InwardPage() {
     }
   };
 
+  // Helper function to extract lab result value (handles both object and string formats)
+  const getLabResultValue = (labResults: any[], index: number): string => {
+    if (!labResults || !labResults[index]) return '';
+    const result = labResults[index];
+    return typeof result === 'object' ? result.value || '' : result || '';
+  };
+
+  // Migration function to convert old string arrays to new object arrays
+  const migrateLabResults = (labResults: any[], commodityName?: string, varietyName?: string): Array<{parameterName: string, value: string}> => {
+    if (!labResults || labResults.length === 0) return [];
+    
+    // If already in new format, return as is
+    if (labResults.length > 0 && typeof labResults[0] === 'object' && labResults[0].parameterName) {
+      return labResults;
+    }
+    
+    // Migration from old string array format
+    const commodity = commodities.find(c => c.commodityName === commodityName);
+    const variety = commodity?.varieties?.find(v => v.varietyName === varietyName);
+    const particulars = variety?.particulars || [];
+    
+    return labResults.map((value: string, index: number) => ({
+      parameterName: particulars[index]?.particularName || `Parameter${index + 1}`,
+      value: value || ''
+    }));
+  };
+
   // Helper to get particulars for selected commodity and variety
   const getSelectedVarietyParticulars = () => {
     // Use selectedRowForSR if available (for PDF generation), otherwise use form data
@@ -3867,7 +3920,10 @@ export default function InwardPage() {
 
     setCurrentEntryForm(f => {
       const updatedResults = [...(f.labResults || [])];
-      updatedResults[index] = value;
+      updatedResults[index] = {
+        parameterName: particular.particularName || `Parameter${index + 1}`,
+        value: value
+      };
       
       const updatedValidation = [...(f.labResultsValidation || [])];
       updatedValidation[index] = isValid;

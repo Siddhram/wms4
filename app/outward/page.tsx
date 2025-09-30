@@ -632,6 +632,7 @@ export default function OutwardPage() {
     const headers = [
       'Outward Code',
       'SR/WR Receipt Number',
+      'Base Receipt',
       'DO Code',
       'CAD Number',
       'State',
@@ -677,6 +678,7 @@ export default function OutwardPage() {
       return stacks.map((stack: any) => [
         outward.outwardCode || '',
         outward.srwrNo || '',
+        outward.baseReceiptNo || outward.bankReceipt || '-',
         outward.doCode || '',
         outward.cadNumber || '',
         outward.state || '',
