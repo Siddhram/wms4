@@ -1273,31 +1273,41 @@ export default function InwardPage() {
   // Fetch available reservations based on warehouse and client
   const fetchAvailableReservations = useCallback(async (warehouseName: string, clientName: string) => {
     if (!warehouseName || !clientName) {
+      console.log('❌ fetchAvailableReservations: Missing warehouse or client', { warehouseName, clientName });
       setAvailableReservations([]);
       setSelectedReservation(null);
       return;
     }
+
+    console.log('🔍 Fetching reservations for:', { warehouseName, clientName });
 
     try {
       const reservationCollection = collection(db, 'reservation');
       const snapshot = await getDocs(reservationCollection);
       const reservations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
+      console.log('📋 Total reservations found:', reservations.length);
+      console.log('📋 Sample reservation structure:', reservations[0]);
+      
       // Filter reservations for the selected warehouse and client
       const matchingReservations = reservations.filter(res => 
         res.warehouse === warehouseName && res.client === clientName
       );
       
+      console.log('✅ Matching reservations:', matchingReservations.length);
+      console.log('✅ Matching reservations data:', matchingReservations);
+      
       setAvailableReservations(matchingReservations);
       
       // Auto-select if only one reservation is available
       if (matchingReservations.length === 1) {
+        console.log('🎯 Auto-selecting single reservation:', matchingReservations[0]);
         setSelectedReservation(matchingReservations[0]);
       } else {
         setSelectedReservation(null);
       }
     } catch (error) {
-      console.error('Error fetching reservations:', error);
+      console.error('❌ Error fetching reservations:', error);
       setAvailableReservations([]);
       setSelectedReservation(null);
     }
@@ -6223,9 +6233,15 @@ export default function InwardPage() {
                 <Select 
                   value={form.warehouseName} 
                   onValueChange={async (warehouseName) => {
+                    console.log('🏭 Warehouse selected:', warehouseName);
+                    console.log('👤 Current client:', form.client);
+                    
                     // Fetch available reservations when warehouse changes
                     if (warehouseName && form.client) {
+                      console.log('🔄 Fetching reservations for warehouse and client...');
                       fetchAvailableReservations(warehouseName, form.client);
+                    } else {
+                      console.log('⚠️ Cannot fetch reservations - missing warehouse or client');
                     }
                     
                     const selectedWarehouse = filteredWarehouses.find((w: any) => w.warehouseName === warehouseName);
@@ -6304,10 +6320,16 @@ export default function InwardPage() {
                 <Select 
                   value={form.client} 
                   onValueChange={v => {
+                    console.log('👤 Client selected:', v);
+                    console.log('🏭 Current warehouse:', form.warehouseName);
+                    
                     setBaseForm(f => ({ ...f, client: v }));
                     // Fetch available reservations when client changes
                     if (form.warehouseName && v) {
+                      console.log('🔄 Fetching reservations for client and warehouse...');
                       fetchAvailableReservations(form.warehouseName, v);
+                    } else {
+                      console.log('⚠️ Cannot fetch reservations - missing warehouse or client');
                     }
                   }}
                   disabled={!canCreateInwardEntry}
@@ -6519,6 +6541,14 @@ export default function InwardPage() {
                       value={selectedReservation?.id || ''} 
                       onValueChange={reservationId => {
                         const selected = availableReservations.find(res => res.id === reservationId);
+                        console.log('🎯 Reservation selected:', selected);
+                        console.log('📋 Billing Status:', selected?.billingStatus);
+                        console.log('💰 Billing Data:', {
+                          billingCycle: selected?.billingCycle,
+                          billingType: selected?.billingType,
+                          billingRate: selected?.billingRate,
+                          reservationRate: selected?.reservationRate
+                        });
                         setSelectedReservation(selected);
                       }}
                       disabled={!canCreateInwardEntry}
@@ -6606,6 +6636,24 @@ export default function InwardPage() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Debug section - remove after fixing */}
+            {form.warehouseName && form.client && (
+              <div className="border border-blue-200 rounded-lg p-4 bg-blue-50 mb-4">
+                <h3 className="font-semibold text-blue-800 mb-2">Debug Information</h3>
+                <p className="text-sm text-blue-700">Warehouse: {form.warehouseName}</p>
+                <p className="text-sm text-blue-700">Client: {form.client}</p>
+                <p className="text-sm text-blue-700">Available Reservations: {availableReservations.length}</p>
+                <p className="text-sm text-blue-700">Selected Reservation: {selectedReservation?.reservationId || 'None'}</p>
+                <Button 
+                  onClick={() => fetchAvailableReservations(form.warehouseName, form.client)} 
+                  className="mt-2 bg-blue-600 hover:bg-blue-700"
+                  size="sm"
+                >
+                  🔄 Refresh Reservations
+                </Button>
               </div>
             )}
 
