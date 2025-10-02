@@ -89,6 +89,9 @@ export default function ReleaseOrderPage() {
   } = useRoleAccess();
   // Placeholder state for search
   const [searchTerm, setSearchTerm] = React.useState('');
+  // Pagination states
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [itemsPerPage] = React.useState(10);
   const [showAddModal, setShowAddModal] = React.useState(false);
   const [inwardOptions, setInwardOptions] = React.useState([] as any[]);
   const [inwardSearch, setInwardSearch] = React.useState('');
@@ -108,12 +111,60 @@ export default function ReleaseOrderPage() {
   const [remark, setRemark] = React.useState('');
   const [roStatusUpdating, setROStatusUpdating] = React.useState(false);
   const [dataVersion, setDataVersion] = React.useState(0);
+  const [editingRO, setEditingRO] = React.useState(null as any | null);
+
+  // Reset form state
+  const resetForm = React.useCallback(() => {
+    setSelectedInward(null);
+    setReleaseBags('');
+    setReleaseQty('');
+    setFileAttachments([]);
+    setEditingRO(null);
+    setFormError(null);
+    setSubmitSuccess(false);
+    setCurrentBalanceBags(null);
+    setCurrentBalanceQty(null);
+  }, []);
 
   // Cross-module reflection - dispatch events when data changes
   const dispatchDataUpdate = React.useCallback(() => {
     window.dispatchEvent(new CustomEvent('roDataUpdated', {
       detail: { timestamp: Date.now() }
     }));
+  }, []);
+
+  // Determine what action buttons/status to show based on RO status
+  const getROActionElements = React.useCallback((ro: any) => {
+    const status = ro.roStatus || 'pending';
+    const normalizedStatus = status.toLowerCase();
+    
+    // For resubmitted ROs, only show status and edit button
+    if (normalizedStatus === 'resubmitted' || normalizedStatus === 'resubmit') {
+      return {
+        showStatus: true,
+        showViewButton: false,
+        showEditButton: true,
+        statusOnly: true
+      };
+    }
+    
+    // For rejected ROs, only show status (no action buttons)
+    if (normalizedStatus === 'rejected' || normalizedStatus === 'reject') {
+      return {
+        showStatus: true,
+        showViewButton: false,
+        showEditButton: false,
+        statusOnly: true
+      };
+    }
+    
+    // For other statuses, show status and view button
+    return {
+      showStatus: true,
+      showViewButton: true,
+      showEditButton: false,
+      statusOnly: false
+    };
   }, []);
 
   // Fetch all releaseOrders for the table
@@ -206,6 +257,22 @@ export default function ReleaseOrderPage() {
     
     return filtered;
   }, [searchTerm, latestROs]);
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredROs.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentPageData = filteredROs.slice(startIndex, endIndex);
+
+  // Reset to first page when filter changes
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  // Clear expanded rows when page changes
+  React.useEffect(() => {
+    setExpandedRows({});
+  }, [currentPage]);
 
   // Columns for main table
   const roColumns = [
@@ -384,24 +451,90 @@ export default function ReleaseOrderPage() {
       const inwardCol = collection(db, 'inward');
       const q = query(inwardCol, where('status', '==', 'approve'));
       const snap = await getDocs(q);
-    const inwardData: any[] = snap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+      const inwardData: any[] = snap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+
+      // Fetch all existing release orders to check balances
+      const roCol = collection(db, 'releaseOrders');
+      const roSnap = await getDocs(roCol);
+      const allReleaseOrders = roSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
       // Fetch all inspections once for efficiency
       const inspectionsCol = collection(db, 'inspections');
       const inspectionsSnap = await getDocs(inspectionsCol);
-    const inspections = inspectionsSnap.docs.map((doc: any) => doc.data());
+      const inspections = inspectionsSnap.docs.map((doc: any) => doc.data());
 
-      // Map inward entries to include receiptType from inspection
+      // Group release orders by SR/WR number for balance calculation
+      const releaseOrdersBySRWR: Record<string, any[]> = {};
+      
+      allReleaseOrders.forEach((roItem: any) => {
+        const srwrNo = roItem.srwrNo;
+        if (srwrNo) {
+          if (!releaseOrdersBySRWR[srwrNo]) {
+            releaseOrdersBySRWR[srwrNo] = [];
+          }
+          releaseOrdersBySRWR[srwrNo].push(roItem);
+        }
+      });
+
+      // Map inward entries to include receiptType and calculate balance
       const merged = inwardData.map((inward: any) => {
         const inspection = inspections.find((ins: any) =>
           ins.warehouseName && inward.warehouseName &&
           ins.warehouseName.toLowerCase().trim() === inward.warehouseName.toLowerCase().trim()
         );
+        
+        const receiptType = inspection?.receiptType || 'SR';
+        const srwrNo = `${receiptType}-${inward.inwardId || ''}-${inward.dateOfInward || ''}`;
+        
+        // Calculate remaining balance by checking existing release orders
+        // Only approved ROs should affect balance - rejected/resubmitted ROs don't reduce available inventory
+        const existingReleaseOrders = releaseOrdersBySRWR[srwrNo] || [];
+        
+        // Start with total bags and quantity from inward
+        let balanceBags = Number(inward.totalBags || 0);
+        let balanceQuantity = Number(inward.totalQuantity || 0);
+        
+        // Subtract release order quantities from each existing release order
+        if (existingReleaseOrders.length > 0) {
+          console.log(`Found ${existingReleaseOrders.length} existing release orders for ${srwrNo}`);
+          
+          existingReleaseOrders.forEach((roItem: any) => {
+            // Only subtract quantities from approved ROs
+            // Rejected and resubmitted ROs should not affect available balance
+            const roStatus = (roItem.roStatus || 'pending').toLowerCase();
+            
+            if (roStatus === 'approved' || roStatus === 'approve') {
+              const releaseBags = Number(roItem.releaseBags || 0);
+              const releaseQty = Number(roItem.releaseQuantity || 0);
+              
+              console.log(`Subtracting approved RO ${roItem.roCode}: ${releaseBags} bags, ${releaseQty} quantity`);
+              
+              balanceBags -= releaseBags;
+              balanceQuantity -= releaseQty;
+            } else {
+              console.log(`Skipping non-approved RO ${roItem.roCode} with status: ${roItem.roStatus}`);
+            }
+          });
+        }
+        
+        // Ensure balance doesn't go below zero
+        balanceBags = Math.max(0, balanceBags);
+        balanceQuantity = Math.max(0, balanceQuantity);
+        
+        console.log(`Inward ${inward.inwardId}: Final balance ${balanceBags} bags, ${balanceQuantity.toFixed(2)} quantity`);
+        
         return {
           ...inward,
-          receiptType: inspection?.receiptType || 'SR',
+          receiptType,
+          srwrNo,
+          balanceBags,
+          balanceQuantity
         };
-      });
+      })
+      // Filter out inwards with zero balance
+      .filter(inward => inward.balanceBags > 0);
+      
+      console.log(`Found ${merged.length} inward entries with positive balance`);
       setInwardOptions(merged);
     };
     fetchInwards();
@@ -428,17 +561,30 @@ export default function ReleaseOrderPage() {
       const releaseOrdersCol = collection(db, 'releaseOrders');
       const q = query(releaseOrdersCol, where('srwrNo', '==', srwrNo));
       const snap = await getDocs(q);
+      
+      // Calculate balance based on approved ROs only
+      let balanceBags = Number(selectedInward.totalBags) || 0;
+      let balanceQuantity = Number(selectedInward.totalQuantity) || 0;
+      
       if (!snap.empty) {
-        // Get the latest (by createdAt)
-        const sorted = snap.docs
-          .map((doc: any) => doc.data())
-          .sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-        setCurrentBalanceBags(Number(sorted[0].balanceBags) || 0);
-        setCurrentBalanceQty(Number(sorted[0].balanceQuantity) || 0);
-      } else {
-        setCurrentBalanceBags(Number(selectedInward.totalBags) || 0);
-        setCurrentBalanceQty(Number(selectedInward.totalQuantity) || 0);
+        const allROs = snap.docs.map((doc: any) => doc.data());
+        
+        // Subtract only approved RO quantities
+        allROs.forEach((ro: any) => {
+          const roStatus = (ro.roStatus || 'pending').toLowerCase();
+          if (roStatus === 'approved' || roStatus === 'approve') {
+            balanceBags -= Number(ro.releaseBags || 0);
+            balanceQuantity -= Number(ro.releaseQuantity || 0);
+          }
+        });
+        
+        // Ensure balance doesn't go below zero
+        balanceBags = Math.max(0, balanceBags);
+        balanceQuantity = Math.max(0, balanceQuantity);
       }
+      
+      setCurrentBalanceBags(balanceBags);
+      setCurrentBalanceQty(balanceQuantity);
     };
     fetchLatestBalance();
   }, [selectedInward]);
@@ -500,40 +646,30 @@ export default function ReleaseOrderPage() {
       setFormError('Please enter Release Bags and Release Qty.');
       return;
     }
-    if (!fileAttachments || fileAttachments.length === 0) {
+    
+    // For editing, we can allow submitting without new files if the RO already has attachments
+    if (!editingRO && (!fileAttachments || fileAttachments.length === 0)) {
       setFormError('Please attach at least one file.');
       return;
     }
+    
     setIsUploading(true);
     let uploadedFileUrls: string[] = [];
-    try {
-      for (const file of fileAttachments) {
-        const uploadResult = await uploadToCloudinary(file);
-        uploadedFileUrls.push(uploadResult.secure_url);
+    
+    // Handle file uploads (only if new files are provided)
+    if (fileAttachments && fileAttachments.length > 0) {
+      try {
+        for (const file of fileAttachments) {
+          const uploadResult = await uploadToCloudinary(file);
+          uploadedFileUrls.push(uploadResult.secure_url);
+        }
+      } catch (error) {
+        setFormError('File upload failed.');
+        setIsUploading(false);
+        return;
       }
-    } catch (error) {
-      setFormError('File upload failed.');
-      setIsUploading(false);
-      return;
     }
     setIsUploading(false);
-
-    // Generate unique RO code (RO-0001, RO-0002, ...)
-    let roCode = '';
-    try {
-      const releaseOrdersCol = collection(db, 'releaseOrders');
-      const allROsSnap = await getDocs(releaseOrdersCol);
-      const allROs = allROsSnap.docs.map((doc: any) => doc.data());
-      const maxNum = allROs
-        .map((ro: any) => {
-          const match = typeof ro.roCode === 'string' && ro.roCode.match(/^RO-(\d{4})$/);
-          return match ? parseInt(match[1], 10) : 0;
-        })
-        .reduce((a: number, b: number) => Math.max(a, b), 0);
-      roCode = `RO-${String(maxNum + 1).padStart(4, '0')}`;
-    } catch (err) {
-      roCode = 'RO-0001';
-    }
 
     // Calculate new balances
     const totalBagsNum = currentBalanceBags !== null ? currentBalanceBags : (Number(selectedInward.totalBags) || 0);
@@ -563,22 +699,59 @@ export default function ReleaseOrderPage() {
       balanceQuantity: newBalanceQty,
       releaseBags: releaseBagsNum,
       releaseQuantity: releaseQtyNum,
-      attachmentUrls: uploadedFileUrls,
-      createdAt: new Date().toISOString(),
-      roCode,
+      // For editing: keep existing attachments and add new ones, for new RO: use uploaded files
+      attachmentUrls: editingRO 
+        ? [...(editingRO.attachmentUrls || []), ...uploadedFileUrls]
+        : uploadedFileUrls,
+      updatedAt: new Date().toISOString(),
     };
+
     try {
-      await addDoc(collection(db, 'releaseOrders'), roData);
-      setSubmitSuccess(true);
+      if (editingRO) {
+        // Update existing RO
+        const roDocRef = doc(db, 'releaseOrders', editingRO.id);
+        await updateDoc(roDocRef, {
+          ...roData,
+          roStatus: 'pending', // Reset status to pending after edit
+          remark: '', // Clear previous remark
+        });
+        setSubmitSuccess(true);
+      } else {
+        // Create new RO
+        // Generate unique RO code (RO-0001, RO-0002, ...)
+        let roCode = '';
+        try {
+          const releaseOrdersCol = collection(db, 'releaseOrders');
+          const allROsSnap = await getDocs(releaseOrdersCol);
+          const allROs = allROsSnap.docs.map((doc: any) => doc.data());
+          const maxNum = allROs
+            .map((ro: any) => {
+              const match = typeof ro.roCode === 'string' && ro.roCode.match(/^RO-(\d{4})$/);
+              return match ? parseInt(match[1], 10) : 0;
+            })
+            .reduce((a: number, b: number) => Math.max(a, b), 0);
+          roCode = `RO-${String(maxNum + 1).padStart(4, '0')}`;
+        } catch (err) {
+          roCode = 'RO-0001';
+        }
+        
+        await addDoc(collection(db, 'releaseOrders'), {
+          ...roData,
+          roCode,
+          createdAt: new Date().toISOString(),
+          roStatus: 'pending'
+        });
+        setSubmitSuccess(true);
+      }
+      
+      // Reset form and close modal
       setShowAddModal(false);
-      setSelectedInward(null);
-      setReleaseBags('');
-      setReleaseQty('');
-      setFileAttachments([]);
+      resetForm();
       setDataVersion(v => v + 1);
       dispatchDataUpdate();
     } catch (error) {
-      setFormError('Failed to save Release Order.');
+      console.error('Error saving Release Order:', error);
+      setFormError(`Failed to ${editingRO ? 'update' : 'save'} Release Order.`);
     }
   };
 
@@ -613,6 +786,61 @@ export default function ReleaseOrderPage() {
     }
     setROStatusUpdating(false);
   };
+
+  // Handle editing resubmitted RO
+  const handleEditResubmittedRO = React.useCallback(async (ro: any) => {
+    try {
+      // Find the document ID by querying with roCode
+      const releaseOrdersCol = collection(db, 'releaseOrders');
+      const q = query(releaseOrdersCol, where('roCode', '==', ro.roCode));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        alert('Could not find the Release Order to edit.');
+        return;
+      }
+      
+      const roDoc = querySnapshot.docs[0];
+      const roWithId = { ...ro, id: roDoc.id };
+    // Pre-fill the form with existing RO data
+    setSelectedInward({
+      srwrNo: ro.srwrNo,
+      cadNumber: ro.cadNumber,
+      state: ro.state,
+      branch: ro.branch,
+      location: ro.location,
+      warehouseName: ro.warehouseName,
+      warehouseCode: ro.warehouseCode,
+      warehouseAddress: ro.warehouseAddress,
+      client: ro.client,
+      clientCode: ro.clientCode,
+      clientAddress: ro.clientAddress,
+      totalBags: ro.totalBags,
+      totalQuantity: ro.totalQuantity,
+      // Add other necessary fields
+      receiptType: ro.receiptType || 'SR',
+      inwardId: ro.inwardId,
+      dateOfInward: ro.dateOfInward
+    });
+    
+    // Set the existing release data
+    setReleaseBags(ro.releaseBags?.toString() || '');
+    setReleaseQty(ro.releaseQuantity?.toString() || '');
+    
+    // Calculate and set current balance
+    setCurrentBalanceBags(ro.totalBags - (ro.releaseBags || 0));
+    setCurrentBalanceQty(ro.totalQuantity - (ro.releaseQuantity || 0));
+    
+      // Set editing mode flag
+      setEditingRO(roWithId);
+      
+      // Open the modal
+      setShowAddModal(true);
+    } catch (error) {
+      console.error('Error loading RO for editing:', error);
+      alert('Failed to load Release Order for editing.');
+    }
+  }, []);
 
   // Redirect users who don't have access (remove supervisor check since it doesn't exist)
   useEffect(() => {
@@ -692,21 +920,48 @@ export default function ReleaseOrderPage() {
         </Card>
       </div>
       {/* Add RO Dialog */}
-      <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+      <Dialog open={showAddModal} onOpenChange={(open) => {
+        setShowAddModal(open);
+        if (!open) resetForm();
+      }}>
         <DialogContent className="w-[95vw] max-w-5xl h-[95vh] p-3 sm:p-4">
           <div className="flex flex-col space-y-1.5 text-center sm:text-left">
-            <DialogTitle className="text-lg sm:text-xl">Add Release Order</DialogTitle>
+            <DialogTitle className="text-lg sm:text-xl">
+              {editingRO ? 'Edit Release Order' : 'Add Release Order'}
+            </DialogTitle>
           </div>
+          
+          {editingRO && (
+            <div className="mx-2 mb-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-yellow-400 rounded-full flex-shrink-0"></div>
+                <div>
+                  <div className="font-medium text-yellow-800">Editing RO: {editingRO.roCode}</div>
+                  <div className="text-sm text-yellow-700">
+                    This RO was resubmitted with remark: "{editingRO.remark}"
+                  </div>
+                  <div className="text-xs text-yellow-600 mt-1">
+                    Status will be reset to "Pending" after updating.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
           <form onSubmit={handleSubmit} className="space-y-4 max-h-[calc(95vh-120px)] overflow-y-auto p-1 sm:p-2">
             {/* SR/WR No. Dropdown */}
             <div className="grid grid-cols-1 gap-3">
               <div>
                 <Label htmlFor="srwr-select" className="text-sm sm:text-base">Storage/ Warehouse Receipt No.</Label>
-                <Select value={selectedInward ? `${selectedInward.receiptType || 'SR'}-${selectedInward.inwardId || ''}-${selectedInward.dateOfInward || ''}` : ''} onValueChange={(val: string) => {
-                  const found = inwardOptions.find((opt: any) => `${opt.receiptType || 'SR'}-${opt.inwardId || ''}-${opt.dateOfInward || ''}` === val);
-                  setSelectedInward(found || null);
-                }}>
-                  <SelectTrigger id="srwr-select" className="w-full">
+                <Select 
+                  value={selectedInward ? `${selectedInward.receiptType || 'SR'}-${selectedInward.inwardId || ''}-${selectedInward.dateOfInward || ''}` : ''} 
+                  onValueChange={editingRO ? undefined : (val: string) => {
+                    const found = inwardOptions.find((opt: any) => `${opt.receiptType || 'SR'}-${opt.inwardId || ''}-${opt.dateOfInward || ''}` === val);
+                    setSelectedInward(found || null);
+                  }}
+                  disabled={!!editingRO}
+                >
+                  <SelectTrigger id="srwr-select" className={`w-full ${editingRO ? 'opacity-50 cursor-not-allowed' : ''}`}>
                     <SelectValue placeholder="Select SR/WR No." />
                   </SelectTrigger>
                   <SelectContent position="popper" side="bottom">
@@ -791,8 +1046,22 @@ export default function ReleaseOrderPage() {
                   <Input value={releaseQty} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReleaseQty(e.target.value)} type="number" min="0" step="0.001" required className="text-sm" />
                 </div>
                 <div className="sm:col-span-2">
-                  <Label className="text-sm sm:text-base">Attachments (JPG, JPEG, PNG, PDF, DOCX)</Label>
-                  <Input type="file" accept=".jpg,.jpeg,.png,.pdf,.docx" multiple onChange={handleFileChange} required className="text-sm" />
+                  <Label className="text-sm sm:text-base">
+                    {editingRO ? 'Additional Attachments (Optional)' : 'Attachments (JPG, JPEG, PNG, PDF, DOCX)'}
+                  </Label>
+                  {editingRO && (
+                    <div className="text-xs text-gray-600 mb-2">
+                      Existing files will be preserved. You can optionally add more files.
+                    </div>
+                  )}
+                  <Input 
+                    type="file" 
+                    accept=".jpg,.jpeg,.png,.pdf,.docx" 
+                    multiple 
+                    onChange={handleFileChange} 
+                    required={!editingRO} 
+                    className="text-sm" 
+                  />
                 </div>
               </div>
             )}
@@ -855,7 +1124,17 @@ export default function ReleaseOrderPage() {
       <div className="px-4 lg:px-8">
         <Card>
           <CardHeader>
-            <CardTitle className="text-green-700 text-lg lg:text-xl">Release Orders</CardTitle>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <CardTitle className="text-green-700 text-lg lg:text-xl">Release Orders</CardTitle>
+              <div className="text-sm text-gray-600 font-medium">
+                Total Entries: <span className="font-bold text-green-700">{filteredROs.length}</span>
+                {filteredROs.length > itemsPerPage && (
+                  <span className="ml-2">
+                    (Showing {startIndex + 1}-{Math.min(endIndex, filteredROs.length)} of {filteredROs.length})
+                  </span>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             {/* Mobile Card Layout */}
@@ -869,7 +1148,7 @@ export default function ReleaseOrderPage() {
                 </div>
               ) : (
                 <div className="space-y-3 p-4">
-                  {filteredROs.map((ro: any) => (
+                  {currentPageData.map((ro: any) => (
                     <Card key={ro.roCode} className="border border-gray-200 bg-white">
                       <CardContent className="p-4">
                         <div className="flex justify-between items-start mb-3">
@@ -879,9 +1158,11 @@ export default function ReleaseOrderPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             <span className={getStatusStyling(ro.roStatus || 'pending')}>{normalizeStatusText(ro.roStatus || 'pending')}</span>
-                            <Button variant="ghost" size="sm" className="p-1" title="View Details" onClick={() => { setSelectedRO(ro); setShowRODetails(true); }}>
-                              <Eye className="h-4 w-4 text-green-600" />
-                            </Button>
+                            {getROActionElements(ro).showViewButton && (
+                              <Button variant="ghost" size="sm" className="p-1" title="View Details" onClick={() => { setSelectedRO(ro); setShowRODetails(true); }}>
+                                <Eye className="h-4 w-4 text-green-600" />
+                              </Button>
+                            )}
                           </div>
                         </div>
                         
@@ -911,6 +1192,26 @@ export default function ReleaseOrderPage() {
                             <div className="text-gray-600">{getBalanceBags(ro)}</div>
                           </div>
                         </div>
+                        
+                        {/* Remark section for resubmitted ROs */}
+                        {ro.remark && (
+                          <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded">
+                            <span className="font-medium text-gray-700 text-sm">Checker Remark:</span>
+                            <div className="text-gray-600 text-sm mt-1">{ro.remark}</div>
+                          </div>
+                        )}
+                        
+                        {/* Edit button for resubmitted ROs */}
+                        {(ro.roStatus === 'resubmitted' || ro.roStatus === 'resubmit') && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-3 w-full bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-300"
+                            onClick={() => handleEditResubmittedRO(ro)}
+                          >
+                            Edit RO
+                          </Button>
+                        )}
                         
                         <Button
                           variant="outline"
@@ -951,15 +1252,51 @@ export default function ReleaseOrderPage() {
                   ))}
                 </div>
               )}
+
+              {/* Mobile Pagination */}
+              {filteredROs.length > itemsPerPage && (
+                <div className="p-4 bg-gray-50 border-t">
+                  <div className="flex flex-col gap-4">
+                    <div className="text-center text-sm text-gray-600">
+                      Showing {startIndex + 1} to {Math.min(endIndex, filteredROs.length)} of {filteredROs.length} entries
+                    </div>
+                    <div className="flex justify-center items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        className="text-xs"
+                      >
+                        ← Prev
+                      </Button>
+                      
+                      <span className="text-sm text-gray-600 px-2">
+                        Page {currentPage} of {totalPages}
+                      </span>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                        className="text-xs"
+                      >
+                        Next →
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             
             {/* Desktop Table Layout */}
-            <div className="hidden lg:block" style={{ width: '100%', overflowX: 'auto' }}>
+            <div className="hidden lg:block" style={{ width: '100%', overflowX: 'auto', overflowY: 'auto', maxHeight: '600px' }}>
               <table className="min-w-[1400px] border text-sm">
-                <thead className="bg-orange-100">
+                <thead className="bg-orange-100 sticky top-0 z-10">
                   <tr>
-                    <th className="px-2 py-1 border"></th>
-                    <th className="px-2 py-1 border">RO Code</th>
+                    <th className="px-2 py-1 border sticky left-0 bg-orange-100 z-20"></th>
+                    <th className="px-2 py-1 border sticky left-[40px] bg-orange-100 z-20">RO Code</th>
                     <th className="px-2 py-1 border">SR/WR No.</th>
                     <th className="px-2 py-1 border">State</th>
                     <th className="px-2 py-1 border">Branch</th>
@@ -977,12 +1314,14 @@ export default function ReleaseOrderPage() {
                     <th className="px-2 py-1 border">Balance Bags</th>
                     <th className="px-2 py-1 border">Balance Quantity (MT)</th>
                     <th className="px-2 py-1 border">RO Status</th>
+                    <th className="px-2 py-1 border">Checker Remark</th>
+                    <th className="px-2 py-1 border">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredROs.length === 0 ? (
                     <tr>
-                      <td colSpan={19} className="px-2 py-8 text-center text-gray-500">
+                      <td colSpan={21} className="px-2 py-8 text-center text-gray-500">
                         {releaseOrders.length === 0 
                           ? "No release orders found. Click 'Add RO' to create your first entry."
                           : "No release orders match your search criteria. Try adjusting your search terms."
@@ -990,10 +1329,10 @@ export default function ReleaseOrderPage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredROs.map((ro: any) => (
+                    currentPageData.map((ro: any) => (
                       <React.Fragment key={ro.roCode}>
                         <tr className="even:bg-gray-50">
-                        <td className="px-2 py-1 border text-center">
+                        <td className="px-2 py-1 border text-center sticky left-0 bg-white even:bg-gray-50 z-10">
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1002,7 +1341,7 @@ export default function ReleaseOrderPage() {
                             {expandedRows[ro.srwrNo] ? '▼' : '▶'}
                           </Button>
                         </td>
-                        <td className="px-2 py-1 border text-center">{ro.roCode}</td>
+                        <td className="px-2 py-1 border text-center sticky left-[40px] bg-white even:bg-gray-50 z-10">{ro.roCode}</td>
                         <td className="px-2 py-1 border text-center">{ro.srwrNo}</td>
                         <td className="px-2 py-1 border text-center">{ro.state}</td>
                         <td className="px-2 py-1 border text-center">{ro.branch}</td>
@@ -1022,15 +1361,40 @@ export default function ReleaseOrderPage() {
                         <td className="px-2 py-1 border text-center">
                           <div className="flex items-center justify-center gap-2">
                             <span className={getStatusStyling(ro.roStatus || 'pending')}>{normalizeStatusText(ro.roStatus || 'pending')}</span>
-                            <Button variant="ghost" size="sm" className="p-1" title="View Details" onClick={() => { setSelectedRO(ro); setShowRODetails(true); }}>
-                              <Eye className="h-4 w-4 text-green-600" />
-                            </Button>
+                            {getROActionElements(ro).showViewButton && (
+                              <Button variant="ghost" size="sm" className="p-1" title="View Details" onClick={() => { setSelectedRO(ro); setShowRODetails(true); }}>
+                                <Eye className="h-4 w-4 text-green-600" />
+                              </Button>
+                            )}
                           </div>
+                        </td>
+                        <td className="px-2 py-1 border text-center text-xs max-w-32">
+                          {ro.remark ? (
+                            <div className="truncate" title={ro.remark}>
+                              {ro.remark}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
+                        <td className="px-2 py-1 border text-center">
+                          {ro.roStatus === 'resubmitted' || ro.roStatus === 'resubmit' ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-300"
+                              onClick={() => handleEditResubmittedRO(ro)}
+                            >
+                              Edit
+                            </Button>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
                         </td>
                       </tr>
                       {expandedRows[ro.srwrNo] && (
                         <tr>
-                          <td colSpan={19} className="p-0">
+                          <td colSpan={21} className="p-0">
                             <div className="bg-green-50 border-t">
                               <div className="font-semibold mb-2 text-orange-700 px-4 pt-2">All Release Orders for SR/WR No. - {ro.srwrNo}</div>
                               <div className="overflow-x-auto px-4 pb-2">
@@ -1082,6 +1446,82 @@ export default function ReleaseOrderPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls */}
+            {filteredROs.length > itemsPerPage && (
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-4 p-4 bg-gray-50 border-t">
+                <div className="text-sm text-gray-600">
+                  Showing {startIndex + 1} to {Math.min(endIndex, filteredROs.length)} of {filteredROs.length} entries
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className="text-xs"
+                  >
+                    First
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="text-xs"
+                  >
+                    Previous
+                  </Button>
+                  
+                  {/* Page numbers */}
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      
+                      return (
+                        <Button
+                          key={pageNum}
+                          variant={currentPage === pageNum ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setCurrentPage(pageNum)}
+                          className="text-xs w-8 h-8"
+                        >
+                          {pageNum}
+                        </Button>
+                      );
+                    })}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="text-xs"
+                  >
+                    Next
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="text-xs"
+                  >
+                    Last
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
         {/* RO Details Dialog */}
@@ -1342,8 +1782,10 @@ export default function ReleaseOrderPage() {
                     readOnly={!canEditRORemark()}
                   />
                 </div>
-                {/* Status action buttons - only for checkers */}
-                {showROActionButtons() && (
+                {/* Status action buttons - only for checkers and not for approved/rejected ROs */}
+                {showROActionButtons() && selectedRO && 
+                 selectedRO.roStatus !== 'approved' && selectedRO.roStatus !== 'approve' && 
+                 selectedRO.roStatus !== 'rejected' && selectedRO.roStatus !== 'reject' && (
                   <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mt-4 sm:justify-end">
                     {canApproveReleaseOrder() && (
                       <Button type="button" className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto" onClick={() => handleROStatusChange('approved')} disabled={roStatusUpdating}>Approve</Button>

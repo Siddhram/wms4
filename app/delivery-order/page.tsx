@@ -135,8 +135,8 @@ export default function DeliveryOrderPage() {
           doStatus: d.doStatus || 'pending',
         };
       });
-      // Sort by doCode descending (latest first)
-  data.sort((a: any, b: any) => (b.doCode || '').localeCompare(a.doCode || ''));
+      // Sort by doCode ascending (DO-0001, DO-0002, etc.)
+  data.sort((a: any, b: any) => (a.doCode || '').localeCompare(b.doCode || ''));
       setDeliveryOrders(data);
     };
     fetchDOs();
@@ -181,6 +181,7 @@ export default function DeliveryOrderPage() {
     
     const searchLower = searchTerm.toLowerCase();
     return latestDOs.filter(deliveryOrder => {
+      const doCode = (deliveryOrder.doCode || '').toLowerCase();
       const srwrNo = (deliveryOrder.srwrNo || '').toLowerCase();
       const state = (deliveryOrder.state || '').toLowerCase();
       const branch = (deliveryOrder.branch || '').toLowerCase();
@@ -189,7 +190,8 @@ export default function DeliveryOrderPage() {
       const warehouseCode = (deliveryOrder.warehouseCode || '').toLowerCase();
       const clientName = (deliveryOrder.client || '').toLowerCase();
       
-      return srwrNo.includes(searchLower) ||
+      return doCode.includes(searchLower) ||
+             srwrNo.includes(searchLower) ||
              state.includes(searchLower) ||
              branch.includes(searchLower) ||
              location.includes(searchLower) ||
@@ -198,6 +200,99 @@ export default function DeliveryOrderPage() {
              clientName.includes(searchLower);
     });
   }, [searchTerm, latestDOs]);
+
+  // Calculate paginated data
+  const currentPageData = React.useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return filteredDOs.slice(startIndex, endIndex);
+  }, [filteredDOs, currentPage, pageSize]);
+
+  // Reset to first page when search term changes
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  // Determine what action buttons/status to show based on DO status
+  const getDOActionElements = React.useCallback((doItem: any) => {
+    const status = doItem.doStatus || 'pending';
+    const normalizedStatus = status.toLowerCase();
+    
+    // For resubmitted DOs, only show status and edit button
+    if (normalizedStatus === 'resubmitted' || normalizedStatus === 'resubmit') {
+      return {
+        showStatus: true,
+        showViewButton: false,
+        showEditButton: true,
+        statusOnly: true
+      };
+    }
+    
+    // For rejected DOs, only show status (no action buttons)
+    if (normalizedStatus === 'rejected' || normalizedStatus === 'reject') {
+      return {
+        showStatus: true,
+        showViewButton: false,
+        showEditButton: false,
+        statusOnly: true
+      };
+    }
+    
+    // For other statuses, show status and view button
+    return {
+      showStatus: true,
+      showViewButton: true,
+      showEditButton: false,
+      statusOnly: false
+    };
+  }, []);
+
+  // Reset form to initial state
+  const resetForm = React.useCallback(() => {
+    setRoSearch('');
+    setSelectedRO(null);
+    setSelectedDO(null);
+    setDoBags('');
+    setDoQty('');
+    setFileAttachments([]);
+    setFormError(null);
+    setRemark('');
+    setCurrentBalanceBags(null);
+    setCurrentBalanceQty(null);
+  }, []);
+
+  // Handle editing resubmitted DO
+  const handleEditResubmittedDO = React.useCallback((doItem: any) => {
+    // Find the original RO/inward entry this DO was based on
+    const originalEntry = roOptions.find((opt: any) => opt.srwrNo === doItem.srwrNo);
+    
+    if (!originalEntry) {
+      alert('Cannot find original RO/Inward entry for this DO. Please refresh and try again.');
+      return;
+    }
+
+    // Pre-populate the form with existing DO data
+    setSelectedRO(originalEntry);
+    setDoBags(doItem.doBags?.toString() || '');
+    setDoQty(doItem.doQuantity?.toString() || '');
+    setRemark(doItem.remark || '');
+    
+    // Set file attachments if they exist
+    if (doItem.attachmentUrls && Array.isArray(doItem.attachmentUrls)) {
+      // For existing attachments, we'll show them as URLs since we can't recreate File objects
+      // The form will need to handle this case
+      setFileAttachments([]);
+    }
+    
+    // Clear any previous errors
+    setFormError(null);
+    
+    // Open the modal for editing
+    setShowAddModal(true);
+    
+    // Store the DO being edited for update instead of creation
+    setSelectedDO(doItem);
+  }, [roOptions]);
 
   // Columns for main table
   const doColumns = [
@@ -428,18 +523,24 @@ export default function DeliveryOrderPage() {
         // Log for debugging
         console.log(`RO ${srwrNo}: Starting with ${balanceBags} bags, ${balanceQuantity} quantity`);
         
-        // Subtract DO quantities from each existing DO
+        // Subtract DO quantities from each existing DO - BUT ONLY APPROVED DOs
         if (existingDOs.length > 0) {
           console.log(`Found ${existingDOs.length} existing DOs for ${srwrNo}`);
           
           existingDOs.forEach((doItem: any) => {
-            const doBags = Number(doItem.doBags || 0);
-            const doQty = Number(doItem.doQuantity || 0);
-            
-            console.log(`Subtracting DO ${doItem.doCode}: ${doBags} bags, ${doQty} quantity`);
-            
-            balanceBags -= doBags;
-            balanceQuantity -= doQty;
+            const doStatus = (doItem.doStatus || '').toString().toLowerCase().trim();
+            // Only subtract quantities from approved DOs
+            if (doStatus === 'approved' || doStatus === 'approve') {
+              const doBags = Number(doItem.doBags || 0);
+              const doQty = Number(doItem.doQuantity || 0);
+              
+              console.log(`Subtracting approved DO ${doItem.doCode}: ${doBags} bags, ${doQty} quantity`);
+              
+              balanceBags -= doBags;
+              balanceQuantity -= doQty;
+            } else {
+              console.log(`Skipping non-approved DO ${doItem.doCode} (status: ${doStatus})`);
+            }
           });
         }
         
@@ -741,18 +842,24 @@ export default function DeliveryOrderPage() {
           // Log for debugging
           console.log(`Inward ${srwrNo}: Starting with ${balanceBags} bags, ${balanceQuantity} quantity`);
           
-          // Subtract DO quantities from each existing DO
+          // Subtract DO quantities from each existing DO - BUT ONLY APPROVED DOs
           if (existingDOs.length > 0) {
             console.log(`Found ${existingDOs.length} existing DOs for inward ${srwrNo}`);
             
             existingDOs.forEach((doItem: any) => {
-              const doBags = Number(doItem.doBags || 0);
-              const doQty = Number(doItem.doQuantity || 0);
-              
-              console.log(`Subtracting DO ${doItem.doCode}: ${doBags} bags, ${doQty} quantity`);
-              
-              balanceBags -= doBags;
-              balanceQuantity -= doQty;
+              const doStatus = (doItem.doStatus || '').toString().toLowerCase().trim();
+              // Only subtract quantities from approved DOs
+              if (doStatus === 'approved' || doStatus === 'approve') {
+                const doBags = Number(doItem.doBags || 0);
+                const doQty = Number(doItem.doQuantity || 0);
+                
+                console.log(`Subtracting approved DO ${doItem.doCode}: ${doBags} bags, ${doQty} quantity`);
+                
+                balanceBags -= doBags;
+                balanceQuantity -= doQty;
+              } else {
+                console.log(`Skipping non-approved DO ${doItem.doCode} (status: ${doStatus})`);
+              }
             });
           }
           
@@ -918,9 +1025,12 @@ export default function DeliveryOrderPage() {
       setFormError('Please select an RO');
       return;
     }
+
+    // Check if this is an edit operation
+    const isEditMode = !!selectedDO;
     
-    // Check for mandatory attachment
-    if (fileAttachments.length === 0) {
+    // Check for mandatory attachment (only for new DOs)
+    if (!isEditMode && fileAttachments.length === 0) {
       setFormError('Please upload at least one attachment');
       return;
     }
@@ -993,54 +1103,75 @@ export default function DeliveryOrderPage() {
       const newBalanceBags = balanceBags - dbBags;
       const newBalanceQty = balanceQty - dQuantity;
 
-      // Get next DO code number
-      const doCol = collection(db, 'deliveryOrders');
-      const doSnap = await getDocs(doCol);
-      const doCount = doSnap.size;
-      const newDOCode = `DO-${String(doCount + 1).padStart(4, '0')}`;
+      if (isEditMode) {
+        // Update existing DO
+        const deliveryOrdersCol = collection(db, 'deliveryOrders');
+        const q = query(deliveryOrdersCol, where('doCode', '==', selectedDO.doCode));
+        const snap = await getDocs(q);
+        
+        if (!snap.empty) {
+          const docRef = snap.docs[0].ref;
+          const updateData = {
+            doBags: dbBags,
+            doQuantity: dQuantity,
+            balanceBags: newBalanceBags,
+            balanceQuantity: newBalanceQty,
+            remark: remark,
+            doStatus: 'pending', // Reset status to pending after edit
+            updatedAt: new Date().toISOString(),
+            updatedBy: userRole,
+            // Update attachments if new ones were provided
+            ...(attachmentUrls.length > 0 && { attachmentUrls })
+          };
+          
+          await updateDoc(docRef, updateData);
+        }
+      } else {
+        // Get next DO code number
+        const doCol = collection(db, 'deliveryOrders');
+        const doSnap = await getDocs(doCol);
+        const doCount = doSnap.size;
+        const newDOCode = `DO-${String(doCount + 1).padStart(4, '0')}`;
 
-      // Create new DO record
-      const doData = {
-        doCode: newDOCode,
-        srwrNo: selectedRO.srwrNo,
-        cadNumber: selectedRO.cadNumber,
-        state: selectedRO.state,
-        branch: selectedRO.branch,
-        location: selectedRO.location,
-        warehouseName: selectedRO.warehouseName,
-        warehouseCode: selectedRO.warehouseCode,
-        warehouseAddress: selectedRO.warehouseAddress,
-        client: selectedRO.client,
-        clientCode: selectedRO.clientCode,
-        clientAddress: selectedRO.clientAddress,
-        totalBags: selectedRO.totalBags,
-        totalQuantity: selectedRO.totalQuantity,
-        releaseBags: selectedRO.releaseBags,
-        releaseQuantity: selectedRO.releaseQuantity,
-        doBags: dbBags,
-        doQuantity: dQuantity,
-        balanceBags: newBalanceBags,
-        balanceQuantity: newBalanceQty,
-        attachmentUrls,
-        remark: remark,
-        doStatus: 'pending',
-        createdAt: new Date().toISOString(),
-        createdBy: userRole, // Already has a default value
-        // Add source information
-        isDirectDO: selectedRO.source === 'inward',
-        source: selectedRO.source || 'ro'
-      };
+        // Create new DO record
+        const doData = {
+          doCode: newDOCode,
+          srwrNo: selectedRO.srwrNo,
+          cadNumber: selectedRO.cadNumber,
+          state: selectedRO.state,
+          branch: selectedRO.branch,
+          location: selectedRO.location,
+          warehouseName: selectedRO.warehouseName,
+          warehouseCode: selectedRO.warehouseCode,
+          warehouseAddress: selectedRO.warehouseAddress,
+          client: selectedRO.client,
+          clientCode: selectedRO.clientCode,
+          clientAddress: selectedRO.clientAddress,
+          totalBags: selectedRO.totalBags,
+          totalQuantity: selectedRO.totalQuantity,
+          releaseBags: selectedRO.releaseBags,
+          releaseQuantity: selectedRO.releaseQuantity,
+          doBags: dbBags,
+          doQuantity: dQuantity,
+          balanceBags: newBalanceBags,
+          balanceQuantity: newBalanceQty,
+          attachmentUrls,
+          remark: remark,
+          doStatus: 'pending',
+          createdAt: new Date().toISOString(),
+          createdBy: userRole, // Already has a default value
+          // Add source information
+          isDirectDO: selectedRO.source === 'inward',
+          source: selectedRO.source || 'ro'
+        };
 
-      await addDoc(collection(db, 'deliveryOrders'), doData);
+        await addDoc(collection(db, 'deliveryOrders'), doData);
+      }
       
       setSubmitSuccess(true);
       setIsUploading(false);
       setShowAddModal(false);
-      setSelectedRO(null);
-      setDoBags('');
-      setDoQty('');
-      setFileAttachments([]);
-      setRemark('');
+      resetForm();
 
       // Reset success flag after a delay
       setTimeout(() => {
@@ -1106,14 +1237,8 @@ export default function DeliveryOrderPage() {
           <h1 className="text-3xl font-bold text-orange-600 text-center flex-1">Delivery Order</h1>
           {canCreateDeliveryOrder() && (
             <Button onClick={() => {
+              resetForm();
               setShowAddModal(true);
-              // Clear filters when opening the modal
-              setRoSearch('');
-              setSelectedRO(null);
-              setDoBags('');
-              setDoQty('');
-              setFileAttachments([]);
-              setFormError(null);
             }} className="bg-green-500 hover:bg-green-600 text-white">
               <Plus className="h-4 w-4 mr-2" /> Add DO
             </Button>
@@ -1130,7 +1255,7 @@ export default function DeliveryOrderPage() {
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
                 <Input
                   type="search"
-                  placeholder="Search by SR/WR No, State, Branch, Location, Warehouse Name/Code, Client Name..."
+                  placeholder="Search by DO Code, SR/WR No, State, Branch, Location, Warehouse Name/Code, Client Name..."
                   className="pl-8 pr-8 w-[400px]"
                   value={searchTerm}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
@@ -1149,7 +1274,7 @@ export default function DeliveryOrderPage() {
                 )}
               </div>
               <div className="ml-3 text-sm text-gray-600">
-                Total entries: {filteredDOs.length}
+                Showing {Math.min((currentPage - 1) * pageSize + 1, filteredDOs.length)}-{Math.min(currentPage * pageSize, filteredDOs.length)} of {filteredDOs.length} entries
                 {searchTerm && ` (filtered from ${latestDOs.length})`}
               </div>
             </div>
@@ -1176,12 +1301,13 @@ export default function DeliveryOrderPage() {
               </div>
             </div>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" style={{ maxHeight: '70vh' }}>
             <table className="min-w-[1400px] border text-sm w-full">
               <thead className="bg-orange-100 sticky top-0 z-10">
                 <tr>
                   <th className="px-2 py-1 border sticky left-0 bg-orange-100 z-20"></th>
-                  <th className="px-2 py-1 border sticky left-[60px] bg-orange-100 z-20">SR/WR No.</th>
+                  <th className="px-2 py-1 border sticky left-[60px] bg-orange-100 z-20">DO Code</th>
+                  <th className="px-2 py-1 border">SR/WR No.</th>
                   <th className="px-2 py-1 border">State</th>
                   <th className="px-2 py-1 border">Branch</th>
                   <th className="px-2 py-1 border">Location</th>
@@ -1200,18 +1326,13 @@ export default function DeliveryOrderPage() {
                   <th className="px-2 py-1 border">Balance Bags</th>
                   <th className="px-2 py-1 border">Balance Quantity (MT)</th>
                   <th className="px-2 py-1 border">DO Status</th>
+                  <th className="px-2 py-1 border">Remark</th>
                 </tr>
               </thead>
               <tbody>
-                {(() => {
-                  // Calculate pagination
-                  const startIndex = (currentPage - 1) * pageSize;
-                  const endIndex = startIndex + pageSize;
-                  const paginatedDOs = filteredDOs.slice(startIndex, endIndex);
-                  
-                  return paginatedDOs.length === 0 ? (
+                {currentPageData.length === 0 ? (
                   <tr>
-                    <td colSpan={20} className="px-2 py-8 text-center text-gray-500">
+                    <td colSpan={22} className="px-2 py-8 text-center text-gray-500">
                       {deliveryOrders.length === 0 
                         ? "No delivery orders found. Click 'Add DO' to create your first entry."
                         : "No delivery orders match your search criteria. Try adjusting your search terms."
@@ -1219,7 +1340,7 @@ export default function DeliveryOrderPage() {
                     </td>
                   </tr>
                 ) : (
-                  paginatedDOs.map((do_item: any) => (
+                  currentPageData.map((do_item: any) => (
                   <React.Fragment key={do_item.doCode}>
                     <tr className="even:bg-gray-50">
                       <td className="px-2 py-1 border sticky left-0 bg-white z-10">
@@ -1234,7 +1355,17 @@ export default function DeliveryOrderPage() {
                           {expandedRows[do_item.srwrNo] ? '▼' : '▶'}
                         </Button>
                       </td>
-                      <td className="px-2 py-1 border sticky left-[60px] bg-white z-10" style={{ minWidth: '180px' }}>
+                      <td className="px-2 py-1 border sticky left-[60px] bg-white z-10" style={{ minWidth: '100px' }}>
+                        <div className="flex items-center justify-start">
+                          {do_item.isDirectDO ? (
+                            <span className="inline-block w-3 h-3 rounded-full bg-orange-500 mr-2" title="Direct DO (No Bank Details)"></span>
+                          ) : (
+                            <span className="inline-block w-3 h-3 rounded-full bg-blue-500 mr-2" title="Regular DO (From Release Order)"></span>
+                          )}
+                          {do_item.doCode || ''}
+                        </div>
+                      </td>
+                      <td className="px-2 py-1 border" style={{ minWidth: '180px' }}>
                         <div className="flex items-center justify-start">
                           {do_item.isDirectDO ? (
                             <span className="inline-block w-3 h-3 rounded-full bg-orange-500 mr-2" title="Direct DO (No Bank Details)"></span>
@@ -1265,22 +1396,51 @@ export default function DeliveryOrderPage() {
                       <td className="px-2 py-1 border">{getBalanceBags(do_item)}</td>
                       <td className="px-2 py-1 border">{getBalanceQty(do_item)}</td>
                       <td className="px-2 py-1 border">
-                        <div className="flex items-center justify-center gap-2">
-                          <span className={getStatusStyling(do_item.doStatus || 'pending')}>{normalizeStatusText(do_item.doStatus || 'pending')}</span>
-                          <Button
-                            onClick={() => { setSelectedDO(do_item); setShowDODetails(true); }}
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 w-8 p-0 text-green-600 hover:text-green-800 hover:bg-green-50"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
+                        {(() => {
+                          const actionElements = getDOActionElements(do_item);
+                          return (
+                            <div className="flex items-center justify-center gap-2">
+                              {actionElements.showStatus && (
+                                <span className={getStatusStyling(do_item.doStatus || 'pending')}>
+                                  {normalizeStatusText(do_item.doStatus || 'pending')}
+                                </span>
+                              )}
+                              {actionElements.showViewButton && (
+                                <Button
+                                  onClick={() => { setSelectedDO(do_item); setShowDODetails(true); }}
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 w-8 p-0 text-green-600 hover:text-green-800 hover:bg-green-50"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {actionElements.showEditButton && (
+                                <Button
+                                  onClick={() => handleEditResubmittedDO(do_item)}
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 w-8 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                                  title="Edit Resubmitted DO"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  </svg>
+                                </Button>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-2 py-1 border">
+                        <div className="text-xs text-gray-600">
+                          {do_item.statusRemark || do_item.remark || '-'}
                         </div>
                       </td>
                     </tr>
                     {expandedRows[do_item.srwrNo] && groupedDOs[do_item.srwrNo] && groupedDOs[do_item.srwrNo].length > 0 && (
                       <tr>
-                        <td colSpan={20} className="p-0">
+                        <td colSpan={22} className="p-0">
                           <div className="bg-gray-50 p-4">
                             <div className="text-sm font-medium mb-2">Previous Delivery Orders for this SR/WR</div>
                             <div className="overflow-x-auto">
@@ -1295,6 +1455,7 @@ export default function DeliveryOrderPage() {
                                     <th className="px-2 py-1 border">Balance Qty</th>
                                     <th className="px-2 py-1 border">DO Status</th>
                                     <th className="px-2 py-1 border">Attachment</th>
+                                    <th className="px-2 py-1 border">Remark</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -1307,18 +1468,47 @@ export default function DeliveryOrderPage() {
                                       <td className="px-2 py-1 border text-center">{entry.balanceBags}</td>
                                       <td className="px-2 py-1 border text-center">{entry.balanceQuantity}</td>
                                       <td className="px-2 py-1 border text-center">
-                                        <div className="flex items-center justify-center gap-2">
-                                          <span className={getStatusStyling(entry.doStatus || 'pending')}>{normalizeStatusText(entry.doStatus || 'pending')}</span>
-                                          <Button variant="ghost" size="sm" className="p-1" title="View Details" onClick={() => { setSelectedDO(entry); setShowDODetails(true); }}>
-                                            <Eye className="h-4 w-4 text-green-600" />
-                                          </Button>
-                                        </div>
+                                        {(() => {
+                                          const actionElements = getDOActionElements(entry);
+                                          return (
+                                            <div className="flex items-center justify-center gap-2">
+                                              {actionElements.showStatus && (
+                                                <span className={getStatusStyling(entry.doStatus || 'pending')}>
+                                                  {normalizeStatusText(entry.doStatus || 'pending')}
+                                                </span>
+                                              )}
+                                              {actionElements.showViewButton && (
+                                                <Button variant="ghost" size="sm" className="p-1" title="View Details" onClick={() => { setSelectedDO(entry); setShowDODetails(true); }}>
+                                                  <Eye className="h-4 w-4 text-green-600" />
+                                                </Button>
+                                              )}
+                                              {actionElements.showEditButton && (
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm" 
+                                                  className="p-1"
+                                                  title="Edit Resubmitted DO"
+                                                  onClick={() => handleEditResubmittedDO(entry)}
+                                                >
+                                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                  </svg>
+                                                </Button>
+                                              )}
+                                            </div>
+                                          );
+                                        })()}
                                       </td>
                                       <td className="px-2 py-1 border text-center">
                                         {Array.isArray(entry.attachmentUrls) && entry.attachmentUrls.length > 0 ? 
                                           <a href={entry.attachmentUrls[0]} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">View</a> : 
                                           <span className="text-gray-400">No file</span>
                                         }
+                                      </td>
+                                      <td className="px-2 py-1 border text-center">
+                                        <div className="text-xs text-gray-600">
+                                          {entry.statusRemark || entry.remark || '-'}
+                                        </div>
                                       </td>
                                     </tr>
                                   ))}
@@ -1331,8 +1521,7 @@ export default function DeliveryOrderPage() {
                     )}
                   </React.Fragment>
                 ))
-                );
-                })()}
+                )}
               </tbody>
             </table>
           </div>
@@ -1371,22 +1560,20 @@ export default function DeliveryOrderPage() {
         {/* Add DO Dialog */}
         <Dialog open={showAddModal} onOpenChange={(open) => {
           setShowAddModal(open);
-          // Clear filters when closing the modal
+          // Clear form when closing the modal
           if (!open) {
-            setRoSearch('');
-            setSelectedRO(null);
-            setDoBags('');
-            setDoQty('');
-            setFileAttachments([]);
-            setFormError(null);
+            resetForm();
           }
         }}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <div>
               <DialogTitle className="text-xl text-center text-orange-600 font-bold">
-                DELIVERY ORDER (DO) / DIRECT DO
+                {selectedDO ? 'EDIT DELIVERY ORDER (DO)' : 'DELIVERY ORDER (DO) / DIRECT DO'}
                 <div className="mt-1 text-sm font-normal text-gray-600">
-                  Create a Delivery Order based on a Release Order or directly for entries without bank details
+                  {selectedDO 
+                    ? `Edit resubmitted Delivery Order: ${selectedDO.doCode}`
+                    : 'Create a Delivery Order based on a Release Order or directly for entries without bank details'
+                  }
                 </div>
               </DialogTitle>
             </div>
@@ -1492,9 +1679,9 @@ export default function DeliveryOrderPage() {
                                   <span className="ml-2 text-green-700">
                                     (Balance: {balanceBags} bags)
                                   </span>
-                                  {(option.hasRejectedOutward || option.hasRejectedDO) && (
+                                  {option.hasRejectedDO && (
                                     <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-pink-100 text-red-600 align-middle">
-                                      {option.hasRejectedOutward ? 'Rejected Outward' : 'Rejected DO'}
+                                      Rejected DO
                                     </span>
                                   )}
                                 </span>
@@ -1634,11 +1821,41 @@ export default function DeliveryOrderPage() {
                       />
                     </div>
 
+                    {/* Existing Attachments (for edit mode) */}
+                    {selectedDO && selectedDO.attachmentUrls && Array.isArray(selectedDO.attachmentUrls) && selectedDO.attachmentUrls.length > 0 && (
+                      <div className="col-span-2">
+                        <Label className="text-blue-600 font-medium">CURRENT ATTACHMENTS</Label>
+                        <div className="mt-2 bg-blue-50 p-3 rounded-md border border-blue-100">
+                          <div className="space-y-2">
+                            {selectedDO.attachmentUrls.map((url: string, idx: number) => {
+                              const ext = url.split('.').pop()?.toLowerCase();
+                              let label = 'View File';
+                              if (ext === 'pdf') label = 'View PDF';
+                              else if (ext === 'docx') label = 'View DOCX';
+                              else if (["jpg", "jpeg", "png"].includes(ext || '')) label = 'View Image';
+                              return (
+                                <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-blue-100">
+                                  <a 
+                                    href={url} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer" 
+                                    className="text-blue-600 underline text-sm truncate"
+                                  >
+                                    {label} {idx + 1}
+                                  </a>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Attachment - Now Mandatory */}
                     <div className="col-span-2">
                       <Label htmlFor="attachment" className="text-orange-600 font-medium flex items-center">
-                        ATTACHMENT (ALL FILE TYPES ALLOWED) 
-                        <span className="text-red-500 ml-1">*</span>
+                        {selectedDO ? 'NEW ATTACHMENTS (OPTIONAL)' : 'ATTACHMENT (ALL FILE TYPES ALLOWED)'}
+                        {!selectedDO && <span className="text-red-500 ml-1">*</span>}
                       </Label>
                       <Input
                         id="attachment"
@@ -1652,7 +1869,7 @@ export default function DeliveryOrderPage() {
                             e.target.value = '';
                           }
                         }}
-                        required={fileAttachments.length === 0}
+                        required={!selectedDO && fileAttachments.length === 0}
                         multiple
                       />
                       {fileAttachments.length > 0 && (
@@ -1699,7 +1916,7 @@ export default function DeliveryOrderPage() {
 
               <div className="mt-8 pt-4 border-t border-green-100 flex gap-4 justify-end">
                 <Button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white px-6" disabled={isUploading}>
-                  {isUploading ? 'Submitting...' : 'SUBMIT'}
+                  {isUploading ? (selectedDO ? 'Updating...' : 'Submitting...') : (selectedDO ? 'UPDATE' : 'SUBMIT')}
                 </Button>
                 <DialogClose asChild>
                   <Button type="button" variant="outline" className="border-green-200 text-green-800 hover:bg-green-50">Cancel</Button>
@@ -1928,11 +2145,7 @@ export default function DeliveryOrderPage() {
                         )}
                         
                         {/* Only show generate receipt button */}
-                        <div className="text-center">
-                          <Button className="bg-green-600 hover:bg-green-700 text-white">
-                            Generate Receit
-                          </Button>
-                        </div>
+                       
                       </div>
                     );
                   } else if (status === 'rejected') {
