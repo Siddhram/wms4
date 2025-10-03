@@ -93,12 +93,12 @@ export default function ReportsPage() {
         {/* Header with Back Button and Centered Title */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <button 
-              onClick={() => router.push('/dashboard')}
-              className="inline-block text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
-            >
-              ← Dashboard
-            </button>
+          <button 
+            onClick={() => router.push('/dashboard')}
+            className="inline-block text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600 transition-colors"
+          >
+           ← Dashboard
+          </button>
           </div>
           
           {/* Centered Title with Logo and Light Orange Background */}

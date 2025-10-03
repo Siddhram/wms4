@@ -1061,6 +1061,7 @@ export default function InwardPage() {
     bankState: '',
     ifscCode: '',
     bankReceipt: '',
+    reservationStatus: '',
     billingStatus: '',
     reservationRate: '',
     reservationQty: '',
@@ -1334,20 +1335,37 @@ export default function InwardPage() {
 
     // Check reservation expiry from reservations state
     try {
-      const warehouseReservation = reservations.find((r: any) => 
+      const warehouseReservations = reservations.filter((r: any) => 
         r.warehouse === warehouseName && r.state === baseForm.state && r.branch === baseForm.branch && r.location === baseForm.location
       );
 
-      if (warehouseReservation && warehouseReservation.reservationEnd) {
-        const resEnd = new Date(warehouseReservation.reservationEnd);
-        if (resEnd instanceof Date && !isNaN(resEnd.getTime())) {
-          const today = new Date();
-          today.setHours(0,0,0,0);
-          if (resEnd < today) {
-            const msg = `Reservation Expired - The reservation end date (${formatToDDMMYYYY(resEnd)}) has expired. You must first update the reservation status of this warehouse with billing parameters in the Reservation Master before inward entry can be processed.`;
-            setInlineAlert({ title: 'Reservation Expired', message: msg, severity: 'error' });
-            setPreventInward(true);
-            return;
+      if (warehouseReservations.length > 0) {
+        for (const reservation of warehouseReservations) {
+          // Only check expiry for reservations with 'reservation' status
+          if (reservation.reservationStatus === 'reservation' && reservation.reservationEnd) {
+            const resEnd = new Date(reservation.reservationEnd);
+            if (resEnd instanceof Date && !isNaN(resEnd.getTime())) {
+              const today = new Date();
+              today.setHours(0,0,0,0);
+              if (resEnd < today) {
+                // Check if billing parameters are available to replace reservation
+                const hasBillingParams = reservation.billingCycle && reservation.billingCycle !== '-' &&
+                                       reservation.billingType && reservation.billingType !== '-' &&
+                                       reservation.billingRate && reservation.billingRate !== '-';
+                
+                if (hasBillingParams) {
+                  // Billing params available - show informational alert
+                  const msg = `Reservation has expired on ${formatToDDMMYYYY(resEnd)}. Billing parameters are now active for this warehouse.`;
+                  setInlineAlert({ title: 'Reservation Expired - Billing Active', message: msg, severity: 'warning' });
+                } else {
+                  // No billing params - prevent inward entry
+                  const msg = `Reservation Expired - The reservation end date (${formatToDDMMYYYY(resEnd)}) has expired. You must first update the reservation status of this warehouse with billing parameters in the Reservation Master before inward entry can be processed.`;
+                  setInlineAlert({ title: 'Reservation Expired', message: msg, severity: 'error' });
+                  setPreventInward(true);
+                  return;
+                }
+              }
+            }
           }
         }
       }
@@ -1628,29 +1646,45 @@ export default function InwardPage() {
         
         // Fetch reservation data for this warehouse only if it's not CM type
         if (wh.businessType !== 'cm') {
-          const warehouseReservation = reservations.find((r: any) => 
+          // Filter reservations for this specific warehouse
+          const warehouseReservations = reservations.filter((r: any) => 
             r.warehouse === form.warehouseName && 
             r.state === form.state && 
             r.branch === form.branch && 
             r.location === form.location
           );
           
-          if (warehouseReservation) {
-            setBaseForm(f => ({
-              ...f,
-              billingStatus: warehouseReservation.billingStatus || '',
-              reservationRate: warehouseReservation.reservationRate || '',
-              reservationQty: warehouseReservation.reservationQty || '',
-              reservationStart: warehouseReservation.reservationStart || '',
-              reservationEnd: warehouseReservation.reservationEnd || '',
-              billingCycle: warehouseReservation.billingCycle || '',
-              billingType: warehouseReservation.billingType || '',
-              billingRate: warehouseReservation.billingRate || '',
-            }));
+          if (warehouseReservations.length > 0) {
+            setAvailableReservations(warehouseReservations);
+            
+            // Auto-select the first reservation if only one exists
+            if (warehouseReservations.length === 1) {
+              const reservation = warehouseReservations[0];
+              setSelectedReservation(reservation);
+              
+              setBaseForm(f => ({
+                ...f,
+                reservationStatus: reservation.reservationStatus || 'reservation',
+                billingStatus: reservation.billingStatus || '',
+                reservationRate: reservation.reservationRate || '',
+                reservationQty: reservation.reservationQty || '',
+                reservationStart: reservation.reservationStart || '',
+                reservationEnd: reservation.reservationEnd || '',
+                billingCycle: reservation.billingCycle || '',
+                billingType: reservation.billingType || '',
+                billingRate: reservation.billingRate || '',
+              }));
+            } else {
+              // Multiple reservations available - user needs to select
+              setSelectedReservation(null);
+            }
           } else {
             // Clear reservation fields if no reservation found
+            setAvailableReservations([]);
+            setSelectedReservation(null);
             setBaseForm(f => ({
               ...f,
+              reservationStatus: '',
               billingStatus: '',
               reservationRate: '',
               reservationQty: '',
@@ -5546,22 +5580,23 @@ export default function InwardPage() {
                   <Input value={cirModalData?.billingStatus || ''} readOnly disabled />
                 </div>
               </div>
-              {cirModalData?.billingStatus === 'reservation' && (
+              {/* Show reservation fields for reservations with 'reservation' status */}
+              {cirModalData?.reservationStatus === 'reservation' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label className="block font-semibold mb-1">Reservation Rate</Label>
+                    <Label className="block font-semibold mb-1">Reservation Rate (Rs/MT) *</Label>
                     <Input value={cirModalData?.reservationRate || ''} readOnly disabled />
                   </div>
                   <div>
-                    <Label className="block font-semibold mb-1">Reservation Quantity</Label>
+                    <Label className="block font-semibold mb-1">Reservation Quantity (MT) *</Label>
                     <Input value={cirModalData?.reservationQty || ''} readOnly disabled />
                   </div>
                   <div>
-                    <Label className="block font-semibold mb-1">Reservation Start Date</Label>
+                    <Label className="block font-semibold mb-1">Reservation Start Date *</Label>
                     <Input value={cirModalData?.reservationStart || ''} readOnly disabled />
                   </div>
                   <div>
-                    <Label className="block font-semibold mb-1">Reservation End Date</Label>
+                    <Label className="block font-semibold mb-1">Reservation End Date *</Label>
                     <Input value={cirModalData?.reservationEnd || ''} readOnly disabled />
                   </div>
                 </div>
@@ -5585,7 +5620,8 @@ export default function InwardPage() {
                   </div>
                 </div>
               )}
-              {cirModalData?.billingStatus === 'post-reservation' && (
+              {/* Show billing fields for post-reservation status */}
+              {cirModalData?.reservationStatus === 'post-reservation' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label className="block font-semibold mb-1">Billing Cycle</Label>
@@ -5596,7 +5632,7 @@ export default function InwardPage() {
                     <Input value={cirModalData?.billingType || ''} readOnly disabled />
                   </div>
                   <div>
-                    <Label className="block font-semibold mb-1">Rate</Label>
+                    <Label className="block font-semibold mb-1">Billing Rate (Rs/MT)</Label>
                     <Input value={cirModalData?.billingRate || ''} readOnly disabled />
                   </div>
                 </div>
@@ -6572,22 +6608,23 @@ export default function InwardPage() {
                   </div>
                 </div>
 
-                {selectedReservation?.billingStatus === 'reservation' && (
+                {/* Show reservation fields for reservations with 'reservation' status */}
+                {selectedReservation?.reservationStatus === 'reservation' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <Label className="block font-semibold mb-1">Reservation Rate</Label>
+                      <Label className="block font-semibold mb-1">Reservation Rate (Rs/MT) *</Label>
                       <Input value={selectedReservation?.reservationRate || ''} readOnly placeholder="Auto-filled" />
                     </div>
                     <div>
-                      <Label className="block font-semibold mb-1">Reservation Quantity</Label>
+                      <Label className="block font-semibold mb-1">Reservation Quantity (MT) *</Label>
                       <Input value={selectedReservation?.reservationQty || ''} readOnly placeholder="Auto-filled" />
                     </div>
                     <div>
-                      <Label className="block font-semibold mb-1">Reservation Start Date</Label>
+                      <Label className="block font-semibold mb-1">Reservation Start Date *</Label>
                       <Input value={selectedReservation?.reservationStart || ''} readOnly placeholder="Auto-filled" />
                     </div>
                     <div>
-                      <Label className="block font-semibold mb-1">Reservation End Date</Label>
+                      <Label className="block font-semibold mb-1">Reservation End Date *</Label>
                       <Input value={selectedReservation?.reservationEnd || ''} readOnly placeholder="Auto-filled" />
                     </div>
                   </div>
@@ -6620,7 +6657,8 @@ export default function InwardPage() {
                   </div>
                 )}
 
-                {selectedReservation?.billingStatus === 'post-reservation' && (
+                {/* Show billing fields for post-reservation status */}
+                {selectedReservation?.reservationStatus === 'post-reservation' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label className="block font-semibold mb-1">Billing Cycle</Label>
@@ -6631,7 +6669,7 @@ export default function InwardPage() {
                       <Input value={selectedReservation?.billingType || ''} readOnly placeholder="Auto-filled" />
                     </div>
                     <div>
-                      <Label className="block font-semibold mb-1">Rate</Label>
+                      <Label className="block font-semibold mb-1">Billing Rate (Rs/MT)</Label>
                       <Input value={selectedReservation?.billingRate || ''} readOnly placeholder="Auto-filled" />
                     </div>
                   </div>
@@ -8597,22 +8635,23 @@ export default function InwardPage() {
                       <Input value={cirModalData?.billingStatus || ''} readOnly disabled />
                     </div>
                   </div>
-                  {cirModalData?.billingStatus === 'reservation' && (
+                  {/* Show reservation fields for reservations with 'reservation' status */}
+                  {cirModalData?.reservationStatus === 'reservation' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <Label className="block font-semibold mb-1">Reservation Rate</Label>
+                        <Label className="block font-semibold mb-1">Reservation Rate (Rs/MT) *</Label>
                         <Input value={cirModalData?.reservationRate || ''} readOnly disabled />
                       </div>
                       <div>
-                        <Label className="block font-semibold mb-1">Reservation Quantity</Label>
+                        <Label className="block font-semibold mb-1">Reservation Quantity (MT) *</Label>
                         <Input value={cirModalData?.reservationQty || ''} readOnly disabled />
                       </div>
                       <div>
-                        <Label className="block font-semibold mb-1">Reservation Start Date</Label>
+                        <Label className="block font-semibold mb-1">Reservation Start Date *</Label>
                         <Input value={cirModalData?.reservationStart || ''} readOnly disabled />
                       </div>
                       <div>
-                        <Label className="block font-semibold mb-1">Reservation End Date</Label>
+                        <Label className="block font-semibold mb-1">Reservation End Date *</Label>
                         <Input value={cirModalData?.reservationEnd || ''} readOnly disabled />
                       </div>
                     </div>
@@ -8636,7 +8675,8 @@ export default function InwardPage() {
                       </div>
                     </div>
                   )}
-                  {cirModalData?.billingStatus === 'post-reservation' && (
+                  {/* Show billing fields for post-reservation status */}
+                  {cirModalData?.reservationStatus === 'post-reservation' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label className="block font-semibold mb-1">Billing Cycle</Label>
@@ -8647,7 +8687,7 @@ export default function InwardPage() {
                         <Input value={cirModalData?.billingType || ''} readOnly disabled />
                       </div>
                       <div>
-                        <Label className="block font-semibold mb-1">Rate</Label>
+                        <Label className="block font-semibold mb-1">Billing Rate (Rs/MT)</Label>
                         <Input value={cirModalData?.billingRate || ''} readOnly disabled />
                       </div>
                     </div>
