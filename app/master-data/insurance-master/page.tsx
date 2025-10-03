@@ -887,7 +887,32 @@ export default function InsuranceMasterPage() {
   const closeModal = () => {
     setShowAddModal(false);
     setEditingInsurance(null);
-    setFormData({});
+    setFormData({
+      state: '',
+      branch: '',
+      location: '',
+      warehouseName: '',
+      warehouseCode: '',
+      commodityName: '',
+      varietyName: '',
+      insuranceType: 'bank-funded',
+      clientName: '',
+      clientCode: '',
+      clientAddress: '',
+      bankFundedBy: '',
+      firePolicyCompanyName: '',
+      firePolicyNumber: '',
+      firePolicyAmount: '',
+      firePolicyStartDate: '',
+      firePolicyEndDate: '',
+      firePolicyUsedAmount: '0',
+      burglaryPolicyCompanyName: '',
+      burglaryPolicyNumber: '',
+      burglaryPolicyAmount: '',
+      burglaryPolicyStartDate: '',
+      burglaryPolicyEndDate: '',
+      burglaryPolicyUsedAmount: '0',
+    });
     setSelectedCommodities([]);
   };
 
@@ -907,7 +932,38 @@ export default function InsuranceMasterPage() {
           </div>
           {/* Add Insurance button at top right corner */}
           <Button
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              // Reset form to initial state when adding new insurance
+              setEditingInsurance(null);
+              setFormData({
+                state: '',
+                branch: '',
+                location: '',
+                warehouseName: '',
+                warehouseCode: '',
+                commodityName: '',
+                varietyName: '',
+                insuranceType: 'bank-funded',
+                clientName: '',
+                clientCode: '',
+                clientAddress: '',
+                bankFundedBy: '',
+                firePolicyCompanyName: '',
+                firePolicyNumber: '',
+                firePolicyAmount: '',
+                firePolicyStartDate: '',
+                firePolicyEndDate: '',
+                firePolicyUsedAmount: '0',
+                burglaryPolicyCompanyName: '',
+                burglaryPolicyNumber: '',
+                burglaryPolicyAmount: '',
+                burglaryPolicyStartDate: '',
+                burglaryPolicyEndDate: '',
+                burglaryPolicyUsedAmount: '0',
+              });
+              setSelectedCommodities([]);
+              setShowAddModal(true);
+            }}
             className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 shadow-lg"
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -1005,7 +1061,14 @@ export default function InsuranceMasterPage() {
         </Card>
 
         {/* Add/Edit Insurance Modal */}
-        <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+        <Dialog open={showAddModal} onOpenChange={(open) => {
+          if (!open) {
+            // Reset form state when modal is closed
+            closeModal();
+          } else {
+            setShowAddModal(open);
+          }
+        }}>
           <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-orange-700 text-xl">

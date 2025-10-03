@@ -7583,7 +7583,7 @@ export default function InwardPage() {
                             <td className="px-4 py-2 border-green-300 border">
                               <Input
                                 type="number"
-                                value={currentEntryForm.labResults?.[idx] || ''}
+                                value={currentEntryForm.labResults?.[idx]?.value || ''}
                                 onChange={(e) => handleLabResultChange(idx, e.target.value)}
                                 className="w-24 bg-white border border-green-300 text-center"
                                 placeholder="Enter value"
@@ -7670,7 +7670,7 @@ export default function InwardPage() {
                             <td className="px-4 py-2 border-green-300 border">
                               <Input
                                 type="number"
-                                value={currentEntryForm.labResults?.[idx] || ''}
+                                value={currentEntryForm.labResults?.[idx]?.value || ''}
                                 onChange={(e) => handleLabResultChange(idx, e.target.value)}
                                 className="w-24 bg-white border border-green-300 text-center"
                                 placeholder="Enter value"
