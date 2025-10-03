@@ -1,7 +1,7 @@
 "use client";
 
 import DashboardLayout from '@/components/dashboard-layout';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,25 +16,33 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuChe
 
 interface OutwardReportData {
   id: string;
-  date: string;
-  outwardId: string;
-  inwardId: string;
-  doNumber: string;
-  roNumber: string;
-  warehouseName: string;
+  outwardDate: string;
+  outwardCode: string;
+  srWrNumber: string;
+  state: string;
+  branch: string;
+  location: string;
+  typeOfBusiness: string;
   warehouseType: string;
   warehouseCode: string;
+  warehouseName: string;
   warehouseAddress: string;
-  typeOfBusiness: string;
-  client: string;
+  clientCode: string;
+  clientName: string;
   commodity: string;
-  varietyName: string;
-  outwardBags: string;
-  outwardQty: string;
-  totalValue: string;
+  variety: string;
   vehicleNumber: string;
-  gatepass: string;
-  status: string;
+  cadNumber: string;
+  gatepassNumber: string;
+  weighbridgeName: string;
+  weighbridgeSlipNumber: string;
+  grossWeight: string;
+  tareWeight: string;
+  netWeight: string;
+  totalOutwardBags: string;
+  stackNumber: string;
+  stackOutwardBags: string;
+  doCode: string;
   [key: string]: any;
 }
 
@@ -51,59 +59,56 @@ export default function OutwardReportsPage() {
   const [outwardData, setOutwardData] = useState<OutwardReportData[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([
-    'date', 'outwardId', 'inwardId', 'doNumber', 'roNumber', 'warehouseName', 'warehouseType',
-    'client', 'commodity', 'varietyName', 'outwardBags', 'outwardQty', 'totalValue', 'vehicleNumber', 'gatepass', 'status'
+    'outwardDate', 'outwardCode', 'srWrNumber', 'state', 'branch', 'location', 'typeOfBusiness', 
+    'warehouseType', 'warehouseCode', 'warehouseName', 'clientCode', 'clientName', 'commodity', 
+    'variety', 'vehicleNumber', 'cadNumber', 'gatepassNumber', 'totalOutwardBags', 'doCode'
   ]);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
-  // Enhanced column definitions with additional warehouse details
+  // Enhanced column definitions matching parameter specifications
   const allColumns = [
-    { key: 'date', label: 'Date', width: 'w-24' },
-    { key: 'outwardId', label: 'Outward ID', width: 'w-24' },
-    { key: 'inwardId', label: 'Inward ID', width: 'w-24' },
-    { key: 'doNumber', label: 'DO Number', width: 'w-24' },
-    { key: 'roNumber', label: 'RO Number', width: 'w-24' },
-    { key: 'warehouseName', label: 'Warehouse Name', width: 'w-32' },
+    { key: 'outwardDate', label: 'Outward Date', width: 'w-28' },
+    { key: 'outwardCode', label: 'Outward Code', width: 'w-24' },
+    { key: 'srWrNumber', label: 'SR/WR Number', width: 'w-24' },
+    { key: 'state', label: 'State', width: 'w-20' },
+    { key: 'branch', label: 'Branch', width: 'w-20' },
+    { key: 'location', label: 'Location', width: 'w-24' },
+    { key: 'typeOfBusiness', label: 'Type of Business', width: 'w-32' },
     { key: 'warehouseType', label: 'Warehouse Type', width: 'w-28' },
     { key: 'warehouseCode', label: 'Warehouse Code', width: 'w-28' },
+    { key: 'warehouseName', label: 'Warehouse Name', width: 'w-32' },
     { key: 'warehouseAddress', label: 'Warehouse Address', width: 'w-36' },
-    { key: 'typeOfBusiness', label: 'Type of Business', width: 'w-32' },
-    { key: 'client', label: 'Client', width: 'w-28' },
+    { key: 'clientCode', label: 'Client Code', width: 'w-24' },
+    { key: 'clientName', label: 'Client Name', width: 'w-28' },
     { key: 'commodity', label: 'Commodity', width: 'w-24' },
-    { key: 'varietyName', label: 'Variety', width: 'w-24' },
-    { key: 'outwardBags', label: 'Outward Bags', width: 'w-24' },
-    { key: 'outwardQty', label: 'Outward Qty (MT)', width: 'w-28' },
-    { key: 'totalValue', label: 'Total Value', width: 'w-24' },
+    { key: 'variety', label: 'Variety', width: 'w-24' },
     { key: 'vehicleNumber', label: 'Vehicle Number', width: 'w-28' },
-    { key: 'gatepass', label: 'Gatepass', width: 'w-24' },
-    { key: 'status', label: 'Status', width: 'w-20' }
+    { key: 'cadNumber', label: 'CAD Number', width: 'w-24' },
+    { key: 'gatepassNumber', label: 'Gatepass Number', width: 'w-28' },
+    { key: 'weighbridgeName', label: 'Weighbridge Name', width: 'w-32' },
+    { key: 'weighbridgeSlipNumber', label: 'Weighbridge Slip Number', width: 'w-36' },
+    { key: 'grossWeight', label: 'Gross Weight (MT)', width: 'w-32' },
+    { key: 'tareWeight', label: 'Tare Weight (MT)', width: 'w-32' },
+    { key: 'netWeight', label: 'Net Weight (MT)', width: 'w-32' },
+    { key: 'totalOutwardBags', label: 'Total Outward Bags', width: 'w-32' },
+    { key: 'stackNumber', label: 'Stack Number', width: 'w-24' },
+    { key: 'stackOutwardBags', label: 'Stack Outward Bags', width: 'w-32' },
+    { key: 'doCode', label: 'DO Code', width: 'w-24' }
   ];
 
-  // Fetch outward data
-  useEffect(() => {
-    fetchOutwardData();
-  }, []);
-
-  // Set default date range (last 6 months)
-  useEffect(() => {
-    const today = new Date();
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(today.getMonth() - 6);
-    
-    setEndDate(today.toISOString().split('T')[0]);
-    setStartDate(sixMonthsAgo.toISOString().split('T')[0]);
-  }, []);
-
-  const fetchOutwardData = async () => {
+  const fetchOutwardData = useCallback(async () => {
+    console.log('Starting fetchOutwardData...');
     setLoading(true);
     try {
       const outwardCollection = collection(db, 'outwards');
+      console.log('Created outward collection reference');
       
-      // Build query with date filters
-      let q = query(outwardCollection, orderBy('createdAt', 'desc'), limit(1000));
+      // Build query with date filters - using ascending order for proper date sequence
+      let q = query(outwardCollection, orderBy('createdAt', 'asc'), limit(1000));
+      console.log('Built query with date filters');
       
       // Apply date filters if dates are set
       if (startDate && endDate) {
@@ -114,7 +119,7 @@ export default function OutwardReportsPage() {
           outwardCollection,
           where('createdAt', '>=', startTimestamp),
           where('createdAt', '<=', endTimestamp),
-          orderBy('createdAt', 'desc'),
+          orderBy('createdAt', 'asc'),
           limit(1000)
         );
       }
@@ -186,70 +191,215 @@ export default function OutwardReportsPage() {
           }
         }
         
-        // Add additional data processing for commodity/variety if needed
-        let commodity = docData.commodity || '';
-        let variety = docData.varietyName || docData.variety || '';
+        // Initialize inward data variables
+        let inwardData: any = {};
+        let commodity = '';
+        let variety = '';
+        let clientCode = '';
+        let clientName = '';
+        let inwardWarehouseCode = '';
+        let inwardWarehouseName = '';
+        let inwardWarehouseAddress = '';
+        let inwardTypeOfBusiness = '';
+        let srWrNumberFromInward = '';
         
-        // Try to fetch commodity/variety from inward data if missing
-        if ((!commodity || !variety) && docData.inwardId) {
+        // Fetch comprehensive inward data for the SR/WR number
+        const srwrNo = docData.srwrNo || docData.inwardId || docData.receiptNumber || '';
+        if (srwrNo) {
           try {
-            console.log('Fetching commodity/variety from inward data for inwardId:', docData.inwardId);
+            console.log('Fetching inward data for SR/WR:', srwrNo);
             const inwardCollection = collection(db, 'inward');
-            const inwardQuery = query(
-              inwardCollection,
-              where('inwardId', '==', docData.inwardId)
-            );
-            const inwardSnapshot = await getDocs(inwardQuery);
+            
+            // Try multiple search strategies for inward data
+            let inwardSnapshot = await getDocs(query(inwardCollection, where('srwrNo', '==', srwrNo)));
+            
+            if (inwardSnapshot.empty) {
+              inwardSnapshot = await getDocs(query(inwardCollection, where('inwardId', '==', srwrNo)));
+            }
+            
+            if (inwardSnapshot.empty && docData.inwardId) {
+              inwardSnapshot = await getDocs(query(inwardCollection, where('inwardId', '==', docData.inwardId)));
+            }
             
             if (!inwardSnapshot.empty) {
-              const inwardData = inwardSnapshot.docs[0].data();
-              console.log('Found inward data for commodity/variety:', inwardData);
+              inwardData = inwardSnapshot.docs[0].data();
+              console.log('Found inward data:', inwardData);
               
-              if (!commodity) commodity = inwardData.commodity || '';
-              if (!variety) variety = inwardData.varietyName || inwardData.variety || '';
+              // Extract data from inward collection
+              commodity = inwardData.commodity || inwardData.commodityName || '';
+              variety = inwardData.varietyName || inwardData.variety || '';
+              clientCode = inwardData.clientCode || inwardData.clientId || '';
+              clientName = inwardData.clientName || inwardData.client || '';
+              inwardWarehouseCode = inwardData.warehouseCode || '';
+              inwardWarehouseName = inwardData.warehouseName || '';
+              inwardWarehouseAddress = inwardData.warehouseAddress || '';
+              inwardTypeOfBusiness = inwardData.typeOfBusiness || inwardData.businessType || '';
               
-              console.log('Enhanced commodity:', commodity, 'variety:', variety);
+              // SR/WR number from inward section
+              srWrNumberFromInward = inwardData.srwrNo || inwardData.receiptNumber || inwardData.inwardId || '';
+              
+              console.log('Extracted inward data:', {
+                commodity, variety, clientCode, clientName,
+                warehouseCode: inwardWarehouseCode, warehouseName: inwardWarehouseName
+              });
+            } else {
+              console.log('No inward data found for SR/WR:', srwrNo);
             }
           } catch (error) {
-            console.log('Error fetching commodity/variety from inward:', error);
+            console.log('Error fetching inward data:', error);
           }
         }
         
+        // Format date for consistent ISO display (YYYY-MM-DD)
+        const formatDateForISO = (dateValue: any) => {
+          if (!dateValue) return '';
+          
+          if (dateValue?.toDate) {
+            return dateValue.toDate().toISOString().split('T')[0]; // Format as YYYY-MM-DD
+          }
+          
+          if (typeof dateValue === 'string') {
+            // If already in correct format, return as is
+            if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+              return dateValue;
+            }
+            const date = new Date(dateValue);
+            return isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0];
+          }
+          
+          return '';
+        };
+        
         return {
           id: doc.id,
-          date: docData.createdAt || docData.dateOfOutward || '',
-          srNumber: (index + 1).toString(), // Serial number
-          outwardId: docData.outwardCode || doc.id,
-          inwardId: docData.srwrNo || docData.inwardId || '',
-          doNumber: docData.doCode || docData.doNumber || '',
-          roNumber: docData.srwrNo || docData.roNumber || '',
-          warehouseName: docData.warehouseName || '',
+          
+          // Outward Date – picked from outward section module
+          outwardDate: formatDateForISO(docData.createdAt || docData.dateOfOutward || docData.outwardDate),
+          
+          // Outward code – picked from outward section module with parameter name outward code
+          outwardCode: docData.outwardCode || docData.outwardId || doc.id || '',
+          
+          // SR/WR number – picked from inward section module with parameter name SR number for SR, WR number for WR
+          srWrNumber: srWrNumberFromInward || docData.srwrNo || docData.inwardId || '',
+          
+          // State – picked from outward section for a particular sr/wr number
+          state: docData.state || docData.bankState || docData.selectedState || '',
+          
+          // Branch - picked from outward section for a particular sr/wr number
+          branch: docData.branch || docData.bankBranch || docData.branchName || '',
+          
+          // Location – picked from outward section for a particular sr/wr number
+          location: docData.location || docData.warehouseAddress || docData.address || '',
+          
+          // Type of Business - picked from inward section for a particular sr/wr number
+          typeOfBusiness: inwardTypeOfBusiness || docData.typeOfBusiness || docData.businessType || '',
+          
+          // Warehouse type – picked from warehouse inspection survey form with parameter name \"TYPE OF WAREHOUSE\"
           warehouseType: warehouseType || 'N/A',
-          client: docData.client || '',
-          commodity: commodity,
-          varietyName: variety,
-          outwardBags: docData.outwardBags || docData.bags || '',
-          outwardQty: docData.outwardQuantity || docData.quantity || '',
-          totalValue: docData.totalValue || docData.value || '',
-          vehicleNumber: docData.vehicleNumber || '',
-          gatepass: docData.gatepass || '',
-          status: docData.outwardStatus || docData.status || 'Active',
-          // Additional warehouse details
-          warehouseCode: warehouseCode,
-          warehouseAddress: warehouseAddress,
-          typeOfBusiness: businessType,
-          ...docData
+          
+          // Warehouse code - picked from inward section for a particular sr/wr number
+          warehouseCode: inwardWarehouseCode || warehouseCode || docData.warehouseCode || '',
+          
+          // Warehouse name - picked from inward section for a particular sr/wr number
+          warehouseName: inwardWarehouseName || docData.warehouseName || '',
+          
+          // Warehouse address - picked from inward section for a particular sr/wr number
+          warehouseAddress: inwardWarehouseAddress || warehouseAddress || docData.warehouseAddress || '',
+          
+          // Client code - picked from inward section for a particular sr/wr number
+          clientCode: clientCode || docData.clientCode || docData.clientId || '',
+          
+          // Client name - picked from inward section for a particular sr/wr number
+          clientName: clientName || docData.client || docData.clientName || '',
+          
+          // Commodity - picked from inward section for a particular sr/wr number
+          commodity: commodity || docData.commodity || '',
+          
+          // Variety - picked from inward section for a particular sr/wr number
+          variety: variety || docData.varietyName || docData.variety || '',
+          
+          // Vehicle number - picked from outward section for a particular sr/wr number
+          vehicleNumber: docData.vehicleNumber || docData.truckNumber || '',
+          
+          // CAD number - picked from outward section for a particular sr/wr number
+          cadNumber: docData.cadNumber || docData.cad || '',
+          
+          // Gatepass number - picked from outward section for a particular sr/wr number
+          gatepassNumber: docData.gatepassNumber || docData.gatepass || docData.gatePassNumber || '',
+          
+          // Weighbridge name - picked from outward section for a particular sr/wr number
+          weighbridgeName: docData.weighbridgeName || docData.weighBridgeName || '',
+          
+          // Weighbridge slip number - picked from outward section for a particular sr/wr number
+          weighbridgeSlipNumber: docData.weighbridgeSlipNumber || docData.weighBridgeSlipNumber || docData.slipNumber || '',
+          
+          // Gross Weight (MT) - picked from outward section for a particular sr/wr number
+          grossWeight: docData.grossWeight || docData.grossWeightMT || '',
+          
+          // Tare Weight (MT) - picked from outward section for a particular sr/wr number
+          tareWeight: docData.tareWeight || docData.tareWeightMT || '',
+          
+          // Net Weight (MT) - picked from outward section for a particular sr/wr number
+          netWeight: docData.netWeight || docData.netWeightMT || docData.quantity || '',
+          
+          // Total Outward Bags - picked from outward section for a particular sr/wr number
+          totalOutwardBags: docData.totalOutwardBags || docData.outwardBags || docData.bags || docData.totalBags || '',
+          
+          // Stack Number- picked from outward section for a particular sr/wr number
+          stackNumber: docData.stackNumber || docData.stackNo || '',
+          
+          // Stack Outward Bags- picked from outward section for a particular sr/wr number
+          stackOutwardBags: docData.stackOutwardBags || docData.stackBags || '',
+          
+          // DO code - picked from outward section for a particular sr/wr number
+          doCode: docData.doCode || docData.doNumber || docData.deliveryOrderCode || '',
+          
+          // Keep original fields for backward compatibility and debugging
+          _originalData: {
+            outwardSection: {
+              createdAt: docData.createdAt,
+              outwardCode: docData.outwardCode,
+              srwrNo: docData.srwrNo,
+              state: docData.state,
+              branch: docData.branch
+            },
+            inwardSection: inwardData,
+            inspectionSection: {
+              warehouseType,
+              warehouseCode,
+              warehouseAddress,
+              businessType
+            }
+          }
         };
       }));
       
       console.log('Processed outward data:', data.length, 'records');
+      console.log('Sample processed data:', data.slice(0, 2));
       setOutwardData(data);
+      console.log('Set outward data in state');
     } catch (error) {
       console.error('Error fetching outward data:', error);
     } finally {
       setLoading(false);
+      console.log('Finished fetchOutwardData');
     }
-  };
+  }, [startDate, endDate]);
+
+  // Fetch outward data
+  useEffect(() => {
+    fetchOutwardData();
+  }, [fetchOutwardData]);
+
+  // Set default date range (last 6 months)
+  useEffect(() => {
+    const today = new Date();
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(today.getMonth() - 6);
+    
+    setEndDate(today.toISOString().split('T')[0]);
+    setStartDate(sixMonthsAgo.toISOString().split('T')[0]);
+  }, []);
 
   // Get unique filter options
   const uniqueWarehouses = useMemo(() => {
@@ -286,25 +436,47 @@ export default function OutwardReportsPage() {
       );
     }
 
-    // Apply status filter
+    // Apply status filter - Note: status field might not exist in new structure
     if (statusFilter && statusFilter !== 'all') {
       filtered = filtered.filter(item => item.status === statusFilter);
     }
 
-    // Apply warehouse filter
+    // Apply warehouse filter using correct field name
     if (warehouseFilter && warehouseFilter !== 'all') {
       filtered = filtered.filter(item => item.warehouseName === warehouseFilter);
     }
 
-    // Apply client filter
+    // Apply client filter using correct field name
     if (clientFilter && clientFilter !== 'all') {
-      filtered = filtered.filter(item => item.client === clientFilter);
+      filtered = filtered.filter(item => item.clientName === clientFilter);
     }
 
-    // Apply commodity filter
+    // Apply commodity filter using correct field name
     if (commodityFilter && commodityFilter !== 'all') {
       filtered = filtered.filter(item => item.commodity === commodityFilter);
     }
+    
+    // Sort by outward date in ascending order (oldest to newest)
+    filtered = filtered.sort((a, b) => {
+      const dateA: any = a.outwardDate;
+      const dateB: any = b.outwardDate;
+      
+      // Handle string dates (YYYY-MM-DD format)
+      if (typeof dateA === 'string' && typeof dateB === 'string') {
+        return new Date(dateA).getTime() - new Date(dateB).getTime();
+      }
+      
+      // Handle Firebase Timestamp objects (fallback)
+      if (dateA?.toDate && dateB?.toDate) {
+        return dateA.toDate().getTime() - dateB.toDate().getTime();
+      }
+      
+      // Handle mixed or invalid dates
+      const timeA = typeof dateA === 'string' ? new Date(dateA).getTime() : (dateA?.toDate ? dateA.toDate().getTime() : new Date(dateA || 0).getTime());
+      const timeB = typeof dateB === 'string' ? new Date(dateB).getTime() : (dateB?.toDate ? dateB.toDate().getTime() : new Date(dateB || 0).getTime());
+      
+      return timeA - timeB;
+    });
     
     return filtered;
   }, [outwardData, searchTerm, statusFilter, warehouseFilter, clientFilter, commodityFilter]);
@@ -322,50 +494,87 @@ export default function OutwardReportsPage() {
   const goToLastPage = () => setCurrentPage(totalPages);
   const goToPage = (page: number) => setCurrentPage(page);
 
-  // Export filtered data to CSV
+  // Export filtered data to CSV with complete parameter structure
   const exportToCSV = () => {
-    if (filteredData.length === 0) return;
+    console.log('CSV Export Debug:');
+    console.log('- outwardData length:', outwardData.length);
+    console.log('- filteredData length:', filteredData.length);
+    console.log('- loading state:', loading);
+    console.log('- First outwardData item:', outwardData[0]);
+    console.log('- First filteredData item:', filteredData[0]);
+    
+    if (filteredData.length === 0) {
+      console.log('No filtered data to export');
+      if (outwardData.length > 0) {
+        console.log('But outwardData has', outwardData.length, 'items - using that instead');
+        // Use outwardData as fallback
+        return exportDataArray(outwardData);
+      }
+      return;
+    }
+    
+    exportDataArray(filteredData);
+  };
+
+  const exportDataArray = (dataArray: OutwardReportData[]) => {
+    console.log('Exporting data array with', dataArray.length, 'items');
     
     const headers = [
-      'Date', 'SR Number', 'Outward ID', 'Inward ID', 'DO Number', 'RO Number', 
-      'Warehouse Name', 'Warehouse Type', 'Warehouse Code', 'Warehouse Address', 'Type of Business',
-      'Client', 'Commodity', 'Variety', 'Outward Bags', 'Outward Qty (MT)', 'Total Value', 
-      'Vehicle Number', 'Gatepass', 'Status'
+      'Outward Date', 'Outward Code', 'SR/WR Number', 'State', 'Branch', 'Location',
+      'Type of Business', 'Warehouse Type', 'Warehouse Code', 'Warehouse Name', 'Warehouse Address',
+      'Client Code', 'Client Name', 'Commodity', 'Variety', 'Vehicle Number', 'CAD Number',
+      'Gatepass Number', 'Weighbridge Name', 'Weighbridge Slip Number', 'Gross Weight (MT)',
+      'Tare Weight (MT)', 'Net Weight (MT)', 'Total Outward Bags', 'Stack Number',
+      'Stack Outward Bags', 'DO Code'
     ];
     
-    const csvContent = [
-      headers.join(','),
-      ...filteredData.map(row => [
-        row.date || '',
-        row.srNumber || '',
-        row.outwardId || '',
-        row.inwardId || '',
-        row.doNumber || '',
-        row.roNumber || '',
-        row.warehouseName || '',
+    const csvRows = dataArray.map((row, index) => {
+      console.log(`Processing row ${index + 1}:`, row.id, row.outwardDate, row.outwardCode);
+      return [
+        row.outwardDate || '',
+        row.outwardCode || '',
+        row.srWrNumber || '',
+        row.state || '',
+        row.branch || '',
+        row.location || '',
+        row.typeOfBusiness || '',
         row.warehouseType || '',
         row.warehouseCode || '',
+        row.warehouseName || '',
         row.warehouseAddress || '',
-        row.typeOfBusiness || '',
-        row.client || '',
+        row.clientCode || '',
+        row.clientName || '',
         row.commodity || '',
-        row.varietyName || '',
-        row.outwardBags || '',
-        row.outwardQty || '',
-        row.totalValue || '',
+        row.variety || '',
         row.vehicleNumber || '',
-        row.gatepass || '',
-        row.status || ''
-      ].map(value => typeof value === 'string' && value.includes(',') ? `"${value}"` : value).join(','))
-    ].join('\n');
+        row.cadNumber || '',
+        row.gatepassNumber || '',
+        row.weighbridgeName || '',
+        row.weighbridgeSlipNumber || '',
+        row.grossWeight || '',
+        row.tareWeight || '',
+        row.netWeight || '',
+        row.totalOutwardBags || '',
+        row.stackNumber || '',
+        row.stackOutwardBags || '',
+        row.doCode || ''
+      ].map(value => typeof value === 'string' && value.includes(',') ? `"${value}"` : value).join(',');
+    });
     
+    const csvContent = [headers.join(','), ...csvRows].join('\n');
+    console.log('Final CSV content preview:', csvContent.substring(0, 200) + '...');
+    
+    // Create and download the CSV file
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `outward_report_${startDate}_to_${endDate}.csv`;
+    document.body.appendChild(a); // Add to DOM for Firefox compatibility
     a.click();
+    document.body.removeChild(a); // Clean up
     window.URL.revokeObjectURL(url);
+    console.log('CSV file download initiated');
   };
 
   // Clear all filters
@@ -709,145 +918,73 @@ export default function OutwardReportsPage() {
           )}
         </div>
 
-        {/* Data Table */}
+        {/* Data Table with Frozen Headers and First Column */}
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            <div className="table-container">
               <table className="w-full border-collapse border border-gray-200">
-                <thead className="bg-orange-100">
+                <thead className="bg-orange-100 sticky-header">
                   <tr>
-                    {visibleColumns.includes('date') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Date</th>}
-                    {visibleColumns.includes('srNumber') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">SR Number</th>}
-                    {visibleColumns.includes('outwardId') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Outward ID</th>}
-                    {visibleColumns.includes('inwardId') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Inward ID</th>}
-                    {visibleColumns.includes('doNumber') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">DO Number</th>}
-                    {visibleColumns.includes('roNumber') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">RO Number</th>}
-                    {visibleColumns.includes('warehouseName') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Warehouse Name</th>}
-                    {visibleColumns.includes('warehouseType') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Warehouse Type</th>}
-                    {visibleColumns.includes('client') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Client</th>}
-                    {visibleColumns.includes('commodity') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Commodity</th>}
-                    {visibleColumns.includes('varietyName') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Variety</th>}
-                    {visibleColumns.includes('outwardBags') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Outward Bags</th>}
-                    {visibleColumns.includes('outwardQty') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Outward Qty (MT)</th>}
-                    {visibleColumns.includes('totalValue') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Total Value</th>}
-                    {visibleColumns.includes('vehicleNumber') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Vehicle Number</th>}
-                    {visibleColumns.includes('gatepass') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Gatepass</th>}
-                    {visibleColumns.includes('status') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Status</th>}
+                    {visibleColumns.map((colKey, index) => {
+                      const column = allColumns.find(col => col.key === colKey);
+                      if (!column) return null;
+                      
+                      const isFirstColumn = index === 0;
+                      return (
+                        <th 
+                          key={column.key}
+                          className={`border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold ${
+                            isFirstColumn ? 'sticky-first-column header' : ''
+                          }`}
+                        >
+                          {column.label}
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedData.map((item) => (
                     <tr key={item.id} className="hover:bg-gray-50">
-                      {visibleColumns.includes('date') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {formatDate(item.date)}
-                        </td>
-                      )}
-                      {visibleColumns.includes('srNumber') && (
-                        <td className="border border-gray-200 px-4 py-2 text-center font-mono text-sm">
-                          {item.srNumber || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('outwardId') && (
-                        <td className="border border-gray-200 px-4 py-2 font-mono text-sm">
-                          {item.outwardId || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('inwardId') && (
-                        <td className="border border-gray-200 px-4 py-2 font-mono text-sm">
-                          {item.inwardId || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('doNumber') && (
-                        <td className="border border-gray-200 px-4 py-2 font-mono text-sm">
-                          {item.doNumber || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('roNumber') && (
-                        <td className="border border-gray-200 px-4 py-2 font-mono text-sm">
-                          {item.roNumber || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('warehouseName') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.warehouseName || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('warehouseType') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.warehouseType || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('warehouseCode') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.warehouseCode || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('warehouseAddress') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.warehouseAddress || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('typeOfBusiness') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.typeOfBusiness || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('client') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.client || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('commodity') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.commodity || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('varietyName') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.varietyName || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('outwardBags') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">
-                          {item.outwardBags || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('outwardQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">
-                          {item.outwardQty || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('totalValue') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">
-                          {item.totalValue || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('vehicleNumber') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.vehicleNumber || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('gatepass') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.gatepass || 'N/A'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('status') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(item.status)}`}>
-                            {item.status || 'Active'}
-                          </span>
-                        </td>
-                      )}
+                      {visibleColumns.map((colKey, index) => {
+                        const column = allColumns.find(col => col.key === colKey);
+                        if (!column) return null;
+                        
+                        const isFirstColumn = index === 0;
+                        const cellValue = item[column.key] || 'N/A';
+                        const isNumeric = ['outwardBags', 'outwardQty', 'totalValue'].includes(column.key);
+                        const isMonospace = ['outwardId', 'inwardId', 'doNumber', 'roNumber', 'vehicleNumber'].includes(column.key);
+                        
+                        return (
+                          <td
+                            key={column.key}
+                            className={`border border-gray-200 px-4 py-2 ${
+                              isFirstColumn ? 'sticky-first-column' : ''
+                            } ${
+                              isNumeric ? 'text-right' : ''
+                            } ${
+                              isMonospace ? 'font-mono text-sm' : ''
+                            } ${
+                              column.key === 'srNumber' ? 'text-center' : ''
+                            }`}
+                          >
+                            {column.key === 'date' ? formatDate(item.date) : 
+                             column.key === 'status' ? (
+                               <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(item.status)}`}>
+                                 {item.status || 'Active'}
+                               </span>
+                             ) : cellValue}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
               </table>
               
-              {filteredData.length === 0 && (
+              {filteredData.length === 0 && loading && (
                 <div className="text-center py-8 text-gray-500">
-                  {loading ? 'Loading data...' : 'No outward data found matching the current filters'}
+                  Loading data...
                 </div>
               )}
             </div>

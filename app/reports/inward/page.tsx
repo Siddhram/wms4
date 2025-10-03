@@ -1,7 +1,7 @@
 "use client";
 
 import DashboardLayout from '@/components/dashboard-layout';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,7 @@ import Image from 'next/image';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, limit, where, Timestamp } from 'firebase/firestore';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import '../../sticky-table-styles.css';
 
 interface InwardReportData {
   id: string;
@@ -71,6 +72,7 @@ export default function InwardReportsPage() {
 
   // Column definitions matching the exact format requested
   const allColumns = [
+    { key: 'inwardDate', label: 'Inward Date', width: 'w-28' },
     { key: 'state', label: 'State', width: 'w-20' },
     { key: 'branch', label: 'Branch', width: 'w-20' },
     { key: 'location', label: 'Location', width: 'w-24' },
@@ -88,7 +90,6 @@ export default function InwardReportsPage() {
     { key: 'bankState', label: 'Bank State', width: 'w-24' },
     { key: 'ifscCode', label: 'IFSC Code', width: 'w-24' },
     { key: 'cadNumber', label: 'CAD Number', width: 'w-24' },
-    { key: 'inwardDate', label: 'Inward Date', width: 'w-28' },
     { key: 'srWrNumber', label: 'SR/WR Number', width: 'w-32' },
     { key: 'srWrDate', label: 'SR/WR Date', width: 'w-28' },
     { key: 'fundingSrWrDate', label: 'Funding SR/WR Date', width: 'w-36' },
@@ -108,11 +109,6 @@ export default function InwardReportsPage() {
 
   const [visibleColumns, setVisibleColumns] = useState<string[]>(allColumns.map(col => col.key));
 
-  // Fetch inward data
-  useEffect(() => {
-    fetchInwardData();
-  }, []);
-
   // Set default date range (last 6 months)
   useEffect(() => {
     const today = new Date();
@@ -123,7 +119,7 @@ export default function InwardReportsPage() {
     setStartDate(sixMonthsAgo.toISOString().split('T')[0]);
   }, []);
 
-  const fetchInwardData = async () => {
+  const fetchInwardData = useCallback(async () => {
     setLoading(true);
     try {
       console.log('Starting inward data fetch...');
@@ -153,31 +149,126 @@ export default function InwardReportsPage() {
       console.log('Inward collection query result:', querySnapshot.size, 'documents');
           
           if (querySnapshot.size > 0) {
-        // Process each inward record with simplified logic
-        const processedData = querySnapshot.docs.map((doc, index) => {
+        // Process each inward record with cross-collection data fetching
+        const processedData = await Promise.all(querySnapshot.docs.map(async (doc, index) => {
                 const docData = doc.data();
                 
           console.log(`Processing inward document ${index + 1}:`, doc.id);
           console.log('Available fields:', Object.keys(docData));
           
+          // Debug specific field groups that are showing N/A
+          console.log('🔍 DEBUG: Field Analysis for Document', doc.id);
+          
+          // Warehouse Type fields
+          console.log('Warehouse Type fields:', {
+            warehouseType: docData.warehouseType,
+            typeOfWarehouse: docData.typeOfWarehouse,
+            businessType: docData.businessType,
+            typeOfBusiness: docData.typeOfBusiness
+          });
+          
+          // Bank fields  
+          console.log('Bank fields:', {
+            bankName: docData.bankName,
+            bank: docData.bank,
+            selectedBankName: docData.selectedBankName,
+            bankBranchName: docData.bankBranchName,
+            bankBranch: docData.bankBranch,
+            branchName: docData.branchName,
+            selectedBankBranchName: docData.selectedBankBranchName,
+            bankState: docData.bankState,
+            selectedBankState: docData.selectedBankState
+          });
+          
+          // Date fields
+          console.log('Date fields:', {
+            srWrDate: docData.srWrDate,
+            srwrDate: docData.srwrDate,
+            receiptDate: docData.receiptDate,
+            fundingSrWrDate: docData.fundingSrWrDate,
+            fundingDate: docData.fundingDate,
+            srLastValidityDate: docData.srLastValidityDate,
+            validityDate: docData.validityDate,
+            expiryDate: docData.expiryDate
+          });
+          
+          // Quantity fields
+          console.log('Quantity fields:', {
+            totalQty: docData.totalQty,
+            quantity: docData.quantity,
+            totalQuantity: docData.totalQuantity,
+            weight: docData.weight,
+            roBags: docData.roBags,
+            roReleasedBags: docData.roReleasedBags,
+            roQty: docData.roQty,
+            roReleasedQty: docData.roReleasedQty,
+            doBags: docData.doBags,
+            doReleasedBags: docData.doReleasedBags,
+            doQty: docData.doQty,
+            doReleasedQty: docData.doReleasedQty,
+            balanceQty: docData.balanceQty,
+            remainingQty: docData.remainingQty
+          });
+          
+          // Financial fields
+          console.log('Financial fields:', {
+            rate: docData.rate,
+            ratePerMT: docData.ratePerMT,
+            pricePerMT: docData.pricePerMT,
+            aum: docData.aum,
+            aumValue: docData.aumValue,
+            assetValue: docData.assetValue
+          });
+          
           // Debug insurance field specifically
-          if (docData.insuranceManagedBy || docData.selectedInsurance) {
+          if (docData.insuranceManagedBy || docData.selectedInsurance || docData.insurance) {
             console.log('Insurance field type and value:', {
               insuranceManagedBy: typeof docData.insuranceManagedBy,
               insuranceManagedByValue: docData.insuranceManagedBy,
               selectedInsurance: typeof docData.selectedInsurance,
-              selectedInsuranceValue: docData.selectedInsurance
+              selectedInsuranceValue: docData.selectedInsurance,
+              insurance: typeof docData.insurance,
+              insuranceValue: docData.insurance
             });
           }
           
-          // Format date properly
+          // Format date properly in ISO format (2025-08-11)
           const formatDate = (dateValue: any) => {
             if (!dateValue) return '';
+            
+            let date: Date;
+            
+            // Handle Firebase Timestamp
             if (dateValue?.toDate) {
-              return dateValue.toDate().toLocaleDateString();
+              date = dateValue.toDate();
             }
-            if (typeof dateValue === 'string') return dateValue;
-            return '';
+            // Handle string dates
+            else if (typeof dateValue === 'string') {
+              // If already in correct format, return as is
+              if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+                return dateValue;
+              }
+              date = new Date(dateValue);
+            }
+            // Handle Date objects
+            else if (dateValue instanceof Date) {
+              date = dateValue;
+            }
+            // Handle timestamp numbers
+            else if (typeof dateValue === 'number') {
+              date = new Date(dateValue);
+            }
+            else {
+              return '';
+            }
+            
+            // Check if date is valid
+            if (isNaN(date.getTime())) {
+              return '';
+            }
+            
+            // Return in ISO format (2025-08-11)
+            return date.toISOString().split('T')[0];
           };
 
           // Extract insurance managed by value (handle object case)
@@ -200,45 +291,329 @@ export default function InwardReportsPage() {
             return String(value);
           };
 
-          // Direct field mapping from inward collection
-          return {
-                  id: doc.id,
-            state: docData.state || docData.databaseLocation || '',
-                  branch: docData.branch || '',
-                  location: docData.location || '',
-            typeOfBusiness: docData.typeOfBusiness || docData.businessType || '',
-            warehouseType: docData.warehouseType || '',
-            warehouseCode: docData.warehouseCode || '',
-                  warehouseName: docData.warehouseName || '',
-            warehouseAddress: docData.warehouseAddress || '',
-                  clientCode: docData.clientCode || '',
-            clientName: docData.clientName || docData.client || '',
-            commodity: safeString(docData.commodity || docData.commodityName),
-            variety: safeString(docData.variety || docData.varietyName),
-            bankName: docData.bankName || '',
-            bankBranchName: docData.bankBranchName || '',
-            bankState: docData.bankState || '',
-            ifscCode: docData.ifscCode || '',
-            cadNumber: docData.cadNumber || '',
-            inwardDate: formatDate(docData.inwardDate || docData.dateOfInward || docData.createdAt),
-            srWrNumber: docData.srWrNumber || docData.srwrNo || docData.inwardId || '',
-            srWrDate: formatDate(docData.srWrDate || docData.srwrDate),
-            fundingSrWrDate: formatDate(docData.fundingSrWrDate),
-            srLastValidityDate: formatDate(docData.srLastValidityDate),
-            totalBags: docData.totalBags || docData.bags || '',
-            totalQty: docData.totalQty || docData.quantity || '',
-            roBags: docData.roBags || '',
-            roQty: docData.roQty || '',
-            doBags: docData.doBags || '',
-            doQty: docData.doQty || '',
-            balanceBags: docData.balanceBags || docData.totalBags || docData.bags || '',
-            balanceQty: docData.balanceQty || docData.totalQty || docData.quantity || '',
-            insuranceManagedBy: extractInsuranceValue(docData.insuranceManagedBy || docData.selectedInsurance),
-            rate: safeString(docData.rate),
-            aum: safeString(docData.aum),
-            databaseLocation: docData.databaseLocation || ''
+          // Safe numeric extraction helper
+          const safeNumeric = (value: any) => {
+            if (!value) return '';
+            if (typeof value === 'number') return String(value);
+            if (typeof value === 'string') {
+              const num = parseFloat(value);
+              return isNaN(num) ? '' : String(num);
+            }
+            if (typeof value === 'object' && value !== null) {
+              // Handle objects with nested values
+              const keys = Object.keys(value);
+              for (const key of keys) {
+                if (typeof value[key] === 'number' || !isNaN(parseFloat(value[key]))) {
+                  return String(value[key]);
+                }
+              }
+            }
+            return '';
           };
-        });
+
+          // Create multiple SR/WR identifier strategies for cross-collection lookups
+          const inwardId = docData.inwardId || doc.id;
+          const receiptType = docData.receiptType || 'SR';
+          const dateOfInward = docData.dateOfInward || docData.inwardDate || docData.date;
+          
+          // Strategy 1: Standard format SR-INW-047-2025-07-25
+          const srwrNo1 = `${receiptType}-${inwardId}-${dateOfInward}`;
+          
+          // Strategy 2: Alternative format without date
+          const srwrNo2 = `${receiptType}-${inwardId}`;
+          
+          // Strategy 3: Direct inwardId match
+          const srwrNo3 = inwardId;
+          
+          console.log(`Searching RO/DO for inward ${inwardId} using patterns:`, {
+            srwrNo1,
+            srwrNo2, 
+            srwrNo3
+          });
+          
+          // Fetch related RO data using multiple search strategies
+          let roData = { roBags: '', roQty: '', srWrNumber: '', srWrDate: '', fundingSrWrDate: '', srLastValidityDate: '', rate: '', aum: '', insurance: '' };
+          try {
+            const roCollection = collection(db, 'releaseOrders');
+            let roSnapshot = null;
+            
+            // Try different srwrNo patterns
+            for (const srwrPattern of [srwrNo1, srwrNo2, srwrNo3]) {
+              const roQuery = query(roCollection, where('srwrNo', '==', srwrPattern));
+              roSnapshot = await getDocs(roQuery);
+              if (!roSnapshot.empty) {
+                console.log(`Found RO data using pattern: ${srwrPattern}`);
+                break;
+              }
+            }
+            
+            // If still no match, try searching by inwardId field directly
+            if (!roSnapshot || roSnapshot.empty) {
+              const roQuery = query(roCollection, where('inwardId', '==', inwardId));
+              roSnapshot = await getDocs(roQuery);
+              if (!roSnapshot.empty) {
+                console.log(`Found RO data using inwardId: ${inwardId}`);
+              }
+            }
+            
+            if (!roSnapshot.empty) {
+              // Aggregate RO data (sum all approved ROs for this inward)
+              let totalRoBags = 0;
+              let totalRoQty = 0;
+              let latestRoDate = '';
+              let latestFundingDate = '';
+              let latestValidityDate = '';
+              let roRate = '';
+              let roAum = '';
+              let roInsurance = '';
+              
+              roSnapshot.docs.forEach(roDoc => {
+                const roDocData = roDoc.data();
+                const roStatus = (roDocData.roStatus || '').toLowerCase();
+                
+                // Only include approved ROs in calculations
+                if (roStatus === 'approved' || roStatus === 'approve') {
+                  // Fix field mappings based on actual RO collection structure
+                  totalRoBags += Number(roDocData.releaseBags || roDocData.totalBags || roDocData.bags || 0);
+                  totalRoQty += Number(roDocData.releaseQuantity || roDocData.totalQuantity || roDocData.quantity || 0);
+                  
+                  // Get SR/WR number from the actual document  
+                  if (!roData.srWrNumber && (roDocData.srwrNo || roDocData.srWrNumber)) {
+                    roData.srWrNumber = roDocData.srwrNo || roDocData.srWrNumber;
+                  }
+                  
+                  // Get SR/WR generation date (createdAt represents generation date)
+                  if (roDocData.createdAt && roDocData.createdAt > latestRoDate) {
+                    latestRoDate = roDocData.createdAt;
+                  }
+                  
+                  // Collect rate and AUM from RO documents (use latest values)
+                  if (roDocData.rate || roDocData.ratePerMT || roDocData.pricePerMT || roDocData.ratePerBag) {
+                    roRate = roDocData.rate || roDocData.ratePerMT || roDocData.pricePerMT || roDocData.ratePerBag || roRate;
+                  }
+                  if (roDocData.aum || roDocData.aumValue || roDocData.assetValue || roDocData.aumAmount || roDocData.totalAum) {
+                    roAum = roDocData.aum || roDocData.aumValue || roDocData.assetValue || roDocData.aumAmount || roDocData.totalAum || roAum;
+                  }
+                  
+                  // Collect insurance data from RO documents
+                  if (roDocData.insuranceManagedBy || roDocData.insurance || roDocData.insuranceTakenBy || roDocData.insuranceCompany) {
+                    roInsurance = extractInsuranceValue(roDocData.insuranceManagedBy || roDocData.insurance || roDocData.insuranceTakenBy || roDocData.insuranceCompany) || roInsurance;
+                  }
+                  
+                  // Funding date - if bank details present, use same as generation date
+                  const bankDetailsPresent = roDocData.bankName || roDocData.bankBranch || roDocData.ifscCode;
+                  if (bankDetailsPresent && roDocData.createdAt && roDocData.createdAt > latestFundingDate) {
+                    latestFundingDate = roDocData.createdAt; // Same as SR generation date when bank details present
+                  } else if (roDocData.fundingDate && roDocData.fundingDate > latestFundingDate) {
+                    latestFundingDate = roDocData.fundingDate;
+                  }
+                  
+                  // Stock validity last date
+                  if (roDocData.validityDate && roDocData.validityDate > latestValidityDate) {
+                    latestValidityDate = roDocData.validityDate;
+                  } else if (roDocData.stockValidityLastDate && roDocData.stockValidityLastDate > latestValidityDate) {
+                    latestValidityDate = roDocData.stockValidityLastDate;
+                  }
+                }
+              });
+              
+              roData = {
+                roBags: totalRoBags > 0 ? totalRoBags.toString() : '',
+                roQty: totalRoQty > 0 ? totalRoQty.toString() : '',
+                // SR/WR date parameter should fetch from SR/WR report with "SR generation date for SR" or "WR generation date for WR"
+                srWrDate: latestRoDate ? formatDate(latestRoDate) : '',
+                // Funding SR/WR date should be same as SR/WR date if bank details present
+                fundingSrWrDate: latestFundingDate ? formatDate(latestFundingDate) : (latestRoDate ? formatDate(latestRoDate) : ''),
+                // SR/WR last validity date from "Stock validity last date" parameter
+                srLastValidityDate: latestValidityDate ? formatDate(latestValidityDate) : '',
+                // SR/WR Number from "SR Number for SR" or "WR number for WR" parameter - preserve existing value
+                srWrNumber: roData.srWrNumber,
+                rate: roRate || '',
+                aum: roAum || '',
+                insurance: roInsurance || ''
+              };
+              
+              console.log(`Found RO data for inward ${inwardId}:`, roData);
+            }
+          } catch (error) {
+            console.error(`Error fetching RO data for inward ${inwardId}:`, error);
+          }
+          
+          // Fetch related DO data using multiple search strategies  
+          let doData = { doBags: '', doQty: '' };
+          try {
+            const doCollection = collection(db, 'deliveryOrders');
+            let doSnapshot = null;
+            
+            // Try different srwrNo patterns
+            for (const srwrPattern of [srwrNo1, srwrNo2, srwrNo3]) {
+              const doQuery = query(doCollection, where('srwrNo', '==', srwrPattern));
+              doSnapshot = await getDocs(doQuery);
+              if (!doSnapshot.empty) {
+                console.log(`Found DO data using pattern: ${srwrPattern}`);
+                break;
+              }
+            }
+            
+            // If still no match, try searching by inwardId field directly
+            if (!doSnapshot || doSnapshot.empty) {
+              const doQuery = query(doCollection, where('inwardId', '==', inwardId));
+              doSnapshot = await getDocs(doQuery);
+              if (!doSnapshot.empty) {
+                console.log(`Found DO data using inwardId: ${inwardId}`);
+              }
+            }
+            
+            if (!doSnapshot.empty) {
+              // Aggregate DO data (sum all approved DOs for this inward)
+              let totalDoBags = 0;
+              let totalDoQty = 0;
+              
+              doSnapshot.docs.forEach(doDoc => {
+                const doDocData = doDoc.data();
+                const doStatus = (doDocData.doStatus || '').toLowerCase();
+                
+                // Only include approved DOs in calculations
+                if (doStatus === 'approved' || doStatus === 'approve') {
+                  // Fix field mappings based on actual DO collection structure
+                  totalDoBags += Number(doDocData.doBags || doDocData.totalBags || doDocData.bags || 0);
+                  totalDoQty += Number(doDocData.doQuantity || doDocData.totalQuantity || doDocData.quantity || 0);
+                }
+              });
+              
+              doData = {
+                doBags: totalDoBags > 0 ? totalDoBags.toString() : '',
+                doQty: totalDoQty > 0 ? totalDoQty.toString() : ''
+              };
+              
+              console.log(`Found DO data for inward ${inwardId}:`, doData);
+            }
+          } catch (error) {
+            console.error(`Error fetching DO data for inward ${inwardId}:`, error);
+          }
+          
+          // Fetch bank branch name from bank master module with parameter name "Branch"
+          let bankBranchFromMaster = '';
+          try {
+            const banksCollection = collection(db, 'banks');
+            const bankQuery = query(banksCollection, where('state', '==', docData.state || docData.bankState));
+            const bankSnapshot = await getDocs(bankQuery);
+            
+            if (!bankSnapshot.empty) {
+              // Find matching bank and branch
+              for (const bankDoc of bankSnapshot.docs) {
+                const bankData = bankDoc.data();
+                if (bankData.locations && Array.isArray(bankData.locations)) {
+                  const matchingLocation = bankData.locations.find((location: any) => 
+                    location.branchName === (docData.bankBranch || docData.bankBranchName) ||
+                    location.locationName === (docData.bankName || docData.selectedBankName)
+                  );
+                  if (matchingLocation) {
+                    bankBranchFromMaster = matchingLocation.branchName || '';
+                    console.log(`Found bank branch from master: ${bankBranchFromMaster}`);
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`Error fetching bank branch from master for inward ${inwardId}:`, error);
+          }
+          
+          // Calculate balance quantities
+          const totalBagsNum = Number(docData.totalBags || docData.bags || 0);
+          const totalQtyNum = Number(docData.totalQty || docData.quantity || docData.totalQuantity || 0);
+          const roBagsNum = Number(roData.roBags || 0);
+          const roQtyNum = Number(roData.roQty || 0);
+          const doBagsNum = Number(doData.doBags || 0);
+          const doQtyNum = Number(doData.doQty || 0);
+          
+          const balanceBagsCalc = Math.max(0, totalBagsNum - roBagsNum - doBagsNum);
+          const balanceQtyCalc = Math.max(0, totalQtyNum - roQtyNum - doQtyNum);
+
+          // Enhanced field mapping with cross-collection data
+          return {
+            id: doc.id,
+            // Basic location info
+            state: docData.state || docData.databaseLocation || docData.bankState || '',
+            branch: docData.branch || docData.bankBranch || docData.bankBranchName || '',
+            location: docData.location || docData.warehouseAddress || '',
+            
+            // Business info with enhanced mapping
+            typeOfBusiness: docData.typeOfBusiness || docData.businessType || docData.typeOfWarehouse || '',
+            warehouseType: docData.warehouseType || docData.typeOfWarehouse || docData.businessType || '',
+            warehouseCode: docData.warehouseCode || '',
+            warehouseName: docData.warehouseName || '',
+            warehouseAddress: docData.warehouseAddress || docData.location || '',
+            
+            // Client info
+            clientCode: docData.clientCode || docData.clientId || '',
+            clientName: docData.clientName || docData.client || docData.clientDetails?.name || '',
+            
+            // Commodity info with enhanced extraction
+            commodity: safeString(docData.commodity || docData.commodityName || docData.commodityDetails?.name),
+            variety: safeString(docData.variety || docData.varietyName || docData.varietyDetails?.name),
+            
+            // Bank info with comprehensive fallbacks
+            bankName: docData.bankName || docData.bank || docData.selectedBankName || docData.bankDetails?.name || '',
+            // Bank Branch name parameter from bank master module with parameter name "Branch"
+            bankBranchName: bankBranchFromMaster || docData.bankBranchName || docData.bankBranch || docData.branchName || docData.selectedBankBranchName || docData.bankDetails?.branchName || '',
+            bankState: docData.bankState || docData.selectedBankState || docData.state || '',
+            ifscCode: docData.ifscCode || docData.IFSC || docData.ifsc || docData.bankDetails?.ifscCode || '',
+            
+            // Document info
+            cadNumber: docData.cadNumber || docData.cad || '',
+            inwardDate: formatDate(docData.inwardDate || docData.dateOfInward || docData.date || docData.createdAt),
+            
+            // SR/WR info with enhanced extraction and cross-collection data
+            // SR/WR number parameter should fetch from SR/WR report with "SR Number for SR" or "WR number for WR"
+            srWrNumber: roData.srWrNumber || docData.srWrNumber || docData.srwrNo || docData.receiptNumber || docData.inwardId || srwrNo1 || '',
+            srWrDate: roData.srWrDate || formatDate(docData.srWrDate || docData.srwrDate || docData.receiptDate || docData.inwardDate),
+            fundingSrWrDate: roData.fundingSrWrDate || formatDate(docData.fundingSrWrDate || docData.fundingDate),
+            srLastValidityDate: roData.srLastValidityDate || formatDate(docData.srLastValidityDate || docData.validityDate || docData.expiryDate),
+            
+            // Total bags and qty should be picked from inward section for that particular SR/WR number
+            totalBags: safeNumeric(docData.totalBags || docData.bags || docData.noOfBags || docData.bagCount),
+            totalQty: safeNumeric(docData.totalQty || docData.quantity || docData.totalQuantity || docData.weight),
+            
+            // Debug info for verification
+            _debugInfo: {
+              inwardId: inwardId,
+              srwrPatterns: [srwrNo1, srwrNo2, srwrNo3],
+              foundRoData: Object.keys(roData).filter(key => roData[key as keyof typeof roData] !== '').length > 0,
+              foundDoData: Object.keys(doData).filter(key => doData[key as keyof typeof doData] !== '').length > 0,
+              bankBranchSource: bankBranchFromMaster ? 'bankMaster' : 'inwardData'
+            },
+            
+            // RO info from cross-collection data or fallbacks
+            roBags: roData.roBags || safeNumeric(docData.roBags || docData.roReleasedBags || docData.releasedBags),
+            roQty: roData.roQty || safeNumeric(docData.roQty || docData.roReleasedQty || docData.releasedQty || docData.roQuantity),
+            
+            // DO info from cross-collection data or fallbacks
+            doBags: doData.doBags || safeNumeric(docData.doBags || docData.doReleasedBags || docData.deliveredBags),
+            doQty: doData.doQty || safeNumeric(docData.doQty || docData.doReleasedQty || docData.deliveredQty || docData.doQuantity),
+            
+            // Balance calculation with cross-collection data
+            balanceBags: safeNumeric(balanceBagsCalc || docData.balanceBags || docData.remainingBags),
+            balanceQty: safeNumeric(balanceQtyCalc || docData.balanceQty || docData.remainingQty || docData.balanceQuantity),
+            
+            // Financial info from cross-collection data or fallbacks
+            // Insurance should prioritize RO collection data if available
+            insuranceManagedBy: (roData as any).insurance || extractInsuranceValue(
+              docData.insuranceManagedBy || 
+              docData.selectedInsurance || 
+              docData.insurance || 
+              docData.insuranceTakenBy ||
+              docData.insuranceCompany ||
+              docData.insuranceProvider
+            ),
+            rate: roData.rate || safeNumeric(docData.rate || docData.ratePerMT || docData.pricePerMT || docData.ratePerBag),
+            aum: roData.aum || safeNumeric(docData.aum || docData.aumValue || docData.assetValue || docData.aumAmount || docData.totalAum),
+            
+            // Additional tracking
+            databaseLocation: docData.databaseLocation || docData.state || ''
+          };
+        }));
         
         console.log('Successfully processed', processedData.length, 'inward records');
         setInwardData(processedData);
@@ -252,7 +627,12 @@ export default function InwardReportsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [startDate, endDate]);
+
+  // Fetch inward data
+  useEffect(() => {
+    fetchInwardData();
+  }, [fetchInwardData]);
 
   // Get unique filter options
   const uniqueWarehouses = useMemo(() => {
@@ -304,59 +684,31 @@ export default function InwardReportsPage() {
     setCurrentPage(1);
   }, [searchTerm, warehouseFilter, clientFilter, itemsPerPage]);
 
-  // Export filtered data to CSV
+  // Export filtered data to CSV - matches table display exactly
   const exportToCSV = () => {
     if (filteredData.length === 0) return;
     
-    const headers = [
-      'State', 'Branch', 'Location', 'Type of Business', 'Warehouse Type', 'Warehouse Code',
-      'Warehouse Name', 'Warehouse Address', 'Client Code', 'Client Name', 'Commodity', 'Variety',
-      'Bank Name', 'Bank Branch Name', 'Bank State', 'IFSC Code', 'CAD Number', 'Inward Date',
-      'SR/WR Number', 'SR/WR Date', 'Funding SR/WR Date', 'SR Last Validity Date',
-      'Total Bags', 'Total Qty(MT)', 'RO Bags', 'RO Qty (MT)', 'DO Bags', 'DO Qty (MT)',
-      'Balance Bags', 'Balance Qty (MT)', 'Insurance Managed by', 'Rate (Rs/MT)', 'AUM(Rs/MT)'
-    ];
+    // Use only visible columns for export, matching table display
+    const exportHeaders = visibleColumnsData.map(col => col.label);
     
     const csvContent = [
-      headers.join(','),
-      ...filteredData.map((row) => [
-        row.state || '',
-        row.branch || '',
-        row.location || '',
-        row.typeOfBusiness || '',
-        row.warehouseType || '',
-        row.warehouseCode || '',
-        row.warehouseName || '',
-        row.warehouseAddress || '',
-        row.clientCode || '',
-        row.clientName || '',
-        row.commodity || '',
-        row.variety || '',
-        row.bankName || '',
-        row.bankBranchName || '',
-        row.bankState || '',
-        row.ifscCode || '',
-        row.cadNumber || '',
-        row.inwardDate || '',
-        row.srWrNumber || '',
-        row.srWrDate || '',
-        row.fundingSrWrDate || '',
-        row.srLastValidityDate || '',
-        row.totalBags || '',
-        row.totalQty || '',
-        row.roBags || '',
-        row.roQty || '',
-        row.doBags || '',
-        row.doQty || '',
-        row.balanceBags || '',
-        row.balanceQty || '',
-        row.insuranceManagedBy || '',
-        row.rate || '',
-        row.aum || ''
-      ].map(value => typeof value === 'string' && value.includes(',') ? `"${value}"` : value).join(','))
-    ].join('\\n');
+      exportHeaders.join(','),
+      ...filteredData.map((row) => {
+        return visibleColumnsData.map(column => {
+          // Match the exact logic from table display
+          const cellValue = row[column.key] || 'N/A';
+          
+          // Handle CSV escaping for values containing commas or quotes
+          const cleanValue = String(cellValue);
+          if (cleanValue.includes(',') || cleanValue.includes('"') || cleanValue.includes('\n')) {
+            return `"${cleanValue.replace(/"/g, '""')}"`;
+          }
+          return cleanValue;
+        }).join(',');
+      })
+    ].join('\n');
     
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -597,7 +949,7 @@ export default function InwardReportsPage() {
             )}
             {searchTerm && (
               <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
-                Search: "{searchTerm}"
+                Search: &quot;{searchTerm}&quot;
                 <button onClick={() => setSearchTerm('')} className="ml-1">
                   <X className="w-3 h-3" />
                 </button>
@@ -609,14 +961,16 @@ export default function InwardReportsPage() {
         {/* Data Table */}
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            <div className="table-container">
               <table className="w-full border-collapse border border-gray-200">
-                <thead className="bg-orange-100">
+                <thead className="bg-orange-100 sticky-header">
                   <tr>
-                    {visibleColumnsData.map((column) => (
+                    {visibleColumnsData.map((column, index) => (
                       <th
                         key={column.key}
-                        className={`border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold ${column.width}`}
+                        className={`border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold ${column.width} ${
+                          index === 0 ? 'sticky-first-column header' : ''
+                        }`}
                       >
                         {column.label}
                       </th>
@@ -626,113 +980,35 @@ export default function InwardReportsPage() {
                 <tbody>
                   {paginatedData.map((item, index) => (
                     <tr key={item.id} className="hover:bg-gray-50">
-                      {visibleColumns.includes('state') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.state || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('branch') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.branch || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('location') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.location || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('typeOfBusiness') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.typeOfBusiness || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('warehouseType') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.warehouseType || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('warehouseCode') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.warehouseCode || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('warehouseName') && (
-                        <td className="border border-gray-200 px-4 py-2 font-medium">{item.warehouseName || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('warehouseAddress') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.warehouseAddress || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('clientCode') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.clientCode || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('clientName') && (
-                        <td className="border border-gray-200 px-4 py-2 font-medium">{item.clientName || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('commodity') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.commodity || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('variety') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.variety || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('bankName') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.bankName || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('bankBranchName') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.bankBranchName || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('bankState') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.bankState || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('ifscCode') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.ifscCode || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('cadNumber') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.cadNumber || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('inwardDate') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.inwardDate || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('srWrNumber') && (
-                        <td className="border border-gray-200 px-4 py-2 font-medium">{item.srWrNumber || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('srWrDate') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.srWrDate || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('fundingSrWrDate') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.fundingSrWrDate || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('srLastValidityDate') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.srLastValidityDate || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('totalBags') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.totalBags || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('totalQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.totalQty || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('roBags') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.roBags || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('roQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.roQty || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('doBags') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.doBags || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('doQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.doQty || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('balanceBags') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.balanceBags || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('balanceQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.balanceQty || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('insuranceManagedBy') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.insuranceManagedBy || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('rate') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.rate || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('aum') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.aum || 'N/A'}</td>
-                      )}
+                      {visibleColumnsData.map((column, columnIndex) => {
+                        const isFirstColumn = columnIndex === 0;
+                        const cellValue = item[column.key] || 'N/A';
+                        const isNumeric = ['totalBags', 'totalQty', 'roBags', 'roQty', 'doBags', 'doQty', 'balanceBags', 'balanceQty', 'rate', 'aum'].includes(column.key);
+                        const isBold = ['warehouseName', 'clientName', 'srWrNumber'].includes(column.key);
+                        
+                        return (
+                          <td
+                            key={column.key}
+                            className={`border border-gray-200 px-4 py-2 ${
+                              isFirstColumn ? 'sticky-first-column' : ''
+                            } ${
+                              isNumeric ? 'text-right' : ''
+                            } ${
+                              isBold ? 'font-medium' : ''
+                            }`}
+                          >
+                            {cellValue}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
               </table>
               
-              {filteredData.length === 0 && (
+              {filteredData.length === 0 && loading && (
                 <div className="text-center py-8 text-gray-500">
-                  {loading ? 'Loading data...' : 'No inward data found matching the current filters'}
+                  Loading data...
                 </div>
               )}
             </div>
