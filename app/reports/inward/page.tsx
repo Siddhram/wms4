@@ -754,7 +754,7 @@ export default function InwardReportsPage() {
             <Button 
               onClick={exportToCSV} 
               disabled={filteredData.length === 0}
-              className="bg-blue-500 hover:bg-blue-600 text-white"
+              className="bg-orange-500 hover:bg-orange-600 text-white"
             >
               <Download className="h-4 w-4 mr-2" />
               Export CSV
