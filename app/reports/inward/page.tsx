@@ -405,14 +405,51 @@ export default function InwardReportsPage() {
             doEntriesCount: doData?.doEntries?.length || 0
           });
           
-          // Format date properly
+          // Format date properly - show only date without timezone
           const formatDate = (dateValue: any) => {
             if (!dateValue) return '';
+            
+            // Handle Firebase Timestamp objects
             if (dateValue?.toDate) {
-              return dateValue.toDate().toLocaleDateString();
+              return dateValue.toDate().toLocaleDateString('en-GB', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+              });
             }
-            if (typeof dateValue === 'string') return dateValue;
+            
+            // Handle ISO date strings like "2025-09-27T20:59:34.673Z"
+            if (typeof dateValue === 'string') {
+              try {
+                const date = new Date(dateValue);
+                if (!isNaN(date.getTime())) {
+                  return date.toLocaleDateString('en-GB', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                  });
+                }
+                return dateValue; // Return as-is if not a valid date
+              } catch (error) {
+                return dateValue; // Return as-is if parsing fails
+              }
+            }
+            
+            // Handle Date objects
+            if (dateValue instanceof Date) {
+              return dateValue.toLocaleDateString('en-GB', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+              });
+            }
+            
             return '';
+          };
+
+          // Check if bank details are present
+          const hasBankDetails = (data: any) => {
+            return !!(data.bankName || data.bankBranchName || data.ifscCode || data.cadNumber);
           };
 
           // Extract insurance managed by value (handle object case)
@@ -457,7 +494,12 @@ export default function InwardReportsPage() {
             originalMarketRate: docData.marketRate,
             originalRate: docData.rate,
             finalRate: docData.marketRate || docData.rate,
-            rateSourceField: docData.marketRate ? 'marketRate' : 'rate'
+            rateSourceField: docData.marketRate ? 'marketRate' : 'rate',
+            hasBankDetails: hasBankDetails(docData),
+            srGenerationDate: docData.srGenerationDate,
+            totalValue: docData.totalValue,
+            bankName: docData.bankName,
+            ifscCode: docData.ifscCode
           });
           
           // Get aggregated RO values
@@ -494,8 +536,8 @@ export default function InwardReportsPage() {
             cadNumber: docData.cadNumber || '',
             inwardDate: formatDate(docData.inwardDate || docData.dateOfInward || docData.createdAt),
             srWrNumber: possibleSrWrNumbers[0] || '',
-            srWrDate: formatDate(docData.srWrDate || docData.srwrDate),
-            fundingSrWrDate: formatDate(docData.fundingSrWrDate),
+            srWrDate: formatDate(docData.srGenerationDate),
+            fundingSrWrDate: hasBankDetails(docData) ? formatDate(docData.srGenerationDate) : '',
             srLastValidityDate: formatDate(docData.srLastValidityDate),
             
             // ** PROPERLY SOURCED VALUES AS PER REQUIREMENTS **
@@ -517,7 +559,7 @@ export default function InwardReportsPage() {
             
             insuranceManagedBy: extractInsuranceValue(docData.insuranceManagedBy || docData.selectedInsurance),
             rate: safeString(docData.marketRate || docData.rate), // Fetch from marketRate field in inward collection
-            aum: safeString(docData.aum),
+            aum: safeString(docData.totalValue), // Fetch from totalValue field in inward collection
             databaseLocation: docData.databaseLocation || '',
             
             // Debug info (can be removed later)
@@ -908,12 +950,25 @@ export default function InwardReportsPage() {
                     {inwardData.reduce((sum, item) => sum + parseFloat(item.doBags || '0'), 0).toFixed(2)}
                   </div>
                 </div>
+                <div>
+                  <span className="font-medium text-blue-700">Records with Bank Details:</span>
+                  <div className="text-blue-900">
+                    {inwardData.filter(item => item.fundingSrWrDate && item.fundingSrWrDate !== 'N/A').length}
+                  </div>
+                </div>
+                <div>
+                  <span className="font-medium text-blue-700">Funding SR/WR Dates:</span>
+                  <div className="text-blue-900">
+                    {inwardData.filter(item => item.fundingSrWrDate && item.fundingSrWrDate !== 'N/A').length} populated
+                  </div>
+                </div>
               </div>
               <div className="mt-2 text-xs text-blue-600">
                 ✅ Total Bags & Total Qty(MT) from inward collection (original entry quantities)<br/>
                 ✅ RO Bags & RO Qty aggregated from releaseOrders collection<br/>
                 ✅ DO Bags & DO Qty aggregated from deliveryOrders collection<br/>
-                ✅ Balance = Total - RO - DO for each SR/WR number
+                ✅ Balance = Total - RO - DO for each SR/WR number<br/>
+                ✅ Funding SR/WR Date populated from srGenerationDate field for records with bank details
               </div>
             </CardContent>
           </Card>
