@@ -1015,14 +1015,16 @@ export default function InwardReportsPage() {
         {/* Data Table */}
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            <div className="table-container">
               <table className="w-full border-collapse border border-gray-200">
-                <thead className="bg-orange-100">
+                <thead className="bg-orange-100 sticky-header">
                   <tr>
-                    {visibleColumnsData.map((column) => (
+                    {visibleColumnsData.map((column, index) => (
                       <th
                         key={column.key}
-                        className={`border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold ${column.width}`}
+                        className={`border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold ${column.width} ${
+                          index === 0 ? 'sticky-first-column header' : ''
+                        }`}
                       >
                         {column.label}
                       </th>
@@ -1030,107 +1032,29 @@ export default function InwardReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedData.map((item, index) => (
+                  {paginatedData.map((item, rowIndex) => (
                     <tr key={item.id} className="hover:bg-gray-50">
-                      {visibleColumns.includes('state') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.state || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('branch') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.branch || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('location') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.location || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('typeOfBusiness') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.typeOfBusiness || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('warehouseType') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.warehouseType || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('warehouseCode') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.warehouseCode || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('warehouseName') && (
-                        <td className="border border-gray-200 px-4 py-2 font-medium">{item.warehouseName || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('warehouseAddress') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.warehouseAddress || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('clientCode') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.clientCode || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('clientName') && (
-                        <td className="border border-gray-200 px-4 py-2 font-medium">{item.clientName || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('commodity') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.commodity || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('variety') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.variety || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('bankName') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.bankName || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('bankBranchName') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.bankBranchName || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('bankState') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.bankState || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('ifscCode') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.ifscCode || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('cadNumber') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.cadNumber || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('inwardDate') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.inwardDate || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('srWrNumber') && (
-                        <td className="border border-gray-200 px-4 py-2 font-medium">{item.srWrNumber || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('srWrDate') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.srWrDate || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('fundingSrWrDate') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.fundingSrWrDate || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('srLastValidityDate') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.srLastValidityDate || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('totalBags') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.totalBags || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('totalQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.totalQty || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('roBags') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.roBags || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('roQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.roQty || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('doBags') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.doBags || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('doQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.doQty || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('balanceBags') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.balanceBags || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('balanceQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.balanceQty || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('insuranceManagedBy') && (
-                        <td className="border border-gray-200 px-4 py-2">{item.insuranceManagedBy || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('rate') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.rate || 'N/A'}</td>
-                      )}
-                      {visibleColumns.includes('aum') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">{item.aum || 'N/A'}</td>
-                      )}
+                      {visibleColumnsData.map((column, colIndex) => {
+                        const value = item[column.key as keyof InwardReportData] || 'N/A';
+                        const isFirstColumn = colIndex === 0;
+                        const isNumericColumn = ['totalBags', 'totalQty', 'roBags', 'roQty', 'doBags', 'doQty', 'balanceBags', 'balanceQty', 'rate', 'aum'].includes(column.key);
+                        const isFontMedium = ['warehouseName', 'clientName', 'srWrNumber'].includes(column.key);
+                        
+                        return (
+                          <td
+                            key={column.key}
+                            className={`border border-gray-200 px-4 py-2 ${
+                              isNumericColumn ? 'text-right' : ''
+                            } ${
+                              isFontMedium ? 'font-medium' : ''
+                            } ${
+                              isFirstColumn ? 'sticky-first-column' : ''
+                            }`}
+                          >
+                            {value}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>

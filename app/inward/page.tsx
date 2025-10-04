@@ -22,6 +22,7 @@ import React from 'react';
 import StorageReceipt from '@/components/StorageReceipt';
 import TestCertificate from '@/components/TestCertificate';
 import PrintableWarehouseReceipt from '@/components/PrintableWarehouseReceipt';
+import CIRReceipt from '@/components/CIRReceipt';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 
 // Move normalizeDate to top-level scope (before export default function InwardPage)
@@ -271,6 +272,7 @@ export default function InwardPage() {
   const printRef = useRef<HTMLDivElement>(null);
   const testCertRef = useRef<HTMLDivElement>(null);
   const printableReceiptRef = useRef<HTMLDivElement>(null);
+  const cirReceiptRef = useRef<HTMLDivElement>(null);
   // Add state for initial remaining values from Firestore
   const [initialRemainingFire, setInitialRemainingFire] = useState('');
   const [initialRemainingBurglary, setInitialRemainingBurglary] = useState('');
@@ -3478,7 +3480,15 @@ export default function InwardPage() {
       header: "Lab Results (%)",
       cell: ({ row }: any) => {
         const results = row.original.labResults;
-        return Array.isArray(results) ? results.join(', ') : '';
+        if (Array.isArray(results)) {
+          return results.map((result: any) => {
+            if (typeof result === 'object' && result.parameterName && result.value) {
+              return `${result.parameterName}-${result.value}`;
+            }
+            return typeof result === 'object' ? JSON.stringify(result) : String(result);
+          }).join(', ');
+        }
+        return '';
       }
     },
     // Business and Billing
@@ -3690,7 +3700,8 @@ export default function InwardPage() {
               const paramName = particulars[index]?.particularName || `Parameter${index + 1}`;
               return `${paramName}-${result}`;
             }
-            return result;
+            // Convert any remaining object to string to prevent React rendering error
+            return typeof result === 'object' ? JSON.stringify(result) : String(result);
           }).join(',');
         }
         return '';
@@ -4767,6 +4778,80 @@ export default function InwardPage() {
     }
   };
 
+  const handleCIRPrint = async () => {
+    console.log('CIR Print button clicked');
+    console.log('CIR Modal Data:', cirModalData);
+    console.log('CIR Receipt Ref:', cirReceiptRef.current);
+    console.log('Show CIR Modal:', showCIRModal);
+    
+    if (!cirModalData) {
+      toast({ title: 'Error', description: 'No CIR data available for printing.', variant: 'destructive' });
+      return;
+    }
+    
+    if (!cirReceiptRef.current) {
+      toast({ title: 'Error', description: 'CIR print ref not available. Please try again.', variant: 'destructive' });
+      return;
+    }
+    setIsPrinting(true);
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const jsPDF = (await import('jspdf')).default;
+      
+      // Wait for the component to render and ref to be available
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      
+      // Double-check ref availability after delay
+      if (!cirReceiptRef.current) {
+        throw new Error('CIR receipt ref became unavailable after delay');
+      }
+      
+      const canvas = await html2canvas(cirReceiptRef.current, { 
+        scale: 2, 
+        useCORS: true, 
+        backgroundColor: '#fff',
+        logging: true,
+        allowTaint: false,
+        height: cirReceiptRef.current.scrollHeight,
+        width: cirReceiptRef.current.scrollWidth
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 295; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      let heightLeft = imgHeight;
+      let position = 0;
+      
+      // Add first page
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+      
+      // Add additional pages if needed
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+      
+      pdf.save(`cir-status-form-${cirModalData?.inwardId || 'document'}.pdf`);
+      
+      toast({ 
+        title: 'PDF Generated', 
+        description: 'The CIR status form PDF has been downloaded successfully.', 
+        variant: 'default' 
+      });
+    } catch (err) {
+      console.error('CIR PDF generation error:', err);
+      toast({ title: 'Error', description: 'Failed to generate CIR PDF. See console for details.', variant: 'destructive' });
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
   // Update insurance selection logic to fetch and display remaining values from Firestore
   const handleInsuranceSelect = async (idx: number) => {
     setSelectedInsuranceIndex(idx);
@@ -5135,7 +5220,7 @@ export default function InwardPage() {
               name: p.name,
               minPercentage: p.minPercentage,
               maxPercentage: p.maxPercentage,
-              actual: selectedRowForSR?.labResults?.[idx] || '',
+              actual: typeof selectedRowForSR?.labResults?.[idx] === 'object' && selectedRowForSR.labResults[idx]?.value ? selectedRowForSR.labResults[idx].value : (selectedRowForSR?.labResults?.[idx] || ''),
             }));
           })()}
         />
@@ -5828,11 +5913,11 @@ export default function InwardPage() {
                     cirModalData.labParameterNames.map((name: string, idx: number) => (
                       <div key={name} className="flex items-center space-x-2">
                         <span className="font-medium w-48">{name}</span>
-                        <Input value={cirModalData.labResults?.[idx] || ''} readOnly className="w-32" />
+                        <Input value={typeof cirModalData.labResults?.[idx] === 'object' && cirModalData.labResults[idx]?.value ? cirModalData.labResults[idx].value : (cirModalData.labResults?.[idx] || '')} readOnly className="w-32" />
                       </div>
                     ))
                   ) : (
-                    <Input value={Array.isArray(cirModalData.labResults) ? cirModalData.labResults.join(', ') : ''} readOnly />
+                    <Input value={Array.isArray(cirModalData.labResults) ? cirModalData.labResults.map(result => typeof result === 'object' && result.value ? result.value : result).join(', ') : ''} readOnly />
                   )}
                 </div>
               </div>
@@ -5875,7 +5960,7 @@ export default function InwardPage() {
                             <td className="px-4 py-2 border-green-300 border">
                               <Input
                                 type="number"
-                                value={cirModalData.labResults?.[idx] || ''}
+                                value={typeof cirModalData.labResults?.[idx] === 'object' && cirModalData.labResults[idx]?.value ? cirModalData.labResults[idx].value : (cirModalData.labResults?.[idx] || '')}
                                 readOnly
                                 className="w-24 bg-white border border-green-300 text-center"
                               />
@@ -5996,7 +6081,7 @@ export default function InwardPage() {
         </div>
         <div className="flex justify-end space-x-2 mt-4">
           {cirModalData?.cirStatus === 'Approved' ? (
-            <Button onClick={handlePrint} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm">
+            <Button onClick={handleCIRPrint} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm">
               Print
             </Button>
           ) : cirModalData?.cirStatus === 'Resubmitted' ? null : cirModalData?.cirStatus === 'Rejected' ? null : (
@@ -8247,7 +8332,7 @@ export default function InwardPage() {
                                 <td className="px-4 py-2 border-green-300 border">
                                   <Input
                                     type="number"
-                                    value={selectedRowForSR?.labResults?.[idx] || ''}
+                                    value={typeof selectedRowForSR?.labResults?.[idx] === 'object' && selectedRowForSR.labResults[idx]?.value ? selectedRowForSR.labResults[idx].value : (selectedRowForSR?.labResults?.[idx] || '')}
                                     readOnly
                                     className="w-24 bg-white border border-green-300 text-center"
                               />
@@ -8432,13 +8517,76 @@ export default function InwardPage() {
                           name: p.name,
                           minPercentage: p.minPercentage,
                           maxPercentage: p.maxPercentage,
-                          actual: selectedRowForSR?.labResults?.[idx] || '',
+                          actual: typeof selectedRowForSR?.labResults?.[idx] === 'object' && selectedRowForSR.labResults[idx]?.value ? selectedRowForSR.labResults[idx].value : (selectedRowForSR?.labResults?.[idx] || ''),
                         }));
                       })()}
                     />
                   </div>
                 </div>
               )}
+
+              {/* Hidden CIR Receipt for PDF export */}
+              {(showCIRModal && cirModalData) && (
+                <div style={{ position: 'absolute', left: '-9999px', top: 0, zIndex: -1 }}>
+                  <div ref={cirReceiptRef}>
+                    <CIRReceipt
+                      data={{
+                        inwardId: cirModalData.inwardId || '',
+                        state: cirModalData.state || '',
+                        branch: cirModalData.branch || '',
+                        location: cirModalData.location || '',
+                        warehouseName: cirModalData.warehouseName || '',
+                        warehouseCode: cirModalData.warehouseCode || '',
+                        warehouseAddress: cirModalData.warehouseAddress || '',
+                        businessType: cirModalData.businessType || '',
+                        client: cirModalData.client || '',
+                        clientCode: cirModalData.clientCode || '',
+                        clientAddress: cirModalData.clientAddress || '',
+                        dateOfInward: cirModalData.dateOfInward || '',
+                        cadNumber: cirModalData.cadNumber || '',
+                        bankReceipt: cirModalData.bankReceipt || '',
+                        commodity: cirModalData.commodity || '',
+                        varietyName: cirModalData.varietyName || '',
+                        marketRate: cirModalData.marketRate || '',
+                        totalBags: cirModalData.totalBags || '',
+                        totalQuantity: cirModalData.totalQuantity || '',
+                        totalValue: cirModalData.totalValue || '',
+                        bankName: cirModalData.bankName || '',
+                        bankBranch: cirModalData.bankBranch || '',
+                        bankState: cirModalData.bankState || '',
+                        ifscCode: cirModalData.ifscCode || '',
+                        billingStatus: cirModalData.billingStatus || '',
+                        reservationRate: cirModalData.reservationRate || '',
+                        reservationQty: cirModalData.reservationQty || '',
+                        reservationStart: cirModalData.reservationStart || '',
+                        reservationEnd: cirModalData.reservationEnd || '',
+                        billingCycle: cirModalData.billingCycle || '',
+                        billingType: cirModalData.billingType || '',
+                        billingRate: cirModalData.billingRate || '',
+                        dateOfSampling: cirModalData.dateOfSampling || '',
+                        dateOfTesting: cirModalData.dateOfTesting || '',
+                        labResults: cirModalData.labResults || [],
+                        labParameterNames: cirModalData.labParameterNames || [],
+                        attachmentUrl: cirModalData.attachmentUrl || '',
+                        vehicleNumber: cirModalData.vehicleNumber || '',
+                        getpassNumber: cirModalData.getpassNumber || '',
+                        weightBridge: cirModalData.weightBridge || '',
+                        weightBridgeSlipNumber: cirModalData.weightBridgeSlipNumber || '',
+                        grossWeight: cirModalData.grossWeight || '',
+                        tareWeight: cirModalData.tareWeight || '',
+                        netWeight: cirModalData.netWeight || '',
+                        stacks: cirModalData.stacks || [],
+                        insuranceEntries: cirModalData.insuranceEntries || [],
+                        cirStatus: cirModalData.cirStatus || '',
+                        remarks: cirRemarks || '',
+                        date: new Date().toLocaleDateString('en-IN'),
+                        place: cirModalData.branch || 'Indore',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Insurance Seal/Stamp and Company Info */}
               <div className="flex justify-between items-end mt-8">
                 <div>
@@ -8912,7 +9060,7 @@ export default function InwardPage() {
                                   <td className="px-4 py-2 border-green-300 border">
                                     <Input
                                       type="number"
-                                      value={cirModalData.labResults?.[idx] || ''}
+                                      value={typeof cirModalData.labResults?.[idx] === 'object' && cirModalData.labResults[idx]?.value ? cirModalData.labResults[idx].value : (cirModalData.labResults?.[idx] || '')}
                                       readOnly
                                       className="w-24 bg-white border border-green-300 text-center"
                                       placeholder="Enter value"
@@ -8967,7 +9115,7 @@ export default function InwardPage() {
                                 <td className="px-4 py-2 border-green-300 border">
                                   <Input
                                     type="number"
-                                    value={cirModalData.labResults?.[idx] || ''}
+                                    value={typeof cirModalData.labResults?.[idx] === 'object' && cirModalData.labResults[idx]?.value ? cirModalData.labResults[idx].value : (cirModalData.labResults?.[idx] || '')}
                                     readOnly
                                     className="w-24 bg-white border border-green-300 text-center"
                                   />
