@@ -703,6 +703,7 @@ export default function ReleaseOrderPage() {
       attachmentUrls: editingRO 
         ? [...(editingRO.attachmentUrls || []), ...uploadedFileUrls]
         : uploadedFileUrls,
+      roStatus: 'pending', // Explicitly set roStatus to pending for both new and edited ROs
       updatedAt: new Date().toISOString(),
     };
 
@@ -712,7 +713,6 @@ export default function ReleaseOrderPage() {
         const roDocRef = doc(db, 'releaseOrders', editingRO.id);
         await updateDoc(roDocRef, {
           ...roData,
-          roStatus: 'pending', // Reset status to pending after edit
           remark: '', // Clear previous remark
         });
         setSubmitSuccess(true);
@@ -738,8 +738,7 @@ export default function ReleaseOrderPage() {
         await addDoc(collection(db, 'releaseOrders'), {
           ...roData,
           roCode,
-          createdAt: new Date().toISOString(),
-          roStatus: 'pending'
+          createdAt: new Date().toISOString()
         });
         setSubmitSuccess(true);
       }
@@ -938,10 +937,10 @@ export default function ReleaseOrderPage() {
                 <div>
                   <div className="font-medium text-yellow-800">Editing RO: {editingRO.roCode}</div>
                   <div className="text-sm text-yellow-700">
-                    This RO was resubmitted with remark: "{editingRO.remark}"
+                    This RO was resubmitted with remark: &quot;{editingRO.remark}&quot;
                   </div>
                   <div className="text-xs text-yellow-600 mt-1">
-                    Status will be reset to "Pending" after updating.
+                    Status will be reset to &quot;Pending&quot; after updating.
                   </div>
                 </div>
               </div>

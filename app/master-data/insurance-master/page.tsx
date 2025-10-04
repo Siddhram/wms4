@@ -91,6 +91,15 @@ interface BankData {
   bankName: string;
   state: string;
   branch: string;
+  locations?: Array<{
+    locationId: string;
+    locationName: string;
+    branchName: string;
+    ifscCode: string;
+    address?: string;
+    authorizePerson1?: string;
+    authorizePerson2?: string;
+  }>;
 }
 
 export default function InsuranceMasterPage() {
@@ -489,13 +498,40 @@ export default function InsuranceMasterPage() {
         }
       });
       
-      const fetchedBanks = bankSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as BankData[];
+      const fetchedBanks = bankSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          bankId: data.bankId || '',
+          bankName: data.bankName || data.branch || data.state || 'Unknown Bank', // Use branch or state as fallback
+          state: data.state || '',
+          branch: data.branch || '',
+          locations: data.locations || []
+        };
+      }) as BankData[];
+
+      // Debug logging for banks
+      console.log('Fetched banks from Firebase:', fetchedBanks);
+      console.log('Banks collection size:', bankSnapshot.size);
+      console.log('Sample bank data:', fetchedBanks[0]);
+      
+      // Also get bank names from locations if available
+      const enrichedBanks = fetchedBanks.map(bank => {
+        if (!bank.bankName || bank.bankName === 'Unknown Bank') {
+          // Try to get bank name from locations
+          const locations = bank.locations || [];
+          if (locations.length > 0 && locations[0].locationName) {
+            bank.bankName = locations[0].locationName;
+          }
+        }
+        return bank;
+      });
 
       setInsuranceData(fetchedInsurance);
       setCommodities(fetchedCommodities);
       setClients(fetchedClients);
       setWarehouses(fetchedWarehouses);
-      setBanks(fetchedBanks);
+      setBanks(enrichedBanks);
 
       // Cross-module reflection (requirement: reflect changes across modules)
       window.dispatchEvent(new CustomEvent('insuranceDataUpdated', { 
@@ -650,6 +686,26 @@ export default function InsuranceMasterPage() {
         }));
       }
     }
+
+    // Auto-populate bank details when bank is selected
+    if (field === 'bankFundedBy') {
+      const selectedBank = banks.find(bank => {
+        const displayName = bank.bankName || bank.branch || `Bank in ${bank.state}`;
+        return displayName === value;
+      });
+      if (selectedBank) {
+        // Bank details are auto-displayed in the UI, no need to set in form data
+        // The bank display name is already stored in bankFundedBy field
+        console.log('Selected bank details:', {
+          displayName: value,
+          bankName: selectedBank.bankName,
+          bankId: selectedBank.bankId,
+          state: selectedBank.state,
+          branch: selectedBank.branch,
+          locations: selectedBank.locations?.length || 0
+        });
+      }
+    }
   };
 
   // Handle commodity selection (multiple selection support)
@@ -698,17 +754,50 @@ export default function InsuranceMasterPage() {
       return;
     }
 
+    // Additional validation for bank-funded insurance
+    if (formData.insuranceType === 'bank-funded' && !formData.bankFundedBy) {
+      toast({
+        title: "❌ Missing Information",
+        description: "Please select a bank for bank-funded insurance",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+
     try {
       const insuranceCode = editingInsurance ? editingInsurance.insuranceCode : generateInsuranceCode();
       
-      const insuranceDataToSave = {
+      // Prepare data based on insurance type
+      let insuranceDataToSave: any = {
         ...formData,
         insuranceCode,
         createdAt: editingInsurance ? editingInsurance.createdAt : new Date().toISOString(),
-        firePolicyUsedAmount: editingInsurance ? editingInsurance.firePolicyUsedAmount || '0' : '0',
-        burglaryPolicyUsedAmount: editingInsurance ? editingInsurance.burglaryPolicyUsedAmount || '0' : '0',
         selectedCommodities // Save multiple commodity selections
       };
+
+      // For bank-funded insurance, clear policy fields and set them to N/A
+      if (formData.insuranceType === 'bank-funded') {
+        insuranceDataToSave = {
+          ...insuranceDataToSave,
+          firePolicyCompanyName: 'N/A - Bank Funded',
+          firePolicyNumber: 'N/A - Bank Funded',
+          firePolicyAmount: '0',
+          firePolicyStartDate: new Date().toISOString().split('T')[0],
+          firePolicyEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
+          firePolicyUsedAmount: '0',
+          burglaryPolicyCompanyName: 'N/A - Bank Funded',
+          burglaryPolicyNumber: 'N/A - Bank Funded',
+          burglaryPolicyAmount: '0',
+          burglaryPolicyStartDate: new Date().toISOString().split('T')[0],
+          burglaryPolicyEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
+          burglaryPolicyUsedAmount: '0',
+        };
+      } else {
+        // For other insurance types, preserve existing amounts
+        insuranceDataToSave.firePolicyUsedAmount = editingInsurance ? editingInsurance.firePolicyUsedAmount || '0' : '0';
+        insuranceDataToSave.burglaryPolicyUsedAmount = editingInsurance ? editingInsurance.burglaryPolicyUsedAmount || '0' : '0';
+      }
 
       if (editingInsurance) {
         await updateDoc(doc(db, 'insurance', editingInsurance.id!), insuranceDataToSave);
@@ -836,31 +925,66 @@ export default function InsuranceMasterPage() {
     
     if (!selectedInsuranceForAction) return;
 
-    // Validate end dates are not in the past
-    const today = getTodayDate();
-    if (formData.firePolicyEndDate && formData.firePolicyEndDate < today) {
+    // Additional validation for bank-funded insurance
+    if (formData.insuranceType === 'bank-funded' && !formData.bankFundedBy) {
       toast({
-        title: "❌ Invalid Date",
-        description: "Fire policy end date cannot be in the past",
-        variant: "destructive",
-        duration: 3000,
-      });
-      return;
-    }
-    
-    if (formData.burglaryPolicyEndDate && formData.burglaryPolicyEndDate < today) {
-      toast({
-        title: "❌ Invalid Date", 
-        description: "Burglary policy end date cannot be in the past",
+        title: "❌ Missing Information",
+        description: "Please select a bank for bank-funded insurance",
         variant: "destructive",
         duration: 3000,
       });
       return;
     }
 
+    // Validate end dates are not in the past (only for non-bank-funded)
+    const today = getTodayDate();
+    if (formData.insuranceType !== 'bank-funded') {
+      if (formData.firePolicyEndDate && formData.firePolicyEndDate < today) {
+        toast({
+          title: "❌ Invalid Date",
+          description: "Fire policy end date cannot be in the past",
+          variant: "destructive",
+          duration: 3000,
+        });
+        return;
+      }
+      
+      if (formData.burglaryPolicyEndDate && formData.burglaryPolicyEndDate < today) {
+        toast({
+          title: "❌ Invalid Date", 
+          description: "Burglary policy end date cannot be in the past",
+          variant: "destructive",
+          duration: 3000,
+        });
+        return;
+      }
+    }
+
     try {
+      // Prepare data based on insurance type
+      let replaceDataToSave = {...formData};
+
+      // For bank-funded insurance, set policy fields to N/A
+      if (formData.insuranceType === 'bank-funded') {
+        replaceDataToSave = {
+          ...replaceDataToSave,
+          firePolicyCompanyName: 'N/A - Bank Funded',
+          firePolicyNumber: 'N/A - Bank Funded',
+          firePolicyAmount: '0',
+          firePolicyStartDate: new Date().toISOString().split('T')[0],
+          firePolicyEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
+          firePolicyUsedAmount: '0',
+          burglaryPolicyCompanyName: 'N/A - Bank Funded',
+          burglaryPolicyNumber: 'N/A - Bank Funded',
+          burglaryPolicyAmount: '0',
+          burglaryPolicyStartDate: new Date().toISOString().split('T')[0],
+          burglaryPolicyEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
+          burglaryPolicyUsedAmount: '0',
+        };
+      }
+
       // Update the existing insurance with new data
-      await updateDoc(doc(db, 'insurance', selectedInsuranceForAction.id!), formData);
+      await updateDoc(doc(db, 'insurance', selectedInsuranceForAction.id!), replaceDataToSave);
       
       toast({
         title: "✅ Insurance Replaced",
@@ -922,11 +1046,11 @@ export default function InsuranceMasterPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Button 
-               onClick={() => router.push('/dashboard')} 
+               onClick={() => router.push('/master-data')} 
                 variant="ghost" 
                 className="flex items-center justify-center bg-orange-500 text-white hover:bg-orange-600 w-full lg:w-auto px-4 py-3"
                 >
-                ← Dashboard
+                ← Master Data
              </Button>
             <h1 className="text-3xl font-bold">Insurance Master Module</h1>
           </div>
@@ -1195,9 +1319,12 @@ export default function InsuranceMasterPage() {
 
               {/* Bank Funded Specific Fields */}
               {formData.insuranceType === 'bank-funded' && (
-                <div className="grid grid-cols-1 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-green-600 font-medium">Bank Funded By <span className="text-red-500">*</span></Label>
+                    <div className="text-xs text-blue-600 mb-2">
+                      Available banks: {banks.length} | Debug: Check console for bank data
+                    </div>
                     <Select
                       value={formData.bankFundedBy || ''}
                       onValueChange={(value) => handleInputChange('bankFundedBy', value)}
@@ -1207,14 +1334,54 @@ export default function InsuranceMasterPage() {
                         <SelectValue placeholder="Select bank" />
                       </SelectTrigger>
                       <SelectContent>
-                        {banks.map(bank => (
-                          <SelectItem key={bank.id} value={bank.bankName}>
-                            {bank.bankName} ({bank.bankId})
+                        {banks.length === 0 ? (
+                          <SelectItem value="" disabled>
+                            No banks available - Check Firebase collection
                           </SelectItem>
-                        ))}
+                        ) : (
+                          banks.map(bank => {
+                            console.log('Rendering bank in dropdown:', bank);
+                            const displayName = bank.bankName || bank.branch || `Bank in ${bank.state}`;
+                            return (
+                              <SelectItem key={bank.id} value={displayName}>
+                                {displayName}
+                              </SelectItem>
+                            );
+                          })
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
+                  
+                  {/* Bank Details Display */}
+                  {formData.bankFundedBy && (
+                    <div className="space-y-2">
+                      <Label className="text-green-600 font-medium">Bank Details</Label>
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        {(() => {
+                          const selectedBank = banks.find(bank => {
+                            const displayName = bank.bankName || bank.branch || `Bank in ${bank.state}`;
+                            return displayName === formData.bankFundedBy;
+                          });
+                          console.log('Looking for bank with name:', formData.bankFundedBy);
+                          console.log('Found bank:', selectedBank);
+                          return selectedBank ? (
+                            <div className="space-y-1 text-sm">
+                              <div><strong>Bank Code:</strong> {selectedBank.bankId}</div>
+                              <div><strong>Bank Name:</strong> {selectedBank.bankName || selectedBank.branch}</div>
+                              <div><strong>State:</strong> {selectedBank.state}</div>
+                              <div><strong>Branch:</strong> {selectedBank.branch}</div>
+                              {selectedBank.locations && selectedBank.locations.length > 0 && (
+                                <div><strong>Locations:</strong> {selectedBank.locations.length} branch(es)</div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-gray-500 text-sm">Bank details not available</div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1603,6 +1770,68 @@ export default function InsuranceMasterPage() {
                   </Select>
                 </div>
               </div>
+
+              {/* Bank Funded Specific Fields */}
+              {formData.insuranceType === 'bank-funded' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-green-600 font-medium">Bank Funded By <span className="text-red-500">*</span></Label>
+                    <Select
+                      value={formData.bankFundedBy || ''}
+                      onValueChange={(value) => handleInputChange('bankFundedBy', value)}
+                      required
+                    >
+                      <SelectTrigger className="border-orange-300 focus:border-orange-500">
+                        <SelectValue placeholder="Select bank" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {banks.length === 0 ? (
+                          <SelectItem value="" disabled>
+                            No banks available
+                          </SelectItem>
+                        ) : (
+                          banks.map(bank => {
+                            const displayName = bank.bankName || bank.branch || `Bank in ${bank.state}`;
+                            return (
+                              <SelectItem key={bank.id} value={displayName}>
+                                {displayName}
+                              </SelectItem>
+                            );
+                          })
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  {/* Bank Details Display */}
+                  {formData.bankFundedBy && (
+                    <div className="space-y-2">
+                      <Label className="text-green-600 font-medium">Bank Details</Label>
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        {(() => {
+                          const selectedBank = banks.find(bank => {
+                            const displayName = bank.bankName || bank.branch || `Bank in ${bank.state}`;
+                            return displayName === formData.bankFundedBy;
+                          });
+                          return selectedBank ? (
+                            <div className="space-y-1 text-sm">
+                              <div><strong>Bank Code:</strong> {selectedBank.bankId}</div>
+                              <div><strong>Bank Name:</strong> {selectedBank.bankName || selectedBank.branch}</div>
+                              <div><strong>State:</strong> {selectedBank.state}</div>
+                              <div><strong>Branch:</strong> {selectedBank.branch}</div>
+                              {selectedBank.locations && selectedBank.locations.length > 0 && (
+                                <div><strong>Locations:</strong> {selectedBank.locations.length} branch(es)</div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-gray-500 text-sm">Bank details not available</div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Fire Policy Details - Hidden for Bank Funded */}
               {formData.insuranceType !== 'bank-funded' && (
