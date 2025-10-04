@@ -3,16 +3,14 @@
 import DashboardLayout from '@/components/dashboard-layout';
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Download, Calendar, Filter, X, ArrowLeft, Eye, EyeOff, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Download, ArrowLeft, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
+
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, limit, where, getDoc, doc, Timestamp } from 'firebase/firestore';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { FiltersAndControls } from '@/components/reports/FiltersAndControls';
 
 interface DetailedInwardReportData {
   id: string;
@@ -424,35 +422,6 @@ export default function DetailedInwardReportsPage() {
   // Check if any filters are active
   const hasActiveFilters = searchTerm || statusFilter !== 'all' || clientFilter !== 'all' || commodityFilter !== 'all' || stateFilter !== 'all' || branchFilter !== 'all';
 
-  // Format date for display
-  const formatDate = (dateString: string) => {
-    if (!dateString) return 'N/A';
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      });
-    } catch {
-      return dateString;
-    }
-  };
-
-  // Get status color
-  const getStatusColor = (status: string | undefined) => {
-    if (!status) return 'bg-gray-100 text-gray-800';
-    const normalizedStatus = status.toLowerCase();
-    if (normalizedStatus.includes('approved') || normalizedStatus.includes('active')) {
-      return 'bg-green-100 text-green-800';
-    } else if (normalizedStatus.includes('pending')) {
-      return 'bg-yellow-100 text-yellow-800';
-    } else if (normalizedStatus.includes('rejected')) {
-      return 'bg-red-100 text-red-800';
-    }
-    return 'bg-gray-100 text-gray-800';
-  };
-
   // Handle date change with validation
   const handleDateChange = (field: 'start' | 'end', value: string) => {
     if (field === 'start') {
@@ -506,7 +475,7 @@ export default function DetailedInwardReportsPage() {
           <div className="flex items-center space-x-4">
             <button 
               onClick={() => router.push('/reports')}
-              className="inline-flex items-center text-lg font-semibold tracking-tight bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors"
+              className="inline-flex items-center text-lg font-semibold tracking-tight bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
               Reports
@@ -527,222 +496,121 @@ export default function DetailedInwardReportsPage() {
             <h1 className="text-3xl font-bold tracking-tight text-orange-600 inline-block border-b-4 border-green-500 pb-2 px-6 py-3 bg-orange-100 rounded-lg">
               Detailed Inward Report
             </h1>
-            <p className="text-muted-foreground">Generate and view inward transaction reports</p>
+            <p className="text-sm text-gray-600 mt-1">Comprehensive detailed inward transaction analysis</p>
           </div>
           
-          <div className="flex space-x-2">
-            <Button onClick={exportToCSV} disabled={filteredData.length === 0}>
+          <div className="flex items-center justify-end w-48">
+            <Button 
+              onClick={exportToCSV} 
+              disabled={filteredData.length === 0}
+              className="bg-blue-500 hover:bg-blue-600 text-white"
+            >
               <Download className="h-4 w-4 mr-2" />
               Export CSV
             </Button>
           </div>
         </div>
 
-        {/* Search & Filter Options */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Search className="h-5 w-5" />
-              Search & Filter Options
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Search Bar */}
-              <div className="flex items-center space-x-2">
-                <Search className="h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search across all fields..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="flex-1"
-                />
-                <Button
-                  variant="outline"
-                  onClick={() => setShowFilters(!showFilters)}
-                >
-                  <Filter className="h-4 w-4 mr-2" />
-                  {showFilters ? 'Hide Filters' : 'Show Filters'}
-                </Button>
-              </div>
-
-              {/* Filters */}
-              {showFilters && (
-                <div className="grid grid-cols-1 md:grid-cols-6 gap-4 pt-4 border-t">
-                  {/* Date Range Filter */}
-                  <div>
-                    <Label htmlFor="startDate">Start Date</Label>
-                    <Input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => handleDateChange('start', e.target.value)}
-                      max={endDate}
-                      className="mt-1"
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="endDate">End Date</Label>
-                    <Input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => handleDateChange('end', e.target.value)}
-                      min={startDate}
-                      max={(() => {
-                        if (startDate) {
-                          const maxDate = new Date(startDate);
-                          maxDate.setMonth(maxDate.getMonth() + 6);
-                          return maxDate.toISOString().split('T')[0];
-                        }
-                        return '';
-                      })()}
-                      className="mt-1"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Max 6 months range</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="statusFilter">Status</Label>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Statuses</SelectItem>
-                        {uniqueStatuses.map(status => (
-                          <SelectItem key={status} value={status}>{status}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-
-
-                  <div>
-                    <Label htmlFor="clientFilter">Client</Label>
-                    <Select value={clientFilter} onValueChange={setClientFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Clients</SelectItem>
-                        {uniqueClients.map(client => (
-                          <SelectItem key={client} value={client}>{client}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="commodityFilter">Commodity</Label>
-                    <Select value={commodityFilter} onValueChange={setCommodityFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Commodities</SelectItem>
-                        {uniqueCommodities.map(commodity => (
-                          <SelectItem key={commodity} value={commodity}>{commodity}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="stateFilter">State</Label>
-                    <Select value={stateFilter} onValueChange={setStateFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All States</SelectItem>
-                        {uniqueStates.map(state => (
-                          <SelectItem key={state} value={state}>{state}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="branchFilter">Branch</Label>
-                    <Select value={branchFilter} onValueChange={setBranchFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Branches</SelectItem>
-                        {uniqueBranches.map(branch => (
-                          <SelectItem key={branch} value={branch}>{branch}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-
-              {/* Active Filters Summary */}
-              {hasActiveFilters && (
-                <div className="flex items-center justify-between pt-4 border-t">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm font-medium text-gray-700">Active Filters:</span>
-                    {searchTerm && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-                        Search: {searchTerm}
-                        <button onClick={() => setSearchTerm('')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {statusFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-purple-100 text-purple-800">
-                        Status: {statusFilter}
-                        <button onClick={() => setStatusFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-
-                    {clientFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-teal-100 text-teal-800">
-                        Client: {clientFilter}
-                        <button onClick={() => setClientFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {commodityFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
-                        Commodity: {commodityFilter}
-                        <button onClick={() => setCommodityFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {stateFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-indigo-100 text-indigo-800">
-                        State: {stateFilter}
-                        <button onClick={() => setStateFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {branchFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-pink-100 text-pink-800">
-                        Branch: {branchFilter}
-                        <button onClick={() => setBranchFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                  </div>
-                  <Button variant="outline" onClick={clearFilters} size="sm">
-                    Clear All Filters
-                  </Button>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Filters & Controls - Modular Component */}
+        <FiltersAndControls
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={(value) => handleDateChange('start', value)}
+          onEndDateChange={(value) => handleDateChange('end', value)}
+          filterOptions={[
+            {
+              key: 'status',
+              label: 'Status',
+              value: statusFilter,
+              options: uniqueStatuses
+            },
+            {
+              key: 'client',
+              label: 'Client',
+              value: clientFilter,
+              options: uniqueClients
+            },
+            {
+              key: 'commodity',
+              label: 'Commodity',
+              value: commodityFilter,
+              options: uniqueCommodities
+            },
+            {
+              key: 'state',
+              label: 'State',
+              value: stateFilter,
+              options: uniqueStates
+            },
+            {
+              key: 'branch',
+              label: 'Branch',
+              value: branchFilter,
+              options: uniqueBranches
+            }
+          ]}
+          onFilterChange={(key, value) => {
+            switch (key) {
+              case 'status':
+                setStatusFilter(value);
+                break;
+              case 'client':
+                setClientFilter(value);
+                break;
+              case 'commodity':
+                setCommodityFilter(value);
+                break;
+              case 'state':
+                setStateFilter(value);
+                break;
+              case 'branch':
+                setBranchFilter(value);
+                break;
+            }
+          }}
+          loading={loading}
+          onApplyFilters={fetchInwardData}
+          showFilters={showFilters}
+          onToggleFilters={() => setShowFilters(!showFilters)}
+          allColumns={allColumns}
+          visibleColumns={visibleColumns}
+          onToggleColumn={toggleColumn}
+          onClearFilters={clearFilters}
+          activeFilters={[
+            ...(statusFilter !== 'all' ? [{
+              key: 'status',
+              label: 'Status',
+              value: statusFilter,
+              onRemove: () => setStatusFilter('all')
+            }] : []),
+            ...(clientFilter !== 'all' ? [{
+              key: 'client',
+              label: 'Client',
+              value: clientFilter,
+              onRemove: () => setClientFilter('all')
+            }] : []),
+            ...(commodityFilter !== 'all' ? [{
+              key: 'commodity',
+              label: 'Commodity',
+              value: commodityFilter,
+              onRemove: () => setCommodityFilter('all')
+            }] : []),
+            ...(stateFilter !== 'all' ? [{
+              key: 'state',
+              label: 'State',
+              value: stateFilter,
+              onRemove: () => setStateFilter('all')
+            }] : []),
+            ...(branchFilter !== 'all' ? [{
+              key: 'branch',
+              label: 'Branch',
+              value: branchFilter,
+              onRemove: () => setBranchFilter('all')
+            }] : [])
+          ]}
+        />
 
         {/* Results Summary */}
         <div className="flex items-center justify-between">
@@ -752,36 +620,6 @@ export default function DetailedInwardReportsPage() {
             {hasActiveFilters && ` (filtered)`}
             {startDate && endDate && ` | Date Range: ${startDate} to ${endDate}`}
           </div>
-          <div className="flex items-center space-x-2">
-            {/* Column Visibility Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Eye className="h-4 w-4 mr-2" />
-                  Columns ({visibleColumns.length}/{allColumns.length})
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Toggle Columns</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {allColumns.map(column => (
-                  <DropdownMenuCheckboxItem
-                    key={column.key}
-                    checked={visibleColumns.includes(column.key)}
-                    onCheckedChange={() => toggleColumn(column.key)}
-                  >
-                    {column.label}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            
-            {hasActiveFilters && (
-              <Button variant="outline" onClick={clearFilters} size="sm">
-                Clear Filters
-              </Button>
-            )}
-          </div>
         </div>
 
 
@@ -789,12 +627,17 @@ export default function DetailedInwardReportsPage() {
         {/* Data Table */}
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            <div className="table-container">
               <table className="w-full border-collapse border border-gray-200">
                 <thead className="bg-orange-100">
                   <tr>
-                    {allColumns.map(column => (
-                      <th key={column.key} className={`border border-orange-300 px-4 py-2 text-left ${column.width} text-orange-800 font-semibold`}>
+                    {visibleColumnsData.map((column, index) => (
+                      <th 
+                        key={column.key} 
+                        className={`border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold ${column.width} ${
+                          index === 0 ? 'sticky-first-column header' : ''
+                        }`}
+                      >
                         {column.label}
                       </th>
                     ))}
@@ -803,84 +646,38 @@ export default function DetailedInwardReportsPage() {
                 <tbody>
                   {filteredData.length === 0 ? (
                     <tr>
-                      <td colSpan={23} className="border border-gray-200 px-4 py-8 text-center text-gray-500">
+                      <td colSpan={visibleColumnsData.length} className="border border-gray-200 px-4 py-8 text-center text-gray-500">
                         No data available
                       </td>
                     </tr>
                   ) : (
                     paginatedData.map((item, index) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="border border-gray-200 px-4 py-2 font-mono text-sm">
-                        {item.dateOfInward || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.state || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.branch || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.location || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.typeOfBusiness || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.warehouseType || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.warehouseCode || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.warehouseName || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.warehouseAddress || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.clientCode || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.clientName || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.commodity || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.variety || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.vehicleNumber || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.cadNumber || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.gatepassNumber || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.weighbridgeName || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.weighbridgeNumber || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2">
-                        {item.stackNumber || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2 text-right">
-                        {item.grossWeight || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2 text-right">
-                        {item.tareWeight || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2 text-right">
-                        {item.netWeight || '-'}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-2 text-right">
-                        {item.bags || '-'}
-                      </td>
-                    </tr>
-                  ))
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        {visibleColumnsData.map((column, colIndex) => {
+                          const value = item[column.key as keyof DetailedInwardReportData] || '-';
+                          const isFirstColumn = colIndex === 0;
+                          const isNumericColumn = ['grossWeight', 'tareWeight', 'netWeight', 'bags'].includes(column.key);
+                          const isFontMedium = ['warehouseName', 'clientName', 'vehicleNumber'].includes(column.key);
+                          
+                          return (
+                            <td
+                              key={column.key}
+                              className={`border border-gray-200 px-4 py-2 ${
+                                isNumericColumn ? 'text-right' : ''
+                              } ${
+                                isFontMedium ? 'font-medium' : ''
+                              } ${
+                                column.key === 'dateOfInward' ? 'font-mono text-sm' : ''
+                              } ${
+                                isFirstColumn ? 'sticky-first-column' : ''
+                              }`}
+                            >
+                              {value}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))
                   )}
                 </tbody>
               </table>
@@ -894,18 +691,7 @@ export default function DetailedInwardReportsPage() {
           </CardContent>
         </Card>
 
-        {/* Export Button */}
-        <div className="flex justify-center">
-          <Button 
-            onClick={exportToCSV}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 text-lg font-semibold"
-            disabled={filteredData.length === 0}
-          >
-            <Download className="w-5 h-5 mr-2" />
-            Export Detailed Inward Report
-            {hasActiveFilters && ` (${filteredData.length} records)`}
-          </Button>
-        </div>
+
 
         {/* Pagination Controls */}
         {filteredData.length > 0 && (

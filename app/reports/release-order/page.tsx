@@ -3,16 +3,12 @@
 import DashboardLayout from '@/components/dashboard-layout';
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Download, Calendar, Filter, X, ArrowLeft, Eye, EyeOff, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Download, ArrowLeft, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit, where, getDoc, doc, Timestamp } from 'firebase/firestore';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { collection, getDocs, query, orderBy, limit, where, Timestamp } from 'firebase/firestore';
+import { FiltersAndControls } from '@/components/reports/FiltersAndControls';
 
 interface ReleaseOrderReportData {
   id: string;
@@ -46,13 +42,19 @@ interface ReleaseOrderReportData {
 
 export default function ReleaseOrderReportsPage() {
   const router = useRouter();
+  
+  // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [warehouseFilter, setWarehouseFilter] = useState('all');
   const [clientFilter, setClientFilter] = useState('all');
+  const [stateFilter, setStateFilter] = useState('all');
+  const [branchFilter, setBranchFilter] = useState('all');
+  const [commodityFilter, setCommodityFilter] = useState('all');
 
+  // Data and UI states
   const [loading, setLoading] = useState(false);
   const [roData, setRoData] = useState<ReleaseOrderReportData[]>([]);
   const [showFilters, setShowFilters] = useState(false);
@@ -359,29 +361,33 @@ export default function ReleaseOrderReportsPage() {
 
   // Get unique filter options
   const uniqueStates = useMemo(() => {
-    return Array.from(new Set(roData.map(item => item.state).filter(Boolean)));
+    return Array.from(new Set(roData.map(item => item.state).filter(Boolean))).sort();
   }, [roData]);
 
   const uniqueBranches = useMemo(() => {
-    return Array.from(new Set(roData.map(item => item.branch).filter(Boolean)));
+    return Array.from(new Set(roData.map(item => item.branch).filter(Boolean))).sort();
   }, [roData]);
 
   const uniqueWarehouses = useMemo(() => {
-    return Array.from(new Set(roData.map(item => item.warehouseName).filter(Boolean)));
+    return Array.from(new Set(roData.map(item => item.warehouseName).filter(Boolean))).sort();
   }, [roData]);
 
   const uniqueClients = useMemo(() => {
-    return Array.from(new Set(roData.map(item => item.clientName).filter(Boolean)));
+    return Array.from(new Set(roData.map(item => item.clientName).filter(Boolean))).sort();
   }, [roData]);
 
   const uniqueStatuses = useMemo(() => {
-    return Array.from(new Set(roData.map(item => item.status).filter(Boolean)));
+    return Array.from(new Set(roData.map(item => item.status).filter(Boolean))).sort();
+  }, [roData]);
+
+  const uniqueCommodities = useMemo(() => {
+    return Array.from(new Set(roData.map(item => item.commodity).filter(Boolean))).sort();
   }, [roData]);
 
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, warehouseFilter, clientFilter, itemsPerPage]);
+  }, [searchTerm, statusFilter, warehouseFilter, clientFilter, stateFilter, branchFilter, commodityFilter, itemsPerPage]);
 
   // Filter data based on search and filters
   const filteredData = useMemo(() => {
@@ -395,31 +401,34 @@ export default function ReleaseOrderReportsPage() {
         )
       );
     }
-    
 
-
-
-
-
-    // Apply status filter
+    // Apply all filters
     if (statusFilter && statusFilter !== 'all') {
       filtered = filtered.filter(item => item.status === statusFilter);
     }
 
-    // Apply warehouse filter
     if (warehouseFilter && warehouseFilter !== 'all') {
       filtered = filtered.filter(item => item.warehouseName === warehouseFilter);
     }
 
-    // Apply client filter
     if (clientFilter && clientFilter !== 'all') {
       filtered = filtered.filter(item => item.clientName === clientFilter);
     }
 
+    if (stateFilter && stateFilter !== 'all') {
+      filtered = filtered.filter(item => item.state === stateFilter);
+    }
 
+    if (branchFilter && branchFilter !== 'all') {
+      filtered = filtered.filter(item => item.branch === branchFilter);
+    }
+
+    if (commodityFilter && commodityFilter !== 'all') {
+      filtered = filtered.filter(item => item.commodity === commodityFilter);
+    }
     
     return filtered;
-  }, [roData, searchTerm, statusFilter, warehouseFilter, clientFilter]);
+  }, [roData, searchTerm, statusFilter, warehouseFilter, clientFilter, stateFilter, branchFilter, commodityFilter]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
@@ -491,10 +500,14 @@ export default function ReleaseOrderReportsPage() {
     setStatusFilter('all');
     setWarehouseFilter('all');
     setClientFilter('all');
+    setStateFilter('all');
+    setBranchFilter('all');
+    setCommodityFilter('all');
   };
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || statusFilter !== 'all' || warehouseFilter !== 'all' || clientFilter !== 'all';
+  const hasActiveFilters = searchTerm || statusFilter !== 'all' || warehouseFilter !== 'all' || 
+    clientFilter !== 'all' || stateFilter !== 'all' || branchFilter !== 'all' || commodityFilter !== 'all';
 
   // Format date for display
   const formatDate = (dateString: string) => {
@@ -524,37 +537,6 @@ export default function ReleaseOrderReportsPage() {
     return 'bg-gray-100 text-gray-800';
   };
 
-  // Handle date change with validation
-  const handleDateChange = (field: 'start' | 'end', value: string) => {
-    if (field === 'start') {
-      setStartDate(value);
-      // Ensure end date is not more than 6 months after start date
-      if (value && endDate) {
-        const start = new Date(value);
-        const end = new Date(endDate);
-        const sixMonthsLater = new Date(start);
-        sixMonthsLater.setMonth(start.getMonth() + 6);
-        
-        if (end > sixMonthsLater) {
-          setEndDate(sixMonthsLater.toISOString().split('T')[0]);
-        }
-      }
-    } else {
-      setEndDate(value);
-      // Ensure start date is not more than 6 months before end date
-      if (value && startDate) {
-        const start = new Date(startDate);
-        const end = new Date(value);
-        const sixMonthsBefore = new Date(end);
-        sixMonthsBefore.setMonth(end.getMonth() - 6);
-        
-        if (start < sixMonthsBefore) {
-          setStartDate(sixMonthsBefore.toISOString().split('T')[0]);
-        }
-      }
-    }
-  };
-
   // Toggle column visibility
   const toggleColumn = (columnKey: string) => {
     setVisibleColumns(prev => 
@@ -563,6 +545,80 @@ export default function ReleaseOrderReportsPage() {
         : [...prev, columnKey]
     );
   };
+
+  // Filter options for the modular component
+  const filterOptions = [
+    {
+      key: 'status',
+      label: 'Status',
+      value: statusFilter,
+      options: uniqueStatuses
+    },
+    {
+      key: 'warehouse',
+      label: 'Warehouse',
+      value: warehouseFilter,
+      options: uniqueWarehouses
+    },
+    {
+      key: 'client',
+      label: 'Client',
+      value: clientFilter,
+      options: uniqueClients
+    },
+    {
+      key: 'state',
+      label: 'State',
+      value: stateFilter,
+      options: uniqueStates
+    },
+    {
+      key: 'branch',
+      label: 'Branch',
+      value: branchFilter,
+      options: uniqueBranches
+    },
+    {
+      key: 'commodity',
+      label: 'Commodity',
+      value: commodityFilter,
+      options: uniqueCommodities
+    }
+  ];
+
+  // Handle filter changes
+  const handleFilterChange = (key: string, value: string) => {
+    switch (key) {
+      case 'status':
+        setStatusFilter(value);
+        break;
+      case 'warehouse':
+        setWarehouseFilter(value);
+        break;
+      case 'client':
+        setClientFilter(value);
+        break;
+      case 'state':
+        setStateFilter(value);
+        break;
+      case 'branch':
+        setBranchFilter(value);
+        break;
+      case 'commodity':
+        setCommodityFilter(value);
+        break;
+    }
+  };
+
+  // Active filters for display
+  const activeFilters = filterOptions
+    .filter(filter => filter.value !== 'all')
+    .map(filter => ({
+      key: filter.key,
+      label: filter.label,
+      value: filter.value,
+      onRemove: () => handleFilterChange(filter.key, 'all')
+    }));
 
   // Get visible columns data
   const visibleColumnsData = allColumns.filter(col => visibleColumns.includes(col.key));
@@ -600,384 +656,105 @@ export default function ReleaseOrderReportsPage() {
           </div>
         </div>
 
-        {/* Search & Filter Options */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Search className="h-5 w-5" />
-              Search & Filter Options
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Search Bar */}
-              <div className="flex items-center space-x-2">
-                <Search className="h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search across all fields..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="flex-1"
-                />
-                <Button
-                  variant="outline"
-                  onClick={() => setShowFilters(!showFilters)}
-                >
-                  <Filter className="h-4 w-4 mr-2" />
-                  {showFilters ? 'Hide Filters' : 'Show Filters'}
-                </Button>
-              </div>
-
-              {/* Filters */}
-              {showFilters && (
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-4 border-t">
-                  {/* Date Range Filter */}
-                  <div>
-                    <Label htmlFor="startDate">Start Date</Label>
-                    <Input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => handleDateChange('start', e.target.value)}
-                      max={endDate}
-                      className="mt-1"
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="endDate">End Date</Label>
-                    <Input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => handleDateChange('end', e.target.value)}
-                      min={startDate}
-                      max={(() => {
-                        if (startDate) {
-                          const maxDate = new Date(startDate);
-                          maxDate.setMonth(maxDate.getMonth() + 6);
-                          return maxDate.toISOString().split('T')[0];
-                        }
-                        return '';
-                      })()}
-                      className="mt-1"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Max 6 months range</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="statusFilter">Status</Label>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Statuses</SelectItem>
-                        {uniqueStatuses.map(status => (
-                          <SelectItem key={status} value={status}>{status}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="warehouseFilter">Warehouse</Label>
-                    <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Warehouses</SelectItem>
-                        {uniqueWarehouses.map(warehouse => (
-                          <SelectItem key={warehouse} value={warehouse}>{warehouse}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="clientFilter">Client</Label>
-                    <Select value={clientFilter} onValueChange={setClientFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Clients</SelectItem>
-                        {uniqueClients.map(client => (
-                          <SelectItem key={client} value={client}>{client}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-
-              {/* Additional Filters Row */}
-              {showFilters && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
-
-
-                  <div className="flex items-end">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="w-full">
-                          <Eye className="h-4 w-4 mr-2" />
-                          Column Visibility
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Toggle Columns</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {allColumns.map((column) => (
-                          <DropdownMenuCheckboxItem
-                            key={column.key}
-                            checked={visibleColumns.includes(column.key)}
-                            onCheckedChange={() => toggleColumn(column.key)}
-                          >
-                            {column.label}
-                          </DropdownMenuCheckboxItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              )}
-
-              {/* Active Filters Summary */}
-              {hasActiveFilters && (
-                <div className="flex items-center justify-between pt-4 border-t">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm font-medium text-gray-700">Active Filters:</span>
-                    {searchTerm && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-                        Search: {searchTerm}
-                        <button onClick={() => setSearchTerm('')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {warehouseFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-orange-100 text-orange-800">
-                        Warehouse: {warehouseFilter}
-                        <button onClick={() => setWarehouseFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {statusFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-purple-100 text-purple-800">
-                        Status: {statusFilter}
-                        <button onClick={() => setStatusFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {clientFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-orange-100 text-orange-800">
-                        Client: {clientFilter}
-                        <button onClick={() => setClientFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-
-                  </div>
-                  <Button variant="outline" onClick={clearFilters} size="sm">
-                    Clear All Filters
-                  </Button>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Filters & Controls - Modular Component */}
+        <FiltersAndControls
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={setStartDate}
+          onEndDateChange={setEndDate}
+          filterOptions={filterOptions}
+          onFilterChange={handleFilterChange}
+          loading={loading}
+          onApplyFilters={fetchROData}
+          showFilters={showFilters}
+          onToggleFilters={() => setShowFilters(!showFilters)}
+          allColumns={allColumns}
+          visibleColumns={visibleColumns}
+          onToggleColumn={toggleColumn}
+          onClearFilters={clearFilters}
+          activeFilters={activeFilters}
+        />
 
         {/* Results Summary */}
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-600">
             Showing {startIndex + 1}-{Math.min(endIndex, filteredData.length)} of {filteredData.length} entries
             {filteredData.length !== roData.length && ` (filtered from ${roData.length} total)`}
-            {startDate && endDate && ` | Date Range: ${startDate} to ${endDate}`}
           </div>
-          {hasActiveFilters && (
-            <Button variant="outline" onClick={clearFilters} size="sm">
-              Clear Filters
-            </Button>
-          )}
+          <div className="flex items-center space-x-2">
+            <span className="text-sm text-gray-600">Rows per page:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => setItemsPerPage(Number(e.target.value))}
+              className="border border-gray-300 rounded px-2 py-1 text-sm"
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
         </div>
 
-        {/* Data Table */}
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse border border-gray-200">
-                <thead className="bg-orange-100">
-                  <tr>
-                    {visibleColumns.includes('state') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">State</th>}
-                    {visibleColumns.includes('branch') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Branch</th>}
-                    {visibleColumns.includes('location') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Location</th>}
-                    {visibleColumns.includes('typeOfBusiness') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Type of Business</th>}
-                    {visibleColumns.includes('warehouseType') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Warehouse Type</th>}
-                    {visibleColumns.includes('warehouseCode') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Warehouse Code</th>}
-                    {visibleColumns.includes('warehouseName') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Warehouse Name</th>}
-                    {visibleColumns.includes('warehouseAddress') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Warehouse Address</th>}
-                    {visibleColumns.includes('clientCode') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Client Code</th>}
-                    {visibleColumns.includes('clientName') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Client Name</th>}
-                    {visibleColumns.includes('commodity') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Commodity</th>}
-                    {visibleColumns.includes('variety') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Variety</th>}
-                    {visibleColumns.includes('bankName') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Bank Name</th>}
-                    {visibleColumns.includes('bankBranch') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Bank Branch</th>}
-                    {visibleColumns.includes('bankState') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Bank State</th>}
-                    {visibleColumns.includes('ifscCode') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">IFSC Code</th>}
-                    {visibleColumns.includes('inwardBag') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Inward Bag</th>}
-                    {visibleColumns.includes('inwardQty') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Inward Qty</th>}
-                    {visibleColumns.includes('roNumber') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">RO Number</th>}
-                    {visibleColumns.includes('roDate') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">RO Date</th>}
-                    {visibleColumns.includes('roBags') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">RO bags</th>}
-                    {visibleColumns.includes('roQty') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">RO Qty (MT)</th>}
-                    {visibleColumns.includes('roCode') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">RO Code</th>}
-                    {visibleColumns.includes('balanceBag') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Balance Bag</th>}
-                    {visibleColumns.includes('balanceQty') && <th className="border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold">Balance QT</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedData.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      {visibleColumns.includes('state') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.state || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('branch') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.branch || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('location') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.location || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('typeOfBusiness') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.typeOfBusiness || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('warehouseType') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.warehouseType || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('warehouseCode') && (
-                        <td className="border border-gray-200 px-4 py-2 font-mono text-sm">
-                          {item.warehouseCode || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('warehouseName') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.warehouseName || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('warehouseAddress') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.warehouseAddress || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('clientCode') && (
-                        <td className="border border-gray-200 px-4 py-2 font-mono text-sm">
-                          {item.clientCode || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('clientName') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.clientName || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('commodity') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.commodity || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('variety') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.variety || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('bankName') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.bankName || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('bankBranch') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.bankBranch || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('bankState') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {item.bankState || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('ifscCode') && (
-                        <td className="border border-gray-200 px-4 py-2 font-mono text-sm">
-                          {item.ifscCode || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('inwardBag') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">
-                          {item.inwardBag || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('inwardQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">
-                          {item.inwardQty || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('roNumber') && (
-                        <td className="border border-gray-200 px-4 py-2 font-mono text-sm">
-                          {item.roNumber || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('roDate') && (
-                        <td className="border border-gray-200 px-4 py-2">
-                          {formatDate(item.roDate)}
-                        </td>
-                      )}
-                      {visibleColumns.includes('roBags') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">
-                          {item.roBags || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('roQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">
-                          {item.roQty || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('roCode') && (
-                        <td className="border border-gray-200 px-4 py-2 font-mono text-sm">
-                          {item.roCode || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('balanceBag') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">
-                          {item.balanceBag || '-'}
-                        </td>
-                      )}
-                      {visibleColumns.includes('balanceQty') && (
-                        <td className="border border-gray-200 px-4 py-2 text-right">
-                          {item.balanceQty || '-'}
-                        </td>
-                      )}
+        {/* Data Table with Sticky Headers */}
+        <div className="table-container">
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto max-h-[600px]">
+                <table className="w-full border-collapse border border-gray-200">
+                  <thead className="sticky-header bg-orange-100">
+                    <tr>
+                      {allColumns
+                        .filter(col => visibleColumns.includes(col.key))
+                        .map(column => (
+                          <th key={column.key} className="border border-orange-300 px-4 py-3 text-left text-orange-800 font-semibold whitespace-nowrap">
+                            {column.label}
+                          </th>
+                        ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              
-              {filteredData.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  {loading ? 'Loading data...' : 'No release order data found matching the current filters'}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                  </thead>
+                  <tbody>
+                    {paginatedData.map((item) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        {allColumns
+                          .filter(col => visibleColumns.includes(col.key))
+                          .map(column => (
+                            <td key={column.key} className="border border-gray-200 px-4 py-2 whitespace-nowrap">
+                              {column.key === 'roDate' ? (
+                                formatDate(item[column.key])
+                              ) : column.key === 'inwardBag' || column.key === 'inwardQty' || 
+                                       column.key === 'roBags' || column.key === 'roQty' || 
+                                       column.key === 'balanceBag' || column.key === 'balanceQty' ? (
+                                <span className="text-right block">
+                                  {item[column.key] || '-'}
+                                </span>
+                              ) : column.key === 'warehouseCode' || column.key === 'clientCode' || 
+                                       column.key === 'roNumber' || column.key === 'roCode' || 
+                                       column.key === 'ifscCode' ? (
+                                <span className="font-mono text-sm">
+                                  {item[column.key] || '-'}
+                                </span>
+                              ) : (
+                                item[column.key] || '-'
+                              )}
+                            </td>
+                          ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                
+                {filteredData.length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    {loading ? 'Loading data...' : 'No release order data found matching the current filters'}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Pagination Controls */}
         {filteredData.length > 0 && (

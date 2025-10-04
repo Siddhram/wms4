@@ -3,16 +3,12 @@
 import DashboardLayout from '@/components/dashboard-layout';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Download, Calendar, Filter, X, ArrowLeft, Eye, EyeOff, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Download, ArrowLeft, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit, where, getDoc, doc, Timestamp } from 'firebase/firestore';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { collection, getDocs, query, orderBy, limit, where, Timestamp } from 'firebase/firestore';
+import { FiltersAndControls } from '@/components/reports/FiltersAndControls';
 
 interface OutwardReportData {
   id: string;
@@ -48,6 +44,8 @@ interface OutwardReportData {
 
 export default function OutwardReportsPage() {
   const router = useRouter();
+  
+  // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -55,6 +53,10 @@ export default function OutwardReportsPage() {
   const [warehouseFilter, setWarehouseFilter] = useState('all');
   const [clientFilter, setClientFilter] = useState('all');
   const [commodityFilter, setCommodityFilter] = useState('all');
+  const [stateFilter, setStateFilter] = useState('all');
+  const [branchFilter, setBranchFilter] = useState('all');
+  
+  // Data and UI states
   const [loading, setLoading] = useState(false);
   const [outwardData, setOutwardData] = useState<OutwardReportData[]>([]);
   const [showFilters, setShowFilters] = useState(false);
@@ -100,28 +102,44 @@ export default function OutwardReportsPage() {
   ];
 
   const fetchOutwardData = useCallback(async () => {
-    console.log('Starting fetchOutwardData...');
+    console.log('Starting fetchOutwardData...', { startDate, endDate });
     setLoading(true);
     try {
       const outwardCollection = collection(db, 'outwards');
       console.log('Created outward collection reference');
       
-      // Build query with date filters - using ascending order for proper date sequence
-      let q = query(outwardCollection, orderBy('createdAt', 'asc'), limit(1000));
-      console.log('Built query with date filters');
+      // Test collection connectivity first
+      console.log('Testing collection connectivity...');
+      const testQuery = query(outwardCollection, limit(1));
+      const testSnapshot = await getDocs(testQuery);
+      console.log('Collection test:', {
+        exists: testSnapshot.size > 0,
+        size: testSnapshot.size,
+        collectionPath: 'outwards',
+        firstDoc: testSnapshot.docs[0]?.id
+      });
+      
+      // First, try to fetch without date filters to see if data exists
+      let q = query(outwardCollection, orderBy('createdAt', 'desc'), limit(1000));
+      console.log('Built initial query without date filters');
       
       // Apply date filters if dates are set
       if (startDate && endDate) {
-        const startTimestamp = Timestamp.fromDate(new Date(startDate));
+        console.log('Applying date filters:', { startDate, endDate });
+        const startTimestamp = Timestamp.fromDate(new Date(startDate + 'T00:00:00'));
         const endTimestamp = Timestamp.fromDate(new Date(endDate + 'T23:59:59'));
+        
+        console.log('Date range timestamps:', { startTimestamp, endTimestamp });
         
         q = query(
           outwardCollection,
           where('createdAt', '>=', startTimestamp),
           where('createdAt', '<=', endTimestamp),
-          orderBy('createdAt', 'asc'),
+          orderBy('createdAt', 'desc'),
           limit(1000)
         );
+      } else {
+        console.log('No date filters applied, fetching all data');
       }
       
       const querySnapshot = await getDocs(q);
@@ -376,10 +394,73 @@ export default function OutwardReportsPage() {
       
       console.log('Processed outward data:', data.length, 'records');
       console.log('Sample processed data:', data.slice(0, 2));
-      setOutwardData(data);
-      console.log('Set outward data in state');
+      
+      // If no data found with date filters, try without filters
+      if (data.length === 0 && startDate && endDate) {
+        console.log('No data found with date filters, trying without filters...');
+        const fallbackQuery = query(outwardCollection, orderBy('createdAt', 'desc'), limit(100));
+        const fallbackSnapshot = await getDocs(fallbackQuery);
+        console.log('Fallback query result:', fallbackSnapshot.size, 'documents');
+        
+        if (fallbackSnapshot.size > 0) {
+          console.log('Found data without date filters. The date field might be named differently.');
+          // Process fallback data
+          const fallbackData = await Promise.all(fallbackSnapshot.docs.map(async (doc) => {
+            const docData = doc.data();
+            console.log('Sample document fields:', Object.keys(docData));
+            console.log('Sample document createdAt:', docData.createdAt);
+            console.log('Sample document date fields:', {
+              createdAt: docData.createdAt,
+              dateOfOutward: docData.dateOfOutward,
+              outwardDate: docData.outwardDate,
+              date: docData.date
+            });
+            
+            // Return simplified data for debugging
+            return {
+              id: doc.id,
+              outwardDate: docData.createdAt?.toDate?.()?.toISOString()?.split('T')[0] || docData.dateOfOutward || docData.outwardDate || docData.date || '',
+              outwardCode: docData.outwardCode || docData.outwardId || doc.id || '',
+              srWrNumber: docData.srwrNo || docData.inwardId || '',
+              state: docData.state || '',
+              branch: docData.branch || '',
+              location: docData.location || '',
+              typeOfBusiness: docData.typeOfBusiness || '',
+              warehouseType: 'N/A',
+              warehouseCode: docData.warehouseCode || '',
+              warehouseName: docData.warehouseName || '',
+              warehouseAddress: docData.warehouseAddress || '',
+              clientCode: docData.clientCode || '',
+              clientName: docData.client || docData.clientName || '',
+              commodity: docData.commodity || '',
+              variety: docData.varietyName || docData.variety || '',
+              vehicleNumber: docData.vehicleNumber || '',
+              cadNumber: docData.cadNumber || '',
+              gatepassNumber: docData.gatepassNumber || '',
+              weighbridgeName: docData.weighbridgeName || '',
+              weighbridgeSlipNumber: docData.weighbridgeSlipNumber || '',
+              grossWeight: docData.grossWeight || '',
+              tareWeight: docData.tareWeight || '',
+              netWeight: docData.netWeight || '',
+              totalOutwardBags: docData.totalOutwardBags || docData.outwardBags || '',
+              stackNumber: docData.stackNumber || '',
+              stackOutwardBags: docData.stackOutwardBags || '',
+              doCode: docData.doCode || ''
+            };
+          }));
+          setOutwardData(fallbackData);
+          console.log('Set fallback outward data in state:', fallbackData.length, 'records');
+        } else {
+          setOutwardData([]);
+          console.log('No outward data found in collection');
+        }
+      } else {
+        setOutwardData(data);
+        console.log('Set outward data in state');
+      }
     } catch (error) {
       console.error('Error fetching outward data:', error);
+      setOutwardData([]);
     } finally {
       setLoading(false);
       console.log('Finished fetchOutwardData');
@@ -393,35 +474,48 @@ export default function OutwardReportsPage() {
 
   // Set default date range (last 6 months)
   useEffect(() => {
+    console.log('Setting default date range...');
     const today = new Date();
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(today.getMonth() - 6);
     
-    setEndDate(today.toISOString().split('T')[0]);
-    setStartDate(sixMonthsAgo.toISOString().split('T')[0]);
+    const endDateStr = today.toISOString().split('T')[0];
+    const startDateStr = sixMonthsAgo.toISOString().split('T')[0];
+    
+    console.log('Default date range:', { startDate: startDateStr, endDate: endDateStr });
+    setEndDate(endDateStr);
+    setStartDate(startDateStr);
   }, []);
 
   // Get unique filter options
   const uniqueWarehouses = useMemo(() => {
-    return Array.from(new Set(outwardData.map(item => item.warehouseName).filter(Boolean)));
+    return Array.from(new Set(outwardData.map(item => item.warehouseName).filter(Boolean))).sort();
   }, [outwardData]);
 
   const uniqueClients = useMemo(() => {
-    return Array.from(new Set(outwardData.map(item => item.client).filter(Boolean)));
+    return Array.from(new Set(outwardData.map(item => item.clientName).filter(Boolean))).sort();
   }, [outwardData]);
 
   const uniqueCommodities = useMemo(() => {
-    return Array.from(new Set(outwardData.map(item => item.commodity).filter(Boolean)));
+    return Array.from(new Set(outwardData.map(item => item.commodity).filter(Boolean))).sort();
   }, [outwardData]);
 
   const uniqueStatuses = useMemo(() => {
-    return Array.from(new Set(outwardData.map(item => item.status).filter(Boolean)));
+    return Array.from(new Set(outwardData.map(item => item.status).filter(Boolean))).sort();
+  }, [outwardData]);
+
+  const uniqueStates = useMemo(() => {
+    return Array.from(new Set(outwardData.map(item => item.state).filter(Boolean))).sort();
+  }, [outwardData]);
+
+  const uniqueBranches = useMemo(() => {
+    return Array.from(new Set(outwardData.map(item => item.branch).filter(Boolean))).sort();
   }, [outwardData]);
 
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, warehouseFilter, clientFilter, commodityFilter, itemsPerPage]);
+  }, [searchTerm, statusFilter, warehouseFilter, clientFilter, commodityFilter, stateFilter, branchFilter, itemsPerPage]);
 
   // Filter data based on search and filters
   const filteredData = useMemo(() => {
@@ -454,6 +548,16 @@ export default function OutwardReportsPage() {
     // Apply commodity filter using correct field name
     if (commodityFilter && commodityFilter !== 'all') {
       filtered = filtered.filter(item => item.commodity === commodityFilter);
+    }
+
+    // Apply state filter
+    if (stateFilter && stateFilter !== 'all') {
+      filtered = filtered.filter(item => item.state === stateFilter);
+    }
+
+    // Apply branch filter
+    if (branchFilter && branchFilter !== 'all') {
+      filtered = filtered.filter(item => item.branch === branchFilter);
     }
     
     // Sort by outward date in ascending order (oldest to newest)
@@ -584,10 +688,13 @@ export default function OutwardReportsPage() {
     setWarehouseFilter('all');
     setClientFilter('all');
     setCommodityFilter('all');
+    setStateFilter('all');
+    setBranchFilter('all');
   };
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || statusFilter !== 'all' || warehouseFilter !== 'all' || clientFilter !== 'all' || commodityFilter !== 'all';
+  const hasActiveFilters = searchTerm || statusFilter !== 'all' || warehouseFilter !== 'all' || 
+    clientFilter !== 'all' || commodityFilter !== 'all' || stateFilter !== 'all' || branchFilter !== 'all';
 
   // Format date for display
   const formatDate = (dateString: string) => {
@@ -617,37 +724,6 @@ export default function OutwardReportsPage() {
     return 'bg-gray-100 text-gray-800';
   };
 
-  // Handle date change with validation
-  const handleDateChange = (field: 'start' | 'end', value: string) => {
-    if (field === 'start') {
-      setStartDate(value);
-      // Ensure end date is not more than 6 months after start date
-      if (value && endDate) {
-        const start = new Date(value);
-        const end = new Date(endDate);
-        const sixMonthsLater = new Date(start);
-        sixMonthsLater.setMonth(start.getMonth() + 6);
-        
-        if (end > sixMonthsLater) {
-          setEndDate(sixMonthsLater.toISOString().split('T')[0]);
-        }
-      }
-    } else {
-      setEndDate(value);
-      // Ensure start date is not more than 6 months before end date
-      if (value && startDate) {
-        const start = new Date(startDate);
-        const end = new Date(value);
-        const sixMonthsBefore = new Date(end);
-        sixMonthsBefore.setMonth(end.getMonth() - 6);
-        
-        if (start < sixMonthsBefore) {
-          setStartDate(sixMonthsBefore.toISOString().split('T')[0]);
-        }
-      }
-    }
-  };
-
   // Toggle column visibility
   const toggleColumn = (columnKey: string) => {
     setVisibleColumns(prev => 
@@ -656,6 +732,80 @@ export default function OutwardReportsPage() {
         : [...prev, columnKey]
     );
   };
+
+  // Filter options for the modular component
+  const filterOptions = [
+    {
+      key: 'status',
+      label: 'Status',
+      value: statusFilter,
+      options: uniqueStatuses
+    },
+    {
+      key: 'warehouse',
+      label: 'Warehouse',
+      value: warehouseFilter,
+      options: uniqueWarehouses
+    },
+    {
+      key: 'client',
+      label: 'Client',
+      value: clientFilter,
+      options: uniqueClients
+    },
+    {
+      key: 'commodity',
+      label: 'Commodity',
+      value: commodityFilter,
+      options: uniqueCommodities
+    },
+    {
+      key: 'state',
+      label: 'State',
+      value: stateFilter,
+      options: uniqueStates
+    },
+    {
+      key: 'branch',
+      label: 'Branch',
+      value: branchFilter,
+      options: uniqueBranches
+    }
+  ];
+
+  // Handle filter changes
+  const handleFilterChange = (key: string, value: string) => {
+    switch (key) {
+      case 'status':
+        setStatusFilter(value);
+        break;
+      case 'warehouse':
+        setWarehouseFilter(value);
+        break;
+      case 'client':
+        setClientFilter(value);
+        break;
+      case 'commodity':
+        setCommodityFilter(value);
+        break;
+      case 'state':
+        setStateFilter(value);
+        break;
+      case 'branch':
+        setBranchFilter(value);
+        break;
+    }
+  };
+
+  // Active filters for display
+  const activeFilters = filterOptions
+    .filter(filter => filter.value !== 'all')
+    .map(filter => ({
+      key: filter.key,
+      label: filter.label,
+      value: filter.value,
+      onRemove: () => handleFilterChange(filter.key, 'all')
+    }));
 
   // Get visible columns data
   const visibleColumnsData = allColumns.filter(col => visibleColumns.includes(col.key));
@@ -695,301 +845,113 @@ export default function OutwardReportsPage() {
           </div>
         </div>
 
-        {/* Search & Filter Options */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Search className="h-5 w-5" />
-              Search & Filter Options
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Search Bar */}
-              <div className="flex items-center space-x-2">
-                <Search className="h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search across all fields..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="flex-1"
-                />
-                <Button
-                  variant="outline"
-                  onClick={() => setShowFilters(!showFilters)}
-                >
-                  <Filter className="h-4 w-4 mr-2" />
-                  {showFilters ? 'Hide Filters' : 'Show Filters'}
-                </Button>
-              </div>
-
-              {/* Filters */}
-              {showFilters && (
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-4 border-t">
-                  {/* Date Range Filter */}
-                  <div>
-                    <Label htmlFor="startDate">Start Date</Label>
-                    <Input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => handleDateChange('start', e.target.value)}
-                      max={endDate}
-                      className="mt-1"
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="endDate">End Date</Label>
-                    <Input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => handleDateChange('end', e.target.value)}
-                      min={startDate}
-                      max={(() => {
-                        if (startDate) {
-                          const maxDate = new Date(startDate);
-                          maxDate.setMonth(maxDate.getMonth() + 6);
-                          return maxDate.toISOString().split('T')[0];
-                        }
-                        return '';
-                      })()}
-                      className="mt-1"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Max 6 months range</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="statusFilter">Status</Label>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Statuses</SelectItem>
-                        {uniqueStatuses.map(status => (
-                          <SelectItem key={status} value={status}>{status}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="warehouseFilter">Warehouse</Label>
-                    <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Warehouses</SelectItem>
-                        {uniqueWarehouses.map(warehouse => (
-                          <SelectItem key={warehouse} value={warehouse}>{warehouse}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="clientFilter">Client</Label>
-                    <Select value={clientFilter} onValueChange={setClientFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Clients</SelectItem>
-                        {uniqueClients.map(client => (
-                          <SelectItem key={client} value={client}>{client}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-
-              {/* Additional Filters Row */}
-              {showFilters && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
-                  <div>
-                    <Label htmlFor="commodityFilter">Commodity</Label>
-                    <Select value={commodityFilter} onValueChange={setCommodityFilter}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Commodities</SelectItem>
-                        {uniqueCommodities.map(commodity => (
-                          <SelectItem key={commodity} value={commodity}>{commodity}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="flex items-end">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="w-full">
-                          <Eye className="h-4 w-4 mr-2" />
-                          Column Visibility
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Toggle Columns</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {allColumns.map((column) => (
-                          <DropdownMenuCheckboxItem
-                            key={column.key}
-                            checked={visibleColumns.includes(column.key)}
-                            onCheckedChange={() => toggleColumn(column.key)}
-                          >
-                            {column.label}
-                          </DropdownMenuCheckboxItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              )}
-
-              {/* Active Filters Summary */}
-              {hasActiveFilters && (
-                <div className="flex items-center justify-between pt-4 border-t">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm font-medium text-gray-700">Active Filters:</span>
-                    {searchTerm && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-                        Search: {searchTerm}
-                        <button onClick={() => setSearchTerm('')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {warehouseFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-orange-100 text-orange-800">
-                        Warehouse: {warehouseFilter}
-                        <button onClick={() => setWarehouseFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {statusFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-purple-100 text-purple-800">
-                        Status: {statusFilter}
-                        <button onClick={() => setStatusFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {clientFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-orange-100 text-orange-800">
-                        Client: {clientFilter}
-                        <button onClick={() => setClientFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {commodityFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-teal-100 text-teal-800">
-                        Commodity: {commodityFilter}
-                        <button onClick={() => setCommodityFilter('all')} className="ml-1">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                  </div>
-                  <Button variant="outline" onClick={clearFilters} size="sm">
-                    Clear All Filters
-                  </Button>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Filters & Controls - Modular Component */}
+        <FiltersAndControls
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={(date) => {
+            console.log('Start date changed to:', date);
+            setStartDate(date);
+          }}
+          onEndDateChange={(date) => {
+            console.log('End date changed to:', date);
+            setEndDate(date);
+          }}
+          filterOptions={filterOptions}
+          onFilterChange={handleFilterChange}
+          loading={loading}
+          onApplyFilters={fetchOutwardData}
+          showFilters={showFilters}
+          onToggleFilters={() => setShowFilters(!showFilters)}
+          allColumns={allColumns}
+          visibleColumns={visibleColumns}
+          onToggleColumn={toggleColumn}
+          onClearFilters={clearFilters}
+          activeFilters={activeFilters}
+        />
 
         {/* Results Summary */}
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-600">
             Showing {startIndex + 1}-{Math.min(endIndex, filteredData.length)} of {filteredData.length} entries
             {filteredData.length !== outwardData.length && ` (filtered from ${outwardData.length} total)`}
-            {startDate && endDate && ` | Date Range: ${startDate} to ${endDate}`}
           </div>
-          {hasActiveFilters && (
-            <Button variant="outline" onClick={clearFilters} size="sm">
-              Clear Filters
-            </Button>
-          )}
+          <div className="flex items-center space-x-2">
+            <span className="text-sm text-gray-600">Rows per page:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => setItemsPerPage(Number(e.target.value))}
+              className="border border-gray-300 rounded px-2 py-1 text-sm"
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
         </div>
 
-        {/* Data Table with Frozen Headers and First Column */}
-        <Card>
-          <CardContent className="p-0">
-            <div className="table-container">
-              <table className="w-full border-collapse border border-gray-200">
-                <thead className="bg-orange-100 sticky-header">
-                  <tr>
-                    {visibleColumns.map((colKey, index) => {
-                      const column = allColumns.find(col => col.key === colKey);
-                      if (!column) return null;
-                      
-                      const isFirstColumn = index === 0;
-                      return (
-                        <th 
-                          key={column.key}
-                          className={`border border-orange-300 px-4 py-2 text-left text-orange-800 font-semibold ${
-                            isFirstColumn ? 'sticky-first-column header' : ''
-                          }`}
-                        >
-                          {column.label}
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedData.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      {visibleColumns.map((colKey, index) => {
-                        const column = allColumns.find(col => col.key === colKey);
-                        if (!column) return null;
-                        
-                        const isFirstColumn = index === 0;
-                        const cellValue = item[column.key] || 'N/A';
-                        const isNumeric = ['outwardBags', 'outwardQty', 'totalValue'].includes(column.key);
-                        const isMonospace = ['outwardId', 'inwardId', 'doNumber', 'roNumber', 'vehicleNumber'].includes(column.key);
-                        
-                        return (
-                          <td
-                            key={column.key}
-                            className={`border border-gray-200 px-4 py-2 ${
-                              isFirstColumn ? 'sticky-first-column' : ''
-                            } ${
-                              isNumeric ? 'text-right' : ''
-                            } ${
-                              isMonospace ? 'font-mono text-sm' : ''
-                            } ${
-                              column.key === 'srNumber' ? 'text-center' : ''
-                            }`}
-                          >
-                            {column.key === 'date' ? formatDate(item.date) : 
-                             column.key === 'status' ? (
-                               <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(item.status)}`}>
-                                 {item.status || 'Active'}
-                               </span>
-                             ) : cellValue}
-                          </td>
-                        );
-                      })}
+        {/* Data Table with Sticky Headers */}
+        <div className="table-container">
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto max-h-[600px]">
+                <table className="w-full border-collapse border border-gray-200">
+                  <thead className="sticky-header bg-orange-100">
+                    <tr>
+                      {allColumns
+                        .filter(col => visibleColumns.includes(col.key))
+                        .map(column => (
+                          <th key={column.key} className="border border-orange-300 px-4 py-3 text-left text-orange-800 font-semibold whitespace-nowrap">
+                            {column.label}
+                          </th>
+                        ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              
-              {filteredData.length === 0 && loading && (
-                <div className="text-center py-8 text-gray-500">
-                  Loading data...
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                  </thead>
+                  <tbody>
+                    {paginatedData.map((item) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        {allColumns
+                          .filter(col => visibleColumns.includes(col.key))
+                          .map(column => (
+                            <td key={column.key} className="border border-gray-200 px-4 py-2 whitespace-nowrap">
+                              {column.key === 'outwardDate' ? (
+                                formatDate(item[column.key])
+                              ) : column.key === 'grossWeight' || column.key === 'tareWeight' || 
+                                       column.key === 'netWeight' || column.key === 'totalOutwardBags' || 
+                                       column.key === 'stackOutwardBags' ? (
+                                <span className="text-right block">
+                                  {item[column.key] || '-'}
+                                </span>
+                              ) : column.key === 'outwardCode' || column.key === 'srWrNumber' || 
+                                       column.key === 'warehouseCode' || column.key === 'clientCode' || 
+                                       column.key === 'vehicleNumber' || column.key === 'cadNumber' ||
+                                       column.key === 'gatepassNumber' || column.key === 'weighbridgeSlipNumber' ||
+                                       column.key === 'stackNumber' || column.key === 'doCode' ? (
+                                <span className="font-mono text-sm">
+                                  {item[column.key] || '-'}
+                                </span>
+                              ) : (
+                                item[column.key] || '-'
+                              )}
+                            </td>
+                          ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                
+                {filteredData.length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    {loading ? 'Loading data...' : 'No outward data found matching the current filters'}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Pagination Controls */}
         {filteredData.length > 0 && (
