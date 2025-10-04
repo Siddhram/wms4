@@ -273,6 +273,7 @@ export default function InwardPage() {
   const testCertRef = useRef<HTMLDivElement>(null);
   const printableReceiptRef = useRef<HTMLDivElement>(null);
   const cirReceiptRef = useRef<HTMLDivElement>(null);
+  const cirModalContentRef = useRef<HTMLDivElement>(null);
   // Add state for initial remaining values from Firestore
   const [initialRemainingFire, setInitialRemainingFire] = useState('');
   const [initialRemainingBurglary, setInitialRemainingBurglary] = useState('');
@@ -4719,26 +4720,113 @@ export default function InwardPage() {
   // Print handler using html2canvas and jsPDF with new layout
   const handlePrint = async () => {
     console.log('Print button clicked');
-    if (!printableReceiptRef.current) {
-      toast({ title: 'Error', description: 'Print ref not available. Please try again.', variant: 'destructive' });
-      return;
+    
+    // Check if this is a CIR print (when CIR modal is open and approved)
+    const isCIRPrint = showCIRModal && cirModalData?.cirStatus === 'Approved';
+    
+    let targetRef: React.RefObject<HTMLDivElement>;
+    let documentType: string;
+    let fileName: string;
+    
+    if (isCIRPrint) {
+      console.log('CIR Print: Modal open:', showCIRModal);
+      console.log('CIR Print: Modal data:', cirModalData);
+      console.log('CIR Print: Modal content ref:', cirModalContentRef.current);
+      
+      if (!cirModalContentRef.current) {
+        console.error('CIR modal content ref is not available');
+        toast({ title: 'Error', description: 'CIR modal content not available. Please wait for the modal to fully load and try again.', variant: 'destructive' });
+        return;
+      }
+      targetRef = cirModalContentRef;
+      documentType = 'CIR status form';
+      fileName = `cir-status-form-${cirModalData?.inwardId || 'document'}.pdf`;
+    } else {
+      if (!printableReceiptRef.current) {
+        toast({ title: 'Error', description: 'Print ref not available. Please try again.', variant: 'destructive' });
+        return;
+      }
+      targetRef = printableReceiptRef;
+      const receiptType = selectedRowForSR?.receiptType === 'WR' ? 'warehouse' : 'storage';
+      documentType = `${receiptType} receipt`;
+      fileName = `${receiptType}-receipt-${selectedRowForSR?.inwardId || 'document'}.pdf`;
     }
+    
     setIsPrinting(true);
     try {
       const html2canvas = (await import('html2canvas')).default;
       const jsPDF = (await import('jspdf')).default;
       
       // Wait a moment for the component to render
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       
-      const canvas = await html2canvas(printableReceiptRef.current, { 
+      // For CIR print, we need to temporarily hide the remarks section and action buttons
+      let hiddenElements: HTMLElement[] = [];
+      
+      if (isCIRPrint && targetRef.current) {
+        console.log('Hiding elements for CIR print...');
+        
+        // Hide remarks section - look for any element containing "Remarks" or "Approval Note"
+        const allElements = targetRef.current.querySelectorAll('*');
+        allElements.forEach(element => {
+          const text = element.textContent || '';
+          if ((text.includes('Remarks') || text.includes('Approval Note')) && 
+              !element.querySelector('*') && // Only leaf elements
+              element.tagName === 'LABEL') {
+            // Find the parent container div
+            let parent = element.parentElement;
+            while (parent && parent !== targetRef.current) {
+              if (parent.classList.contains('mt-6') || parent.classList.contains('space-y-4')) {
+                hiddenElements.push(parent);
+                parent.style.display = 'none';
+                console.log('Hidden remarks section:', parent);
+                break;
+              }
+              parent = parent.parentElement;
+            }
+          }
+        });
+        
+        // Hide action buttons - look for divs containing buttons
+        const buttonContainers = targetRef.current.querySelectorAll('div');
+        buttonContainers.forEach(container => {
+          const buttons = container.querySelectorAll('button');
+          if (buttons.length > 0) {
+            // Check if this container has Print, Approve, Reject, or Save buttons
+            let hasActionButtons = false;
+            buttons.forEach(button => {
+              const buttonText = button.textContent || '';
+              if (buttonText.includes('Print') || buttonText.includes('Approve') || 
+                  buttonText.includes('Reject') || buttonText.includes('Save') || 
+                  buttonText.includes('Resubmit')) {
+                hasActionButtons = true;
+              }
+            });
+            
+            if (hasActionButtons) {
+              hiddenElements.push(container as HTMLElement);
+              (container as HTMLElement).style.display = 'none';
+              console.log('Hidden button container:', container);
+            }
+          }
+        });
+        
+        console.log('Total hidden elements:', hiddenElements.length);
+      }
+      
+      const canvas = await html2canvas(targetRef.current!, { 
         scale: 2, 
         useCORS: true, 
         backgroundColor: '#fff',
         logging: true,
         allowTaint: false,
-        height: printableReceiptRef.current.scrollHeight,
-        width: printableReceiptRef.current.scrollWidth
+        height: targetRef.current!.scrollHeight,
+        width: targetRef.current!.scrollWidth
+      });
+      
+      // Restore hidden elements
+      hiddenElements.forEach(element => {
+        element.style.display = '';
       });
       
       const imgData = canvas.toDataURL('image/png');
@@ -4762,12 +4850,11 @@ export default function InwardPage() {
         heightLeft -= pageHeight;
       }
       
-      const receiptType = selectedRowForSR?.receiptType === 'WR' ? 'warehouse' : 'storage';
-      pdf.save(`${receiptType}-receipt-${selectedRowForSR?.inwardId || 'document'}.pdf`);
+      pdf.save(fileName);
       
       toast({ 
         title: 'PDF Generated', 
-        description: `The ${receiptType} receipt PDF has been downloaded successfully.`, 
+        description: `The ${documentType} PDF has been downloaded successfully.`, 
         variant: 'default' 
       });
     } catch (err) {
@@ -4778,79 +4865,7 @@ export default function InwardPage() {
     }
   };
 
-  const handleCIRPrint = async () => {
-    console.log('CIR Print button clicked');
-    console.log('CIR Modal Data:', cirModalData);
-    console.log('CIR Receipt Ref:', cirReceiptRef.current);
-    console.log('Show CIR Modal:', showCIRModal);
-    
-    if (!cirModalData) {
-      toast({ title: 'Error', description: 'No CIR data available for printing.', variant: 'destructive' });
-      return;
-    }
-    
-    if (!cirReceiptRef.current) {
-      toast({ title: 'Error', description: 'CIR print ref not available. Please try again.', variant: 'destructive' });
-      return;
-    }
-    setIsPrinting(true);
-    try {
-      const html2canvas = (await import('html2canvas')).default;
-      const jsPDF = (await import('jspdf')).default;
-      
-      // Wait for the component to render and ref to be available
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      
-      // Double-check ref availability after delay
-      if (!cirReceiptRef.current) {
-        throw new Error('CIR receipt ref became unavailable after delay');
-      }
-      
-      const canvas = await html2canvas(cirReceiptRef.current, { 
-        scale: 2, 
-        useCORS: true, 
-        backgroundColor: '#fff',
-        logging: true,
-        allowTaint: false,
-        height: cirReceiptRef.current.scrollHeight,
-        width: cirReceiptRef.current.scrollWidth
-      });
-      
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 295; // A4 height in mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      let heightLeft = imgHeight;
-      let position = 0;
-      
-      // Add first page
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      
-      // Add additional pages if needed
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      
-      pdf.save(`cir-status-form-${cirModalData?.inwardId || 'document'}.pdf`);
-      
-      toast({ 
-        title: 'PDF Generated', 
-        description: 'The CIR status form PDF has been downloaded successfully.', 
-        variant: 'default' 
-      });
-    } catch (err) {
-      console.error('CIR PDF generation error:', err);
-      toast({ title: 'Error', description: 'Failed to generate CIR PDF. See console for details.', variant: 'destructive' });
-    } finally {
-      setIsPrinting(false);
-    }
-  };
+
 
   // Update insurance selection logic to fetch and display remaining values from Firestore
   const handleInsuranceSelect = async (idx: number) => {
@@ -5360,12 +5375,24 @@ export default function InwardPage() {
 
     // Find the correct insurance entry from master collection
     let yourInsurance = null;
+    let selectedInsuranceEntries = [];
+    
     if (row.selectedInsurance && insuranceEntries.length > 0) {
       yourInsurance = insuranceEntries.find(
         (ins: any) =>
           ins.insuranceId === row.selectedInsurance.insuranceId &&
           ins.insuranceTakenBy === row.selectedInsurance.insuranceTakenBy
       ) || null;
+      
+      // Only include the selected insurance in the CIR display
+      if (yourInsurance) {
+        selectedInsuranceEntries = [yourInsurance];
+        console.log('✅ CIR: Found selected insurance for display:', yourInsurance.insuranceId);
+      } else {
+        console.log('⚠️ CIR: Selected insurance not found in available entries');
+      }
+    } else {
+      console.log('⚠️ CIR: No selected insurance found in row data');
     }
 
     // Prepare lab parameter names from commodity/variety
@@ -5417,14 +5444,14 @@ export default function InwardPage() {
     patchFields.dateOfTesting = row.dateOfTesting || '';
     patchFields.labResults = row.labResults || [];
 
-    // Set CIR modal data with all required fields including insurance data
+    // Set CIR modal data with ONLY the selected insurance entry
     setCIRModalData({
       ...row,
       ...patchFields,
       yourInsurance,
       inwardEntries,
       labParameterNames,
-      insuranceEntries, // Add insurance data from master collection
+      insuranceEntries: selectedInsuranceEntries, // Only show the selected insurance
     });
     setCIRRemarks(row.remarks || ''); // <-- Set remarks from row if present
   };
@@ -6081,8 +6108,8 @@ export default function InwardPage() {
         </div>
         <div className="flex justify-end space-x-2 mt-4">
           {cirModalData?.cirStatus === 'Approved' ? (
-            <Button onClick={handleCIRPrint} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm">
-              Print
+            <Button onClick={handlePrint} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm" disabled={isPrinting}>
+              {isPrinting ? 'Generating PDF...' : 'Print'}
             </Button>
           ) : cirModalData?.cirStatus === 'Resubmitted' ? null : cirModalData?.cirStatus === 'Rejected' ? null : (
             cirReadOnly ? (
@@ -6282,7 +6309,7 @@ export default function InwardPage() {
               stickyHeader={true}
               stickyFirstColumn={true}
               showGridLines={true}
-              pageSize={10}
+              pageSize={25}
               showPagination={true}
             />
           </CardContent>
@@ -8525,67 +8552,7 @@ export default function InwardPage() {
                 </div>
               )}
 
-              {/* Hidden CIR Receipt for PDF export */}
-              {(showCIRModal && cirModalData) && (
-                <div style={{ position: 'absolute', left: '-9999px', top: 0, zIndex: -1 }}>
-                  <div ref={cirReceiptRef}>
-                    <CIRReceipt
-                      data={{
-                        inwardId: cirModalData.inwardId || '',
-                        state: cirModalData.state || '',
-                        branch: cirModalData.branch || '',
-                        location: cirModalData.location || '',
-                        warehouseName: cirModalData.warehouseName || '',
-                        warehouseCode: cirModalData.warehouseCode || '',
-                        warehouseAddress: cirModalData.warehouseAddress || '',
-                        businessType: cirModalData.businessType || '',
-                        client: cirModalData.client || '',
-                        clientCode: cirModalData.clientCode || '',
-                        clientAddress: cirModalData.clientAddress || '',
-                        dateOfInward: cirModalData.dateOfInward || '',
-                        cadNumber: cirModalData.cadNumber || '',
-                        bankReceipt: cirModalData.bankReceipt || '',
-                        commodity: cirModalData.commodity || '',
-                        varietyName: cirModalData.varietyName || '',
-                        marketRate: cirModalData.marketRate || '',
-                        totalBags: cirModalData.totalBags || '',
-                        totalQuantity: cirModalData.totalQuantity || '',
-                        totalValue: cirModalData.totalValue || '',
-                        bankName: cirModalData.bankName || '',
-                        bankBranch: cirModalData.bankBranch || '',
-                        bankState: cirModalData.bankState || '',
-                        ifscCode: cirModalData.ifscCode || '',
-                        billingStatus: cirModalData.billingStatus || '',
-                        reservationRate: cirModalData.reservationRate || '',
-                        reservationQty: cirModalData.reservationQty || '',
-                        reservationStart: cirModalData.reservationStart || '',
-                        reservationEnd: cirModalData.reservationEnd || '',
-                        billingCycle: cirModalData.billingCycle || '',
-                        billingType: cirModalData.billingType || '',
-                        billingRate: cirModalData.billingRate || '',
-                        dateOfSampling: cirModalData.dateOfSampling || '',
-                        dateOfTesting: cirModalData.dateOfTesting || '',
-                        labResults: cirModalData.labResults || [],
-                        labParameterNames: cirModalData.labParameterNames || [],
-                        attachmentUrl: cirModalData.attachmentUrl || '',
-                        vehicleNumber: cirModalData.vehicleNumber || '',
-                        getpassNumber: cirModalData.getpassNumber || '',
-                        weightBridge: cirModalData.weightBridge || '',
-                        weightBridgeSlipNumber: cirModalData.weightBridgeSlipNumber || '',
-                        grossWeight: cirModalData.grossWeight || '',
-                        tareWeight: cirModalData.tareWeight || '',
-                        netWeight: cirModalData.netWeight || '',
-                        stacks: cirModalData.stacks || [],
-                        insuranceEntries: cirModalData.insuranceEntries || [],
-                        cirStatus: cirModalData.cirStatus || '',
-                        remarks: cirRemarks || '',
-                        date: new Date().toLocaleDateString('en-IN'),
-                        place: cirModalData.branch || 'Indore',
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
+
 
               {/* Insurance Seal/Stamp and Company Info */}
               <div className="flex justify-between items-end mt-8">
@@ -8635,8 +8602,9 @@ export default function InwardPage() {
       {showCIRModal && (
         <Dialog open={showCIRModal} onOpenChange={setShowCIRModal}>
           <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-            {/* Logo and company info header (copied from SR/WR receipt) */}
-            <div className="flex flex-col items-center justify-center mb-8 mt-2">
+            <div ref={cirModalContentRef}>
+              {/* Logo and company info header (copied from SR/WR receipt) */}
+              <div className="flex flex-col items-center justify-center mb-8 mt-2">
               <Image src="/Group 86.png" alt="Agrogreen Logo" width={120} height={100} style={{ marginBottom: 8, borderRadius: '30%', objectFit: 'cover' }} />
               <div className="text-lg font-extrabold text-orange-600 mt-2 mb-1 text-center" style={{ letterSpacing: '0.02em' }}>
                 AGROGREEN WAREHOUSING PRIVATE LTD.
@@ -9171,6 +9139,7 @@ export default function InwardPage() {
                   <Button onClick={handleCIRSave} color="primary">Save</Button>
                 )
               )}
+            </div>
             </div>
           </DialogContent>
         </Dialog>

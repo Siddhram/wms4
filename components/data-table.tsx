@@ -39,6 +39,8 @@ interface DataTableProps<TData, TValue> {
   stickyHeader?: boolean;
   stickyFirstColumn?: boolean;
   showGridLines?: boolean;
+  pageSize?: number;
+  showPagination?: boolean;
 }
 
 export function DataTable<TData, TValue>({
@@ -52,15 +54,17 @@ export function DataTable<TData, TValue>({
   stickyHeader = false,
   stickyFirstColumn = false,
   showGridLines = false,
+  pageSize = 10,
+  showPagination = true,
 }: DataTableProps<TData, TValue>) {
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    getPaginationRowModel: showPagination ? getPaginationRowModel() : undefined,
     initialState: {
       pagination: {
-        pageSize: 10,
+        pageSize: pageSize,
       },
     },
   });
@@ -91,33 +95,109 @@ export function DataTable<TData, TValue>({
 
   return (
     <div className="relative">
-      <div className={cn("rounded-md border overflow-auto", wrapperClassName)} style={{maxHeight: stickyHeader ? '600px' : 'none'}}>
-        <Table className={cn(showGridLines ? "border-collapse" : "")}>
-          <TableHeader className={cn(stickyHeader ? "sticky top-0 z-20 bg-white" : "")}>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header, index) => {
-                  return (
-                    <TableHead 
-                      key={header.id} 
-                      className={cn(
-                        headClassName,
-                        showGridLines ? "border border-gray-300" : "",
-                        stickyFirstColumn && index === 0 ? "sticky left-0 z-10 bg-orange-100 border-r border-gray-300" : ""
-                      )}
-                    >
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            ))}
-          </TableHeader>
+      <div 
+        className={cn(
+          "rounded-md border", 
+          wrapperClassName,
+          stickyHeader ? "table-container" : "overflow-auto"
+        )}
+        style={stickyHeader ? { 
+          maxHeight: '70vh', 
+          overflowY: 'auto',
+          overflowX: 'auto',
+          position: 'relative'
+        } : {}}
+      >
+        {stickyHeader ? (
+          // Custom table structure for sticky headers
+          <table className={cn("w-full caption-bottom text-sm", showGridLines ? "border-collapse" : "", "relative")}>
+            <thead className="sticky-header">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id} className="border-b">
+                  {headerGroup.headers.map((header, index) => {
+                    return (
+                      <th 
+                        key={header.id} 
+                        className={cn(
+                          "h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0",
+                          headClassName,
+                          showGridLines ? "border border-gray-300" : "",
+                          stickyFirstColumn && index === 0 ? "sticky-first-column header sticky left-0 z-20 bg-orange-100 border-r border-gray-300" : "",
+                          "sticky top-0 z-10 bg-orange-100 border-b-2 border-orange-200"
+                        )}
+                        style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#fed7aa' }}
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext()
+                            )}
+                      </th>
+                    );
+                  })}
+                </tr>
+              ))}
+            </thead>
+            <tbody className="[&_tr:last-child]:border-0">
+              {table.getRowModel().rows?.length ? (
+                table.getRowModel().rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    data-state={row.getIsSelected() && "selected"}
+                    className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
+                  >
+                    {row.getVisibleCells().map((cell, index) => (
+                      <td 
+                        key={cell.id} 
+                        className={cn(
+                          "p-4 align-middle [&:has([role=checkbox])]:pr-0",
+                          cellClassName,
+                          showGridLines ? "border border-gray-300" : "",
+                          stickyFirstColumn && index === 0 ? "sticky-first-column sticky left-0 z-10 bg-white border-r border-gray-300" : ""
+                        )}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={columns.length} className="h-24 text-center">
+                    No results.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        ) : (
+          <Table className={cn(showGridLines ? "border-collapse" : "", "relative")}>
+            <TableHeader>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header, index) => {
+                    return (
+                      <TableHead 
+                        key={header.id} 
+                        className={cn(
+                          headClassName,
+                          showGridLines ? "border border-gray-300" : "",
+                          stickyFirstColumn && index === 0 ? "sticky-first-column header sticky left-0 z-20 bg-orange-100 border-r border-gray-300" : ""
+                        )}
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext()
+                            )}
+                      </TableHead>
+                    );
+                  })}
+                </TableRow>
+              ))}
+            </TableHeader>
           <TableBody>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
@@ -131,7 +211,7 @@ export function DataTable<TData, TValue>({
                       className={cn(
                         cellClassName,
                         showGridLines ? "border border-gray-300" : "",
-                        stickyFirstColumn && index === 0 ? "sticky left-0 z-10 bg-white border-r border-gray-300" : ""
+                        stickyFirstColumn && index === 0 ? "sticky-first-column sticky left-0 z-10 bg-white border-r border-gray-300" : ""
                       )}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -148,9 +228,11 @@ export function DataTable<TData, TValue>({
             )}
           </TableBody>
         </Table>
+        )}
       </div>
-      <div className="mt-4">
-        <Pagination>
+      {showPagination && (
+        <div className="mt-4">
+          <Pagination>
           <PaginationContent>
             <PaginationItem>
               <PaginationPrevious
@@ -239,7 +321,8 @@ export function DataTable<TData, TValue>({
             </PaginationItem>
           </PaginationContent>
         </Pagination>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

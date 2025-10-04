@@ -101,8 +101,9 @@
 .sticky-header th {
   position: sticky;
   top: 0;
-  background-color: #fed7aa; /* bg-orange-100 equivalent */
+  background-color: #fed7aa !important; /* bg-orange-100 equivalent */
   z-index: 10;
+  box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.1);
 }
 
 /* Sticky first column styles */
@@ -126,6 +127,24 @@
   overflow: auto; /* Enable both horizontal and vertical scrolling */
   border: 1px solid #e5e7eb; /* border-gray-200 equivalent */
   position: relative;
+}
+
+.table-container table {
+  position: relative;
+}
+
+.table-container thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.table-container thead th {
+  position: sticky;
+  top: 0;
+  background-color: #fed7aa !important; /* bg-orange-100 equivalent */
+  z-index: 11;
+  box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.1);
 }
 
 /* Override any conflicting styles */
