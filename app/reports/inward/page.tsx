@@ -587,7 +587,7 @@ export default function InwardReportsPage() {
                 const fireEndDate = insurance.firePolicyEndDate ? new Date(insurance.firePolicyEndDate) : null;
                 const burglaryEndDate = insurance.burglaryPolicyEndDate ? new Date(insurance.burglaryPolicyEndDate) : null;
                 
-                [fireEndDate, burglaryEndDate].forEach(date => {
+                [fireEndDate, burglaryEndDate].forEach((date: Date | null) => {
                   if (date && !isNaN(date.getTime())) {
                     if (!earliestEndDate || date < earliestEndDate) {
                       earliestEndDate = date;
@@ -597,8 +597,9 @@ export default function InwardReportsPage() {
               });
               
               if (earliestEndDate) {
-                console.log('Calculated SR validity date from insurance policies:', earliestEndDate.toISOString().split('T')[0]);
-                return earliestEndDate.toISOString().split('T')[0];
+                const validDate = earliestEndDate as Date;
+                console.log('Calculated SR validity date from insurance policies:', validDate.toISOString().split('T')[0]);
+                return validDate.toISOString().split('T')[0];
               }
             }
             

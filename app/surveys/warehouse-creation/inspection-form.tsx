@@ -3560,7 +3560,7 @@ export default function WarehouseInspectionForm({
                               sourceDocumentId: doc.id,
                               sourceCollection: 'insurance'
                             }))
-                            .filter(insurance => insurance.insuranceType === 'warehouse-owner');
+                            .filter((insurance: any) => insurance.insuranceType === 'warehouse-owner');
                           console.log('Found Warehouse Owner insurance data:', warehouseInsurances);
                           setWarehouseInsuranceData(warehouseInsurances);
                         } else {
