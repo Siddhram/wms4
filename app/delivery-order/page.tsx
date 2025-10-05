@@ -516,7 +516,7 @@ export default function DeliveryOrderPage() {
         const srwrNo = roData.srwrNo as string | undefined;
         const existingDOs = srwrNo ? (dosBySRWR[srwrNo] || []) : [];
         
-        // Start with releaseBags and releaseQuantity
+        // Start with releaseBags and releaseQuantity (same as RO bags/quantity initially)
         let balanceBags = Number(roData.releaseBags || 0);
         let balanceQuantity = Number(roData.releaseQuantity || 0);
         
@@ -565,22 +565,10 @@ export default function DeliveryOrderPage() {
           hasRejectedOutward
         };
       })
-      // Filter out ROs with zero balance, BUT include rejected DOs
+      // Filter out ROs with zero balance - only show positive balance entries
       .filter((ro: any) => {
-        // Always include if balance is positive
-        if (ro.balanceBags > 0) return true;
-        
-        // Also include if there are any rejected DOs or rejected Outwards for this SR/WR
-        if (ro.hasRejectedDO) {
-          console.log(`Including ${ro.srwrNo} in dropdown due to rejected DO(s)`);
-          return true;
-        }
-        if (ro.hasRejectedOutward) {
-          console.log(`Including ${ro.srwrNo} in dropdown due to rejected outward(s)`);
-          return true;
-        }
-        
-        return false;
+        // Only include if balance is positive
+        return ro.balanceBags > 0;
       });
       
       console.log(`Found ${roData.length} ROs with positive balance`);
@@ -882,22 +870,10 @@ export default function DeliveryOrderPage() {
               hasRejectedOutward
             };
         })
-        // Filter out inward entries with zero balance, BUT include rejected DOs
+        // Filter out inward entries with zero balance - only show positive balance entries
           .filter(entry => {
-          // Always include if balance is positive
-          if (entry.balanceBags > 0) return true;
-          
-            // Also include if there are any rejected DOs or rejected Outwards for this SR/WR
-            if (entry.hasRejectedDO) {
-              console.log(`Including inward ${entry.srwrNo} in dropdown due to rejected DO(s)`);
-              return true;
-            }
-            if (entry.hasRejectedOutward) {
-              console.log(`Including inward ${entry.srwrNo} in dropdown due to rejected outward(s)`);
-              return true;
-            }
-          
-          return false;
+          // Only include if balance is positive
+          return entry.balanceBags > 0;
         });
       
       console.log(`Found ${inwardData.length} inward entries with positive balance`);
@@ -1597,27 +1573,7 @@ export default function DeliveryOrderPage() {
                     </div>
                   )}
                   <div className="relative">
-                    <div className="relative mb-1">
-                      <Input
-                        ref={searchInputRef}
-                        placeholder="Type to search by SR/WR No..."
-                        value={roSearch}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRoSearch(e.target.value)}
-                        className="mb-1 pr-8 border-2 border-blue-300 focus:border-blue-500"
-                        autoFocus
-                      />
-                      {roSearch && (
-                        <button 
-                          type="button" 
-                          onClick={() => setRoSearch('')}
-                          className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
+                    {/*  */}
                     {roSearch && (
                       <div className="text-xs mb-2">
                         <span className={`${filteredROOptions.length > 0 ? 'text-green-600' : 'text-red-500'}`}>
@@ -1631,10 +1587,7 @@ export default function DeliveryOrderPage() {
                     <div className="text-xs mb-2 text-blue-600">
                       Available options: {roOptions.length} | 
                       Filtered: {filteredROOptions.length} | 
-                      With positive balance: {filteredROOptions.filter((opt: any) => 
-                        (opt.balanceBags !== undefined ? Number(opt.balanceBags) : 
-                          (opt.releaseBags !== undefined ? Number(opt.releaseBags) : 0)) > 0
-                      ).length}
+                      Showing only entries with positive balance (0 balance entries hidden)
                     </div>
                     
                     <Select
@@ -1650,11 +1603,11 @@ export default function DeliveryOrderPage() {
                       <SelectContent className="max-h-[300px]">
                         {filteredROOptions
                           .filter((option: any) => {
-                            // Calculate and check if balance is positive OR included due to a rejection
+                            // Only show entries with positive balance (hide 0 balance entries)
                             const balanceBags = option.balanceBags !== undefined ? 
                               Number(option.balanceBags) : 
                               (option.releaseBags !== undefined ? Number(option.releaseBags) : 0);
-                            return balanceBags > 0 || option.hasRejectedDO || option.hasRejectedOutward;
+                            return balanceBags > 0;
                           })
                           .map((option: any) => {
                             // Get the balance for display
