@@ -65,6 +65,7 @@ export default function BankModulePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<BankData>({
     bankId: '',
+    bankName: '',
     state: '',
     branch: '',
     locations: [],
@@ -100,7 +101,7 @@ export default function BankModulePage() {
   const [viewingFiles, setViewingFiles] = useState<CloudinaryUploadResult[]>([]);
 
   // Define columns for DataTable (requirement #2: ascending order by bank code, #5: remove file count column)
-  const bankColumns = useMemo(() => [
+  const bankColumns = [
     {
       accessorKey: "bankId",
       header: "Bank Code",
@@ -208,7 +209,7 @@ export default function BankModulePage() {
       },
       meta: { align: 'center' },
     },
-  ], []);
+  ];
 
   // Check if user has access
   useEffect(() => {
@@ -219,13 +220,49 @@ export default function BankModulePage() {
 
   const loadBanks = async () => {
     try {
+      setIsLoading(true);
+      console.log('🔄 Loading banks from Firebase...');
+      console.log('🔍 Firebase db instance:', db);
+      console.log('🔍 Collection reference:', collection(db, 'banks'));
+      
       const querySnapshot = await getDocs(collection(db, 'banks'));
-      const banksData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        locations: doc.data().locations || []
-      })) as BankData[];
+      console.log('📊 Query snapshot:', querySnapshot);
+      console.log('📊 Query snapshot size:', querySnapshot.size);
+      console.log('📊 Query snapshot empty:', querySnapshot.empty);
+      
+      if (querySnapshot.empty) {
+        console.log('⚠️ No banks found in Firebase collection');
+        setBanks([]);
+        setIsLoading(false);
+        toast({
+          title: "ℹ️ No Banks Found",
+          description: "No banks are registered yet. Add your first bank to get started.",
+          variant: "default",
+          duration: 4000,
+        });
+        return;
+      }
+      
+      const banksData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        console.log('📄 Processing bank document:', doc.id, data);
+        return {
+          id: doc.id,
+          ...data,
+          locations: data.locations || []
+        };
+      }) as BankData[];
+      
+      console.log('✅ Banks loaded successfully:', banksData.length, 'banks');
+      console.log('📋 Banks data:', banksData);
+      
+      // Set banks data
       setBanks(banksData);
+      
+      // Wait a bit for state to update before setting loading to false
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      console.log('✅ State update completed');
       
       // Trigger cross-module reflection (requirement #8)
       // Dispatch custom event to notify other modules about bank data changes
@@ -234,14 +271,29 @@ export default function BankModulePage() {
       });
       window.dispatchEvent(bankUpdateEvent);
       
-    } catch (error) {
-      console.error('Error loading banks:', error);
+    } catch (error: any) {
+      console.error('❌ Error loading banks:', error);
+      console.error('❌ Error details:', {
+        message: error?.message,
+        code: error?.code,
+        stack: error?.stack
+      });
+      
+      let errorMessage = "Failed to load banks. Please refresh the page.";
+      if (error?.code === 'permission-denied') {
+        errorMessage = "Permission denied. Please check your authentication.";
+      } else if (error?.code === 'unavailable') {
+        errorMessage = "Firebase service is temporarily unavailable.";
+      }
+      
       toast({
         title: "❌ Loading Failed", 
-        description: "Failed to load banks. Please refresh the page.",
+        description: errorMessage,
         variant: "destructive",
         duration: 5000,
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -265,10 +317,22 @@ export default function BankModulePage() {
     setFilteredBanks(filtered);
   }, [banks, searchTerm]);
 
+  // Add loading state
+  const [isLoading, setIsLoading] = useState(true);
+
   // Load banks data
   useEffect(() => {
     loadBanks();
   }, []);
+
+  // Debug: Monitor banks state changes
+  useEffect(() => {
+    console.log('🔍 Banks state changed:', banks.length, 'banks');
+    console.log('🔍 Loading state:', isLoading);
+    if (banks.length > 0) {
+      console.log('✅ Banks available:', banks.map(b => ({ id: b.id, bankId: b.bankId, state: b.state, branch: b.branch, bankName: b.bankName })));
+    }
+  }, [banks, isLoading]);
 
   // Filter banks based on search term
   useEffect(() => {
@@ -350,13 +414,152 @@ export default function BankModulePage() {
   }, [banks, filteredBanks, searchTerm]);
 
   // Action handlers for table events
-  const handleAddLocationAction = (bank: BankData) => {
-    console.log('Adding location for:', bank.branch);
-    setSelectedBank(bank);
+  const handleAddLocationAction = async (rowData: any) => {
+    console.log('Adding location for row:', rowData);
+    console.log('Banks array length:', banks.length);
+    console.log('Available banks:', banks.map(b => ({ id: b.id, bankId: b.bankId, bankName: b.bankName })));
+    
+    // Check if banks are loaded
+    if (isLoading) {
+      console.log('⏳ Banks are still loading...');
+      toast({
+        title: "⏳ Loading Data",
+        description: "Bank data is still loading. Please wait a moment and try again.",
+        variant: "default",
+        duration: 3000,
+      });
+      return;
+    }
+    
+    if (banks.length === 0) {
+      console.error('❌ Banks array is empty after loading');
+      console.log('🔄 Forcing data reload...');
+      
+      // Try to reload data first
+      toast({
+        title: "🔄 Reloading Data",
+        description: "Attempting to reload bank data...",
+        variant: "default",
+        duration: 2000,
+      });
+      
+      // Force reload
+      await loadBanks();
+      
+      // Fetch banks directly from Firebase to check
+      try {
+        const directQuery = await getDocs(collection(db, 'banks'));
+        console.log('🔍 Direct query after reload:', directQuery.size, 'banks');
+        
+        if (directQuery.size === 0) {
+          console.log('❌ Still no banks in Firebase after reload');
+          toast({
+            title: "❌ No Banks Found",
+            description: "No banks found in database. Please add a bank first using the 'Add New Bank' button.",
+            variant: "destructive",
+            duration: 4000,
+          });
+          return;
+        }
+        
+        // Force update the banks state with fresh data
+        const freshBanks = directQuery.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          locations: doc.data().locations || []
+        })) as BankData[];
+        
+        console.log('✅ Fresh banks loaded:', freshBanks.length);
+        setBanks(freshBanks);
+        
+        // Wait for state update then retry
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        // Now find the bank from fresh data
+        const freshBank = freshBanks.find(b => b.id === rowData.id);
+        if (freshBank) {
+          console.log('✅ Found bank in fresh data, continuing with action...');
+          rowData = { ...rowData, id: freshBank.id };
+          // Continue with the rest of the function logic below
+        } else {
+          toast({
+            title: "❌ Bank Not Found",
+            description: "Could not find the selected bank. Please try again.",
+            variant: "destructive",
+            duration: 4000,
+          });
+          return;
+        }
+      } catch (error) {
+        console.error('❌ Error reloading banks:', error);
+        toast({
+          title: "❌ Reload Failed",
+          description: "Failed to reload bank data. Please refresh the page.",
+          variant: "destructive",
+          duration: 4000,
+        });
+        return;
+      }
+    }
+    
+    // Find the original bank from the banks array (or fresh data if we just reloaded)
+    let originalBank: BankData | null = null;
+    
+    // Use banks array - it will have fresh data if we just reloaded
+    const banksToSearch = banks.length > 0 ? banks : [];
+    console.log('🔍 Searching in banks array with', banksToSearch.length, 'banks');
+    
+    if (rowData.isLocation && rowData.parentBank) {
+      // If it's a location row, use the parent bank
+      originalBank = rowData.parentBank;
+      console.log('📍 Using parent bank from location row');
+    } else {
+      // If it's a bank row, find it by ID
+      console.log('🔍 Searching for bank with ID:', rowData.id);
+      originalBank = banksToSearch.find(b => b.id === rowData.id) || null;
+      console.log('🔍 Search result:', originalBank ? 'Found' : 'Not found');
+      
+      if (!originalBank) {
+        // Try alternative search methods
+        console.log('🔍 Trying alternative search by bankId:', rowData.bankId);
+        originalBank = banksToSearch.find(b => b.bankId === rowData.bankId) || null;
+        
+        if (!originalBank) {
+          console.log('🔍 Trying search by state and branch:', rowData.state, rowData.branch);
+          originalBank = banksToSearch.find(b => 
+            b.state === rowData.state && 
+            (b.branch === rowData.branch || b.bankName === rowData.bankName)
+          ) || null;
+        }
+      }
+    }
+    
+    if (!originalBank) {
+      console.error('❌ Could not find original bank after all search attempts');
+      console.error('Row data:', rowData);
+      console.error('Available banks:', banks);
+      toast({
+        title: "❌ Error",
+        description: "Could not find bank data. Please refresh the page and try again.",
+        variant: "destructive",
+        duration: 4000,
+      });
+      return;
+    }
+    
+    console.log('✅ Found original bank:', originalBank);
+    
+    // Ensure locations array exists
+    const bankWithLocations = {
+      ...originalBank,
+      locations: originalBank.locations || []
+    };
+    
+    setSelectedBank(bankWithLocations);
     setLocationFormData({
       locationId: '',
       locationName: '',
-      branchName: '',
+      branchName: originalBank.bankName || originalBank.branch || '', // Auto-populate bank name
       ifscCode: '',
       address: '',
       authorizePerson1: '',
@@ -366,10 +569,34 @@ export default function BankModulePage() {
     setShowAddLocationModal(true);
   };
 
-  const handleEdit = (bank: BankData) => {
-    console.log('Editing bank:', bank.branch);
-    setFormData(bank);
-    setEditingId(bank.id || null);
+  const handleEdit = (rowData: any) => {
+    console.log('Editing bank for row:', rowData);
+    
+    // Find the original bank from the banks array
+    let originalBank: BankData | null = null;
+    
+    if (rowData.isLocation && rowData.parentBank) {
+      // If it's a location row, use the parent bank
+      originalBank = rowData.parentBank;
+    } else {
+      // If it's a bank row, find it by ID
+      originalBank = banks.find(b => b.id === rowData.id) || null;
+    }
+    
+    if (!originalBank) {
+      console.error('❌ Could not find original bank for editing');
+      toast({
+        title: "❌ Error",
+        description: "Could not find bank data. Please refresh the page and try again.",
+        variant: "destructive",
+        duration: 4000,
+      });
+      return;
+    }
+    
+    console.log('✅ Found original bank for editing:', originalBank);
+    setFormData(originalBank);
+    setEditingId(originalBank.id || null);
     setIsEditing(true);
     setShowAddBankModal(true);
   };
@@ -649,20 +876,20 @@ export default function BankModulePage() {
       if (isEditing && editingId) {
         // Update existing bank
         await updateDoc(doc(db, 'banks', editingId), bankData);
-        setSuccessMessage({
-          title: "Bank Updated Successfully! 🎉",
-          description: `Bank in ${formData.state} has been updated in the system.`
-        });
+          setSuccessMessage({
+            title: "Bank Updated Successfully! 🎉",
+            description: `${formData.bankName || 'Bank'} in ${formData.state} has been updated in the system.`
+          });
       } else {
         // Add new bank
         const newBankId = generateBankId();
         const newBankData = { ...bankData, bankId: newBankId };
         
         await addDoc(collection(db, 'banks'), newBankData);
-        setSuccessMessage({
-          title: "New Bank Added Successfully! 🎉",
-          description: `Bank in ${formData.state} has been registered with Bank ID: ${newBankId}. You can now add locations to this bank.`
-        });
+          setSuccessMessage({
+            title: "New Bank Added Successfully! 🎉",
+            description: `${formData.bankName || 'Bank'} in ${formData.state} has been registered with Bank ID: ${newBankId}. You can now add locations to this bank.`
+          });
       }
 
       setShowSuccessModal(true);
@@ -671,6 +898,7 @@ export default function BankModulePage() {
       setShowAddBankModal(false);
       setFormData({
         bankId: '',
+        bankName: '',
         state: '',
         branch: '',
         locations: [],
@@ -699,7 +927,48 @@ export default function BankModulePage() {
   const handleLocationSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedBank) return;
+    if (!selectedBank) {
+      console.error('❌ No selected bank');
+      toast({
+        title: "❌ Error",
+        description: "No bank selected. Please try again.",
+        variant: "destructive",
+        duration: 4000,
+      });
+      return;
+    }
+    
+    // Validate required fields
+    const validationErrors: string[] = [];
+    
+    if (!locationFormData.locationName?.trim()) {
+      validationErrors.push("Bank name is required");
+    }
+    
+    if (!locationFormData.branchName?.trim()) {
+      validationErrors.push("Branch name is required");
+    }
+    
+    if (!locationFormData.ifscCode?.trim()) {
+      validationErrors.push("IFSC code is required");
+    }
+    
+    if (validationErrors.length > 0) {
+      console.error('❌ Validation errors:', validationErrors);
+      toast({
+        title: "❌ Validation Error",
+        description: validationErrors.join(". "),
+        variant: "destructive",
+        duration: 6000,
+      });
+      return;
+    }
+    
+    console.log('✅ Starting branch submission...', {
+      selectedBank: selectedBank.state,
+      locationData: locationFormData,
+      isEditing: isEditingLocation
+    });
     
     // Comprehensive IFSC Code Validation
     const ifscCode = locationFormData.ifscCode.trim();
@@ -773,20 +1042,26 @@ export default function BankModulePage() {
     setIsSubmitting(true);
     
     try {
+      // Ensure locations array exists and is iterable
+      const existingLocations = selectedBank.locations || [];
+      console.log('🔍 Existing locations:', existingLocations);
+      
       let updatedLocations;
       let updatedBank;
       let successMsg;
       
       if (isEditingLocation && editingLocationId) {
         // Edit existing location
-        updatedLocations = selectedBank.locations.map(location =>
+        updatedLocations = existingLocations.map(location =>
           location.locationId === editingLocationId
             ? { ...locationFormData, createdAt: location.createdAt }
             : location
         );
         updatedBank = { 
           ...selectedBank, 
-          locations: updatedLocations
+          locations: updatedLocations,
+          bankName: locationFormData.branchName, // Update bank name from location form
+          branch: locationFormData.locationName // Update branch field from location name
         };
         successMsg = {
           title: "Branch Updated Successfully! ✅",
@@ -800,18 +1075,29 @@ export default function BankModulePage() {
           locationId: newLocationId,
           createdAt: new Date().toISOString(),
         };
-        updatedLocations = [...selectedBank.locations, newLocation];
+        updatedLocations = [...existingLocations, newLocation];
         updatedBank = { 
           ...selectedBank, 
-          locations: updatedLocations
+          locations: updatedLocations,
+          bankName: locationFormData.branchName, // Update bank name from location form
+          branch: locationFormData.locationName // Update branch field from location name
         };
         successMsg = {
           title: "Branch Added Successfully! 📍",
           description: `${locationFormData.branchName} branch has been added to ${selectedBank.state} with Location ID: ${newLocationId}`
         };
+        
+        console.log('✅ New location created:', newLocation);
       }
       
+      console.log('🔄 Updating bank in Firebase...', {
+        bankId: selectedBank.id,
+        locationsCount: updatedLocations.length
+      });
+      
       await updateDoc(doc(db, 'banks', selectedBank.id!), updatedBank);
+      
+      console.log('✅ Branch submission successful!');
       
       setSuccessMessage(successMsg);
       setShowSuccessModal(true);
@@ -836,12 +1122,31 @@ export default function BankModulePage() {
         setShowSuccessModal(false);
       }, 4000);
       
-    } catch (error) {
+    } catch (error: any) {
+      console.error('❌ Error in branch submission:', error);
+      console.error('Error details:', {
+        message: error?.message,
+        code: error?.code,
+        stack: error?.stack
+      });
+      
+      let errorMessage = `Failed to ${isEditingLocation ? 'update' : 'add'} branch. Please check your connection and try again.`;
+      
+      if (error?.code === 'permission-denied') {
+        errorMessage = "Permission denied. Please check your authentication and try again.";
+      } else if (error?.code === 'unavailable') {
+        errorMessage = "Firebase service is temporarily unavailable. Please try again later.";
+      } else if (error?.code === 'not-found') {
+        errorMessage = "Bank not found. Please refresh the page and try again.";
+      } else if (error?.message) {
+        errorMessage = `Error: ${error.message}`;
+      }
+      
       toast({
         title: "❌ Error Occurred",
-        description: `Failed to ${isEditingLocation ? 'update' : 'add'} branch. Please check your connection and try again.`,
+        description: errorMessage,
         variant: "destructive",
-        duration: 4000,
+        duration: 6000,
       });
     } finally {
       setIsSubmitting(false);
@@ -915,13 +1220,73 @@ export default function BankModulePage() {
             </h1>
           </div>
           
-          {/* Add Bank Button */}
-          <Button
-            onClick={handleAddNewBank}
-            className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 shadow-lg"
-          >
-            ✅ Add New Bank
-          </Button>
+          <div className="flex gap-2">
+            {/* Debug Button - Only show in development */}
+            {process.env.NODE_ENV === 'development' && (
+              <Button
+                onClick={async () => {
+                  console.log('🔍 Debug: Checking Firebase connection...');
+                  console.log('🔍 Current banks state:', banks);
+                  console.log('🔍 Is loading:', isLoading);
+                  console.log('🔍 User:', user);
+                  
+                  try {
+                    const testQuery = await getDocs(collection(db, 'banks'));
+                    console.log('🔍 Direct Firebase query result:', testQuery.size, 'documents');
+                    testQuery.forEach(doc => {
+                      console.log('🔍 Document:', doc.id, doc.data());
+                    });
+                    
+                    if (testQuery.size > 0 && banks.length === 0) {
+                      console.log('🚨 ISSUE FOUND: Firebase has banks but state is empty!');
+                      console.log('🔄 Forcing state update...');
+                      const banksData = testQuery.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data(),
+                        locations: doc.data().locations || []
+                      })) as BankData[];
+                      setBanks(banksData);
+                      toast({
+                        title: "🔧 Fixed Data Issue",
+                        description: `Found ${testQuery.size} banks and updated the display.`,
+                        variant: "default",
+                        duration: 3000,
+                      });
+                    }
+                  } catch (error) {
+                    console.error('🔍 Direct Firebase query failed:', error);
+                  }
+                }}
+                variant="outline"
+                className="border-purple-300 text-purple-600 hover:bg-purple-50 px-3 py-3"
+                size="sm"
+              >
+                🔍 Debug
+              </Button>
+            )}
+            
+            {/* Refresh Button */}
+            <Button
+              onClick={() => {
+                console.log('🔄 Manual refresh triggered');
+                loadBanks();
+              }}
+              variant="outline"
+              className="border-blue-300 text-blue-600 hover:bg-blue-50 px-4 py-3"
+              disabled={isLoading}
+            >
+              {isLoading ? '⏳' : '🔄'} Refresh
+            </Button>
+            
+            {/* Add Bank Button */}
+            <Button
+              onClick={handleAddNewBank}
+              className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 shadow-lg"
+              disabled={isLoading}
+            >
+              ✅ Add New Bank
+            </Button>
+          </div>
         </div>
 
         {/* Search and Export Section */}
@@ -986,15 +1351,45 @@ export default function BankModulePage() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {/* DataTable with sticky features and pagination */}
-            <DataTable
-              columns={bankColumns}
-              data={tableData}
-              stickyHeader={true} // requirement #6: freeze top row header
-              stickyFirstColumn={true} // requirement #7: freeze first column
-              showGridLines={true}
-              wrapperClassName="bank-datatable"
-            />
+            {/* Loading indicator */}
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                  <p className="text-gray-600">Loading banks data...</p>
+                </div>
+              </div>
+            ) : banks.length === 0 ? (
+              /* No data state */
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <div className="text-6xl mb-4">🏦</div>
+                  <h3 className="text-lg font-semibold text-gray-700 mb-2">No Banks Found</h3>
+                  <p className="text-gray-500 mb-6">No banks are registered yet. Add your first bank to get started.</p>
+                  <div className="space-y-2">
+                    <Button
+                      onClick={handleAddNewBank}
+                      className="bg-green-500 hover:bg-green-600 text-white px-6 py-2"
+                    >
+                      ✅ Add Your First Bank
+                    </Button>
+                    <div className="text-xs text-gray-400">
+                      Or click the Refresh button if you think banks should be here
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* DataTable with sticky features and pagination */
+              <DataTable
+                columns={bankColumns}
+                data={tableData}
+                stickyHeader={true} // requirement #6: freeze top row header
+                stickyFirstColumn={true} // requirement #7: freeze first column
+                showGridLines={true}
+                wrapperClassName="bank-datatable"
+              />
+            )}
           </CardContent>
         </Card>
 
@@ -1083,7 +1478,7 @@ export default function BankModulePage() {
               </DialogDescription>
             </DialogHeader>
             
-            <form onSubmit={handleLocationSubmit} className="space-y-6">
+            <form onSubmit={handleLocationSubmit} className="space-y-6" noValidate>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Bank Name */}
                 <div className="space-y-2">
@@ -1092,8 +1487,8 @@ export default function BankModulePage() {
                   </Label>
                   <Input
                     id="bankName"
-                    value={locationFormData.locationName}
-                    onChange={(e) => handleLocationInputChange('locationName', e.target.value)}
+                    value={locationFormData.branchName}
+                    onChange={(e) => handleLocationInputChange('branchName', e.target.value)}
                     className="border-blue-300 focus:border-blue-500 text-blue-700"
                     placeholder="e.g., State Bank of India, HDFC Bank"
                     required
@@ -1108,8 +1503,8 @@ export default function BankModulePage() {
                   </Label>
                   <Input
                     id="branch"
-                    value={locationFormData.branchName}
-                    onChange={(e) => handleLocationInputChange('branchName', e.target.value)}
+                    value={locationFormData.locationName}
+                    onChange={(e) => handleLocationInputChange('locationName', e.target.value)}
                     className="border-blue-300 focus:border-blue-500 text-blue-700"
                     placeholder="e.g., Main Branch, City Center Branch"
                     required
@@ -1277,6 +1672,13 @@ export default function BankModulePage() {
                   type="submit"
                   disabled={isSubmitting}
                   className="bg-blue-500 hover:bg-blue-600 text-white px-8 py-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => {
+                    console.log('🔘 Add Branch button clicked', {
+                      isSubmitting,
+                      locationFormData,
+                      selectedBank: selectedBank?.state
+                    });
+                  }}
                 >
                   {isSubmitting 
                     ? (isEditingLocation ? '⏳ Updating Branch...' : '⏳ Adding Branch...') 

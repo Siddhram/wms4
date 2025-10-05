@@ -29,7 +29,7 @@ interface InsuranceData {
   branch: string;
   location: string;
   commodityName: string;
-  varietyName: string;
+  varietyName?: string; // Made optional since variety field is removed
   insuranceType: 'bank-funded' | 'client' | 'agrogreen' | 'warehouse-owner';
   clientName?: string;
   clientCode?: string;
@@ -49,6 +49,10 @@ interface InsuranceData {
   burglaryPolicyEndDate: string;
   burglaryPolicyUsedAmount?: string; // Amount used/deducted from burglary policy
   burglaryPolicyRemainingAmount?: string; // Calculated remaining balance
+  selectedCommodities?: Array<{
+    commodityName: string;
+    varietyName?: string; // Made optional
+  }>; // Multiple commodity selections
   createdAt: string;
 }
 
@@ -134,7 +138,7 @@ export default function InsuranceMasterPage() {
     warehouseName: '',
     warehouseCode: '',
     commodityName: '',
-    varietyName: '',
+    // varietyName is optional and removed from form
     insuranceType: 'bank-funded',
     clientName: '',
     clientCode: '',
@@ -157,7 +161,7 @@ export default function InsuranceMasterPage() {
   // Multiple commodity selection
   const [selectedCommodities, setSelectedCommodities] = useState<Array<{
     commodityName: string;
-    varietyName: string;
+    varietyName?: string; // Made optional since variety field is removed
   }>>([]);
 
   // Utility function to get insurance expiry status
@@ -527,6 +531,16 @@ export default function InsuranceMasterPage() {
         return bank;
       });
 
+      console.log('✅ Data fetched successfully:', {
+        insuranceCount: fetchedInsurance.length,
+        commoditiesCount: fetchedCommodities.length,
+        clientsCount: fetchedClients.length,
+        warehousesCount: fetchedWarehouses.length,
+        banksCount: enrichedBanks.length,
+        sampleWarehouse: fetchedWarehouses[0],
+        sampleInsurance: fetchedInsurance[0]
+      });
+
       setInsuranceData(fetchedInsurance);
       setCommodities(fetchedCommodities);
       setClients(fetchedClients);
@@ -709,7 +723,7 @@ export default function InsuranceMasterPage() {
   };
 
   // Handle commodity selection (multiple selection support)
-  const handleCommoditySelection = (commodityName: string, varietyName: string) => {
+  const handleCommoditySelection = (commodityName: string, varietyName?: string) => {
     const newSelection = { commodityName, varietyName };
     setSelectedCommodities(prev => {
       const existing = prev.find(item => 
@@ -765,6 +779,57 @@ export default function InsuranceMasterPage() {
       return;
     }
 
+    // Additional validation for client insurance
+    if (formData.insuranceType === 'client' && !formData.clientName) {
+      toast({
+        title: "❌ Missing Information",
+        description: "Please select a client for client insurance",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+
+    // Validate policy fields for non-bank-funded insurance
+    if (formData.insuranceType !== 'bank-funded') {
+      if (!formData.firePolicyCompanyName || !formData.firePolicyNumber || !formData.firePolicyAmount) {
+        toast({
+          title: "❌ Missing Information",
+          description: "Please fill in all fire policy details",
+          variant: "destructive",
+          duration: 3000,
+        });
+        return;
+      }
+      if (!formData.burglaryPolicyCompanyName || !formData.burglaryPolicyNumber || !formData.burglaryPolicyAmount) {
+        toast({
+          title: "❌ Missing Information",
+          description: "Please fill in all burglary policy details",
+          variant: "destructive",
+          duration: 3000,
+        });
+        return;
+      }
+      if (!formData.firePolicyStartDate || !formData.firePolicyEndDate) {
+        toast({
+          title: "❌ Missing Information",
+          description: "Please fill in fire policy start and end dates",
+          variant: "destructive",
+          duration: 3000,
+        });
+        return;
+      }
+      if (!formData.burglaryPolicyStartDate || !formData.burglaryPolicyEndDate) {
+        toast({
+          title: "❌ Missing Information",
+          description: "Please fill in burglary policy start and end dates",
+          variant: "destructive",
+          duration: 3000,
+        });
+        return;
+      }
+    }
+
     try {
       const insuranceCode = editingInsurance ? editingInsurance.insuranceCode : generateInsuranceCode();
       
@@ -786,21 +851,44 @@ export default function InsuranceMasterPage() {
           firePolicyStartDate: new Date().toISOString().split('T')[0],
           firePolicyEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
           firePolicyUsedAmount: '0',
+          firePolicyRemainingAmount: '0',
           burglaryPolicyCompanyName: 'N/A - Bank Funded',
           burglaryPolicyNumber: 'N/A - Bank Funded',
           burglaryPolicyAmount: '0',
           burglaryPolicyStartDate: new Date().toISOString().split('T')[0],
           burglaryPolicyEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
           burglaryPolicyUsedAmount: '0',
+          burglaryPolicyRemainingAmount: '0',
         };
       } else {
-        // For other insurance types, preserve existing amounts
-        insuranceDataToSave.firePolicyUsedAmount = editingInsurance ? editingInsurance.firePolicyUsedAmount || '0' : '0';
-        insuranceDataToSave.burglaryPolicyUsedAmount = editingInsurance ? editingInsurance.burglaryPolicyUsedAmount || '0' : '0';
+        // For other insurance types, preserve existing amounts and calculate remaining
+        const firePolicyUsed = editingInsurance ? editingInsurance.firePolicyUsedAmount || '0' : '0';
+        const burglaryPolicyUsed = editingInsurance ? editingInsurance.burglaryPolicyUsedAmount || '0' : '0';
+        
+        const fireAmount = parseFloat(insuranceDataToSave.firePolicyAmount || '0');
+        const burglaryAmount = parseFloat(insuranceDataToSave.burglaryPolicyAmount || '0');
+        const fireUsed = parseFloat(firePolicyUsed);
+        const burglaryUsed = parseFloat(burglaryPolicyUsed);
+        
+        insuranceDataToSave.firePolicyUsedAmount = firePolicyUsed;
+        insuranceDataToSave.burglaryPolicyUsedAmount = burglaryPolicyUsed;
+        insuranceDataToSave.firePolicyRemainingAmount = (fireAmount - fireUsed).toString();
+        insuranceDataToSave.burglaryPolicyRemainingAmount = (burglaryAmount - burglaryUsed).toString();
       }
 
+      // Remove undefined values to prevent Firestore errors
+      // Firestore doesn't accept undefined, only null or omitted fields
+      const cleanData = Object.entries(insuranceDataToSave).reduce((acc, [key, value]) => {
+        if (value !== undefined) {
+          acc[key] = value;
+        }
+        return acc;
+      }, {} as any);
+
+      console.log('💾 Saving insurance data:', cleanData);
+
       if (editingInsurance) {
-        await updateDoc(doc(db, 'insurance', editingInsurance.id!), insuranceDataToSave);
+        await updateDoc(doc(db, 'insurance', editingInsurance.id!), cleanData);
         toast({
           title: "✅ Insurance Updated",
           description: "Insurance policy has been updated successfully",
@@ -808,7 +896,7 @@ export default function InsuranceMasterPage() {
           duration: 3000,
         });
       } else {
-        await addDoc(collection(db, 'insurance'), insuranceDataToSave);
+        await addDoc(collection(db, 'insurance'), cleanData);
         toast({
           title: "✅ Insurance Added",
           description: `New insurance policy created with code: ${insuranceCode}`,
@@ -824,19 +912,50 @@ export default function InsuranceMasterPage() {
       setShowAddModal(false);
       fetchData(); // Refresh data
     } catch (error) {
+      console.error('❌ Error saving insurance:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        code: (error as any).code,
+        insuranceType: formData.insuranceType,
+        formData: formData,
+        selectedCommodities: selectedCommodities
+      });
+      
       toast({
         title: "❌ Error",
-        description: "Failed to save insurance policy. Please try again.",
+        description: `Failed to save insurance policy. ${error instanceof Error ? error.message : 'Please try again.'}`,
         variant: "destructive",
-        duration: 3000,
+        duration: 5000,
       });
     }
   };
 
   // Handle edit
   const handleEdit = (insurance: InsuranceData) => {
+    console.log('📝 Editing insurance:', insurance);
+    console.log('🏢 Available warehouses:', warehouses.length);
+    console.log('🌾 Available commodities:', commodities.length);
+    console.log('👥 Available clients:', clients.length);
+    
     setEditingInsurance(insurance);
     setFormData(insurance);
+    
+    // Populate selectedCommodities if the insurance has them
+    if (insurance.selectedCommodities && Array.isArray(insurance.selectedCommodities)) {
+      console.log('📦 Setting multiple commodities:', insurance.selectedCommodities);
+      setSelectedCommodities(insurance.selectedCommodities);
+    } else if (insurance.commodityName && insurance.varietyName) {
+      // If single commodity, create array with one item
+      console.log('📦 Setting single commodity:', insurance.commodityName, insurance.varietyName);
+      setSelectedCommodities([{
+        commodityName: insurance.commodityName,
+        varietyName: insurance.varietyName
+      }]);
+    } else {
+      console.log('⚠️ No commodities found in insurance data');
+      setSelectedCommodities([]);
+    }
+    
     setShowAddModal(true);
   };
 
@@ -1018,7 +1137,7 @@ export default function InsuranceMasterPage() {
       warehouseName: '',
       warehouseCode: '',
       commodityName: '',
-      varietyName: '',
+      // varietyName is optional and removed from form
       insuranceType: 'bank-funded',
       clientName: '',
       clientCode: '',
@@ -1066,7 +1185,7 @@ export default function InsuranceMasterPage() {
                 warehouseName: '',
                 warehouseCode: '',
                 commodityName: '',
-                varietyName: '',
+                // varietyName is optional and removed from form
                 insuranceType: 'bank-funded',
                 clientName: '',
                 clientCode: '',
@@ -1302,7 +1421,7 @@ export default function InsuranceMasterPage() {
                     <div className="flex flex-wrap gap-2">
                       {selectedCommodities.map((item, index) => (
                         <div key={index} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm flex items-center gap-2">
-                          <span>{item.commodityName} - {item.varietyName}</span>
+                          <span>{item.commodityName}{item.varietyName ? ` - ${item.varietyName}` : ''}</span>
                           <button
                             type="button"
                             onClick={() => handleCommoditySelection(item.commodityName, item.varietyName)}

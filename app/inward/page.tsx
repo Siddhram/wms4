@@ -1121,16 +1121,16 @@ export default function InwardPage() {
   const filteredInsuranceEntries = useMemo(() => {
     let filtered = insuranceEntries;
     
-    // Filter by insurance type
+    // Filter by insurance type (case-insensitive)
     if (selectedInsuranceType && selectedInsuranceType !== 'all') {
-      filtered = filtered.filter(ins => ins.insuranceTakenBy === selectedInsuranceType);
+      filtered = filtered.filter(ins => (ins.insuranceTakenBy || '').toLowerCase() === selectedInsuranceType.toLowerCase());
     }
     
-    // Further filter by commodity if commodity is selected
+    // Further filter by commodity if commodity is selected (case-insensitive)
     if (baseForm.commodity) {
       filtered = filtered.filter(ins => {
-        const insuranceCommodities = (ins.insuranceCommodity || '').split(',').map((c: string) => c.trim());
-        return insuranceCommodities.includes(baseForm.commodity);
+        const insuranceCommodities = (ins.insuranceCommodity || ins.commodityName || '').split(',').map((c: string) => c.trim().toLowerCase());
+        return insuranceCommodities.includes(baseForm.commodity.toLowerCase());
       });
     }
     
@@ -1143,14 +1143,39 @@ export default function InwardPage() {
       return [];
     }
     
-    let filtered = insuranceEntries.filter(ins => ins.insuranceTakenBy === selectedInsuranceInfoType);
+    console.log('🔍 Filtering insurance by type:', selectedInsuranceInfoType);
+    console.log('📋 Available insurance entries:', insuranceEntries.map(ins => ({
+      insuranceTakenBy: ins.insuranceTakenBy,
+      insuranceId: ins.insuranceId,
+      commodityName: ins.commodityName,
+      clientName: ins.clientName
+    })));
+    
+    let filtered = insuranceEntries.filter(ins => {
+      const match = (ins.insuranceTakenBy || '').toLowerCase() === selectedInsuranceInfoType.toLowerCase();
+      console.log('🔎 Comparing:', {
+        insuranceTakenBy: ins.insuranceTakenBy,
+        selectedType: selectedInsuranceInfoType,
+        match
+      });
+      return match;
+    });
+    
+    console.log('✅ Filtered insurance entries:', filtered.length);
     
     // Further filter by commodity if commodity is selected
     if (baseForm.commodity) {
       filtered = filtered.filter(ins => {
-        const insuranceCommodities = (ins.insuranceCommodity || '').split(',').map((c: string) => c.trim());
-        return insuranceCommodities.includes(baseForm.commodity);
+        const insuranceCommodities = (ins.insuranceCommodity || ins.commodityName || '').split(',').map((c: string) => c.trim().toLowerCase());
+        const commodityMatch = insuranceCommodities.includes(baseForm.commodity.toLowerCase());
+        console.log('🌾 Commodity filter:', {
+          insuranceCommodities,
+          searchCommodity: baseForm.commodity,
+          match: commodityMatch
+        });
+        return commodityMatch;
       });
+      console.log('✅ After commodity filter:', filtered.length);
     }
     
     return filtered;
@@ -1404,6 +1429,12 @@ export default function InwardPage() {
           console.log('✅ Found insurance in master collection:', masterSnapshot.docs.length, 'policies');
           insuranceEntries = masterSnapshot.docs.map(doc => {
             const data = doc.data();
+            console.log('📋 Insurance entry data:', {
+              commodityName: data.commodityName,
+              clientName: data.clientName,
+              selectedCommodities: data.selectedCommodities,
+              insuranceType: data.insuranceType
+            });
             return {
               insuranceId: data.insuranceCode || doc.id,
               insuranceTakenBy: data.insuranceType || 'client',
@@ -1412,7 +1443,8 @@ export default function InwardPage() {
               firePolicyRemainingAmount: data.firePolicyRemainingAmount,
               burglaryPolicyRemainingAmount: data.burglaryPolicyRemainingAmount,
               commodityName: data.commodityName,
-              clientName: data.clientName
+              clientName: data.clientName,
+              selectedCommodities: data.selectedCommodities // Include this field!
             };
           });
         } else {
@@ -1441,17 +1473,72 @@ export default function InwardPage() {
 
         // Check if insurance exists for the specific commodity/client combination
         if (baseForm.commodity && clientName) {
-          const matchingInsurance = insuranceEntries.find((ins: any) => 
-            (ins.commodityName === baseForm.commodity || ins.insuranceCommodity === baseForm.commodity) &&
-            (ins.clientName === clientName)
-          );
+          console.log('🔍 Searching for insurance match:', {
+            searchingFor: { commodity: baseForm.commodity, client: clientName },
+            availableInsurance: insuranceEntries.map((ins: any) => ({
+              commodityName: ins.commodityName,
+              clientName: ins.clientName,
+              selectedCommodities: ins.selectedCommodities
+            }))
+          });
+
+          const matchingInsurance = insuranceEntries.find((ins: any) => {
+            // Case-insensitive comparison for commodity
+            const insCommodityName = (ins.commodityName || ins.insuranceCommodity || '').toLowerCase();
+            const formCommodity = (baseForm.commodity || '').toLowerCase();
+            
+            // Check if commodity matches (either single commodity or in selectedCommodities array)
+            let commodityMatches = insCommodityName === formCommodity;
+            
+            // Also check selectedCommodities array if it exists
+            if (!commodityMatches && ins.selectedCommodities && Array.isArray(ins.selectedCommodities)) {
+              commodityMatches = ins.selectedCommodities.some((item: any) => 
+                (item.commodityName || '').toLowerCase() === formCommodity
+              );
+            }
+            
+            // Case-insensitive comparison for client name
+            // Note: Some insurance types (warehouse-owner, agrogreen, bank-funded) apply to ALL clients
+            const insClientName = (ins.clientName || '').toLowerCase().trim();
+            const formClientName = (clientName || '').toLowerCase().trim();
+            const insuranceType = (ins.insuranceTakenBy || '').toLowerCase();
+            
+            // Insurance applies if:
+            // 1. Client name matches exactly, OR
+            // 2. Insurance is warehouse-owner, agrogreen, or bank-funded (applies to all clients), OR
+            // 3. Insurance has no specific client (empty/null clientName)
+            const clientMatches = 
+              insClientName === formClientName || 
+              insuranceType === 'warehouse-owner' || 
+              insuranceType === 'agrogreen' || 
+              insuranceType === 'bank-funded' ||
+              !insClientName; // No specific client means it applies to all
+            
+            console.log('🔎 Comparing:', {
+              insurance: { 
+                commodityName: ins.commodityName, 
+                clientName: ins.clientName,
+                insuranceType: ins.insuranceTakenBy,
+                selectedCommodities: ins.selectedCommodities 
+              },
+              form: { commodity: baseForm.commodity, client: clientName },
+              commodityMatches,
+              clientMatches,
+              result: commodityMatches && clientMatches
+            });
+            
+            return commodityMatches && clientMatches;
+          });
           
           if (!matchingInsurance) {
+            console.error('❌ No matching insurance found!');
             const msg = `No Insurance for Commodity - No insurance coverage found for commodity "${baseForm.commodity}" and client "${clientName}". Insurance for this specific commodity-client combination is required.`;
             setInlineAlert({ title: 'No Commodity Insurance', message: msg, severity: 'error' });
             setPreventInward(true);
             return;
           }
+          
+          console.log('✅ Found matching insurance:', matchingInsurance);
           
           // Check if there's sufficient remaining insurance amount
           if (matchingInsurance.firePolicyRemainingAmount !== undefined || matchingInsurance.burglaryPolicyRemainingAmount !== undefined) {
@@ -4373,20 +4460,61 @@ export default function InwardPage() {
     
     setCurrentEntryForm(currentEntryFormData);
 
-    // Fetch insurance entries from inspection collection if warehouse is selected
+    // Fetch insurance entries from inspection collection AND insurance master collection
     let inspectionInsuranceEntries = [];
     if (row.warehouseName) {
-      // Fetch from Firestore to ensure latest data
-      const inspectionsCollection = collection(db, 'inspections');
-      const q = query(inspectionsCollection, where('warehouseName', '==', row.warehouseName));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        const inspectionData = querySnapshot.docs[0].data();
-        if (inspectionData.insuranceEntries && Array.isArray(inspectionData.insuranceEntries)) {
-          inspectionInsuranceEntries = inspectionData.insuranceEntries;
-        } else if (inspectionData.warehouseInspectionData?.insuranceEntries && Array.isArray(inspectionData.warehouseInspectionData.insuranceEntries)) {
-          inspectionInsuranceEntries = inspectionData.warehouseInspectionData.insuranceEntries;
-        } else if (inspectionData.warehouseInspectionData) {
+      console.log('🔍 Fetching insurance for warehouse:', row.warehouseName);
+      
+      // First, try to fetch from insurance master collection
+      const insuranceMasterCollection = collection(db, 'insurance');
+      const masterQuery = query(
+        insuranceMasterCollection,
+        where('warehouseName', '==', row.warehouseName),
+        where('state', '==', row.state),
+        where('branch', '==', row.branch),
+        where('location', '==', row.location)
+      );
+      
+      const masterSnapshot = await getDocs(masterQuery);
+      if (!masterSnapshot.empty) {
+        console.log('✅ Found insurance in master collection:', masterSnapshot.docs.length, 'policies');
+        inspectionInsuranceEntries = masterSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            insuranceId: data.insuranceCode || doc.id,
+            insuranceTakenBy: data.insuranceType || 'client',
+            firePolicyEndDate: data.firePolicyEndDate,
+            burglaryPolicyEndDate: data.burglaryPolicyEndDate,
+            firePolicyRemainingAmount: data.firePolicyRemainingAmount,
+            burglaryPolicyRemainingAmount: data.burglaryPolicyRemainingAmount,
+            commodityName: data.commodityName,
+            clientName: data.clientName,
+            selectedCommodities: data.selectedCommodities,
+            firePolicyAmount: data.firePolicyAmount,
+            burglaryPolicyAmount: data.burglaryPolicyAmount,
+            firePolicyStartDate: data.firePolicyStartDate,
+            burglaryPolicyStartDate: data.burglaryPolicyStartDate,
+            firePolicyNumber: data.firePolicyNumber,
+            burglaryPolicyNumber: data.burglaryPolicyNumber,
+            firePolicyCompanyName: data.firePolicyCompanyName,
+            burglaryPolicyCompanyName: data.burglaryPolicyCompanyName,
+            insuranceCommodity: data.commodityName,
+            bankFundedBy: data.bankFundedBy
+          };
+        });
+      } else {
+        console.log('⚠️ No insurance in master collection, checking inspections as fallback...');
+        // Fallback: Fetch from Firestore inspections collection
+        const inspectionsCollection = collection(db, 'inspections');
+        const q = query(inspectionsCollection, where('warehouseName', '==', row.warehouseName));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          const inspectionData = querySnapshot.docs[0].data();
+          if (inspectionData.insuranceEntries && Array.isArray(inspectionData.insuranceEntries)) {
+            inspectionInsuranceEntries = inspectionData.insuranceEntries;
+          } else if (inspectionData.warehouseInspectionData?.insuranceEntries && Array.isArray(inspectionData.warehouseInspectionData.insuranceEntries)) {
+            inspectionInsuranceEntries = inspectionData.warehouseInspectionData.insuranceEntries;
+          } else if (inspectionData.warehouseInspectionData) {
           // Check for current insurance format (from recent validation changes)
           const warehouseData = inspectionData.warehouseInspectionData;
           if (warehouseData.insuranceTakenBy && (warehouseData.firePolicyNumber || warehouseData.burglaryPolicyNumber)) {
@@ -4413,6 +4541,7 @@ export default function InwardPage() {
               remainingBurglaryPolicyAmount: warehouseData.burglaryPolicyAmount || '0',
               createdAt: new Date(warehouseData.createdAt || Date.now())
             }];
+          }
           }
         }
       }
@@ -6748,8 +6877,8 @@ export default function InwardPage() {
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
-                    <Label className="block font-semibold mb-1">Billing Status</Label>
-                    <Input value={selectedReservation?.billingStatus || ''} readOnly placeholder="Auto-filled" />
+                    <Label className="block font-semibold mb-1">Reservation Status</Label>
+                    <Input value={selectedReservation?.reservationStatus || ''} readOnly placeholder="Auto-filled" />
                   </div>
                 </div>
 
@@ -6891,9 +7020,9 @@ export default function InwardPage() {
                   >
                     <SelectTrigger><SelectValue placeholder="Select Insurance Type to View Details" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="warehouse owner">Warehouse Owner</SelectItem>
+                      <SelectItem value="warehouse-owner">Warehouse Owner</SelectItem>
                       <SelectItem value="client">Client</SelectItem>
-                      <SelectItem value="bank">Bank</SelectItem>
+                      <SelectItem value="bank-funded">Bank Funded</SelectItem>
                       <SelectItem value="agrogreen">Agrogreen</SelectItem>
                     </SelectContent>
                   </Select>
@@ -6955,7 +7084,7 @@ export default function InwardPage() {
                               </div>
                             </div>
                           )}
-                          {insurance.insuranceTakenBy === 'bank' && (
+                          {(insurance.insuranceTakenBy === 'bank' || insurance.insuranceTakenBy === 'bank-funded') && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                               <div>
                                 <Label className="block font-semibold mb-1">Bank Name</Label>
@@ -6963,7 +7092,7 @@ export default function InwardPage() {
                               </div>
                             </div>
                           )}
-                          {insurance.insuranceTakenBy && insurance.insuranceTakenBy !== 'bank' && (
+                          {insurance.insuranceTakenBy && insurance.insuranceTakenBy !== 'bank' && insurance.insuranceTakenBy !== 'bank-funded' && (
                             <>
                               {/* Fire Policy */}
                               <h5 className="text-md font-semibold text-orange-600 mt-4 mb-2">Fire Policy Details</h5>
@@ -8128,7 +8257,7 @@ export default function InwardPage() {
                         console.log('✅ Found insurance:', insurance.insuranceTakenBy, insurance.firePolicyEndDate);
                         
                         // If insurance taken by bank, Fire Policy End Date + 9 months
-                        if (insurance.insuranceTakenBy === 'bank') {
+                        if (insurance.insuranceTakenBy === 'bank' || insurance.insuranceTakenBy === 'bank-funded') {
                           if (insurance.firePolicyEndDate) {
                             const fireEndDate = new Date(insurance.firePolicyEndDate);
                             fireEndDate.setMonth(fireEndDate.getMonth() + 9);
@@ -8221,13 +8350,13 @@ export default function InwardPage() {
                             </div>
                           </>
                         )}
-                        {match.insuranceTakenBy === 'bank' && (
+                        {(match.insuranceTakenBy === 'bank' || match.insuranceTakenBy === 'bank-funded') && (
                           <div>
                             <Label className="text-sm font-medium">Bank Name</Label>
                             <Input value={match.selectedBankName || ''} readOnly className="text-sm" />
                           </div>
                         )}
-                        {match.insuranceTakenBy && match.insuranceTakenBy !== 'bank' && (
+                        {match.insuranceTakenBy && match.insuranceTakenBy !== 'bank' && match.insuranceTakenBy !== 'bank-funded' && (
                           <>
                             <div>
                               <Label className="text-sm font-medium">Fire Policy Company</Label>
@@ -8619,7 +8748,7 @@ export default function InwardPage() {
                     <Label className="font-semibold">Validity End Date</Label>
                     <Input value={(() => {
                       // If insurance taken by bank, 9 months after start date
-                      if (selectedRowForSR.selectedInsurance?.insuranceTakenBy === 'bank') {
+                      if (selectedRowForSR.selectedInsurance?.insuranceTakenBy === 'bank' || selectedRowForSR.selectedInsurance?.insuranceTakenBy === 'bank-funded') {
                         const start = selectedRowForSR.dateOfInward ? new Date(selectedRowForSR.dateOfInward) : null;
                         if (start && !isNaN(start.getTime())) {
                           start.setMonth(start.getMonth() + 9);
