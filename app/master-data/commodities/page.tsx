@@ -345,9 +345,40 @@ export default function CommodityModulePage() {
   }, [commodities, filteredCommodities, searchTerm]);
 
   // Action handlers for table events
-  const handleAddVarietyAction = (commodity: CommodityData) => {
-    console.log('Adding variety for:', commodity.commodityName);
-    setSelectedCommodity(commodity);
+  const handleAddVarietyAction = (rowData: any) => {
+    console.log('Adding variety for row:', rowData);
+    
+    // Find the original commodity from the commodities array
+    let originalCommodity: CommodityData | null = null;
+    
+    if (rowData.isVariety && rowData.parentCommodity) {
+      // If it's a variety row, use the parent commodity
+      originalCommodity = rowData.parentCommodity;
+    } else {
+      // If it's a commodity row, find it by ID
+      originalCommodity = commodities.find(c => c.id === rowData.id) || null;
+    }
+    
+    if (!originalCommodity) {
+      console.error('❌ Could not find original commodity');
+      toast({
+        title: "❌ Error",
+        description: "Could not find commodity data. Please refresh the page and try again.",
+        variant: "destructive",
+        duration: 4000,
+      });
+      return;
+    }
+    
+    console.log('✅ Found original commodity:', originalCommodity);
+    
+    // Ensure varieties array exists
+    const commodityWithVarieties = {
+      ...originalCommodity,
+      varieties: originalCommodity.varieties || []
+    };
+    
+    setSelectedCommodity(commodityWithVarieties);
     setVarietyFormData({
       varietyId: '',
       varietyName: '',
@@ -360,17 +391,41 @@ export default function CommodityModulePage() {
     setShowAddVarietyModal(true);
   };
 
-  const handleEdit = (commodity: CommodityData) => {
-    console.log('Editing commodity:', commodity.commodityName);
-    setFormData(commodity);
-    setEditingId(commodity.id || null);
+  const handleEdit = (rowData: any) => {
+    console.log('Editing commodity for row:', rowData);
+    
+    // Find the original commodity from the commodities array
+    let originalCommodity: CommodityData | null = null;
+    
+    if (rowData.isVariety && rowData.parentCommodity) {
+      // If it's a variety row, use the parent commodity
+      originalCommodity = rowData.parentCommodity;
+    } else {
+      // If it's a commodity row, find it by ID
+      originalCommodity = commodities.find(c => c.id === rowData.id) || null;
+    }
+    
+    if (!originalCommodity) {
+      console.error('❌ Could not find original commodity for editing');
+      toast({
+        title: "❌ Error",
+        description: "Could not find commodity data. Please refresh the page and try again.",
+        variant: "destructive",
+        duration: 4000,
+      });
+      return;
+    }
+    
+    console.log('✅ Found original commodity for editing:', originalCommodity);
+    setFormData(originalCommodity);
+    setEditingId(originalCommodity.id || null);
     setIsEditing(true);
     setShowAddCommodityModal(true);
   };
 
-  const handleDelete = (commodity: CommodityData) => {
-    console.log('Deleting commodity:', commodity.commodityName);
-    setDeleteId(commodity.id || null);
+  const handleDelete = (commodityId: string) => {
+    console.log('Deleting commodity with ID:', commodityId);
+    setDeleteId(commodityId);
   };
 
   const loadCommodities = async () => {
@@ -700,7 +755,68 @@ export default function CommodityModulePage() {
   const handleVarietySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedCommodity) return;
+    if (!selectedCommodity) {
+      console.error('❌ No selected commodity');
+      toast({
+        title: "❌ Error",
+        description: "No commodity selected. Please try again.",
+        variant: "destructive",
+        duration: 4000,
+      });
+      return;
+    }
+    
+    // Validate required fields
+    const validationErrors: string[] = [];
+    
+    if (!varietyFormData.varietyName?.trim()) {
+      validationErrors.push("Variety name is required");
+    }
+    
+    if (!varietyFormData.locationId?.trim()) {
+      validationErrors.push("Branch location must be selected");
+    }
+    
+    if (!varietyFormData.rate || varietyFormData.rate <= 0) {
+      validationErrors.push("Rate must be greater than 0");
+    }
+    
+    // Validate particulars
+    if (!varietyFormData.particulars || varietyFormData.particulars.length === 0) {
+      validationErrors.push("At least one parameter is required");
+    } else {
+      varietyFormData.particulars.forEach((particular, index) => {
+        if (!particular.name?.trim()) {
+          validationErrors.push(`Parameter ${index + 1}: Name is required`);
+        }
+        if (particular.minPercentage < 0 || particular.minPercentage > 100) {
+          validationErrors.push(`Parameter ${index + 1}: Min percentage must be between 0-100`);
+        }
+        if (particular.maxPercentage < 0 || particular.maxPercentage > 100) {
+          validationErrors.push(`Parameter ${index + 1}: Max percentage must be between 0-100`);
+        }
+        if (particular.minPercentage >= particular.maxPercentage) {
+          validationErrors.push(`Parameter ${index + 1}: Min percentage must be less than max percentage`);
+        }
+      });
+    }
+    
+    if (validationErrors.length > 0) {
+      console.error('❌ Validation errors:', validationErrors);
+      toast({
+        title: "❌ Validation Error",
+        description: validationErrors.join(". "),
+        variant: "destructive",
+        duration: 6000,
+      });
+      return;
+    }
+    
+    console.log('✅ Starting variety submission...', {
+      selectedCommodity: selectedCommodity.commodityName,
+      varietyData: varietyFormData,
+      isEditing: isEditingVariety
+    });
     
     setIsSubmitting(true);
     
@@ -708,9 +824,13 @@ export default function CommodityModulePage() {
       let updatedVarieties;
       let successMsg;
       
+      // Ensure varieties array exists and is iterable
+      const existingVarieties = selectedCommodity.varieties || [];
+      console.log('🔍 Existing varieties:', existingVarieties);
+      
       if (isEditingVariety && editingVarietyId) {
         // Edit existing variety
-        updatedVarieties = selectedCommodity.varieties.map(variety =>
+        updatedVarieties = existingVarieties.map(variety =>
           variety.varietyId === editingVarietyId
             ? { ...varietyFormData, createdAt: variety.createdAt }
             : variety
@@ -727,16 +847,25 @@ export default function CommodityModulePage() {
           varietyId: newVarietyId,
           createdAt: new Date().toISOString(),
         };
-        updatedVarieties = [...selectedCommodity.varieties, newVariety];
+        updatedVarieties = [...existingVarieties, newVariety];
         successMsg = {
           title: "Variety Added Successfully! 📍",
           description: `${varietyFormData.varietyName} has been added to ${selectedCommodity.commodityName} with Variety ID: ${newVarietyId}`
         };
+        
+        console.log('✅ New variety created:', newVariety);
       }
       
       const updatedCommodity = { ...selectedCommodity, varieties: updatedVarieties };
       
+      console.log('🔄 Updating commodity in Firebase...', {
+        commodityId: selectedCommodity.id,
+        varietiesCount: updatedVarieties.length
+      });
+      
       await updateDoc(doc(db, 'commodities', selectedCommodity.id!), updatedCommodity);
+      
+      console.log('✅ Variety submission successful!');
       
       setSuccessMessage(successMsg);
       setShowSuccessModal(true);
@@ -760,12 +889,31 @@ export default function CommodityModulePage() {
         setShowSuccessModal(false);
       }, 4000);
       
-    } catch (error) {
+    } catch (error: any) {
+      console.error('❌ Error in variety submission:', error);
+      console.error('Error details:', {
+        message: error?.message,
+        code: error?.code,
+        stack: error?.stack
+      });
+      
+      let errorMessage = `Failed to ${isEditingVariety ? 'update' : 'add'} variety. Please check your connection and try again.`;
+      
+      if (error?.code === 'permission-denied') {
+        errorMessage = "Permission denied. Please check your authentication and try again.";
+      } else if (error?.code === 'unavailable') {
+        errorMessage = "Firebase service is temporarily unavailable. Please try again later.";
+      } else if (error?.code === 'not-found') {
+        errorMessage = "Commodity not found. Please refresh the page and try again.";
+      } else if (error?.message) {
+        errorMessage = `Error: ${error.message}`;
+      }
+      
       toast({
         title: "❌ Error Occurred",
-        description: `Failed to ${isEditingVariety ? 'update' : 'add'} variety. Please check your connection and try again.`,
+        description: errorMessage,
         variant: "destructive",
-        duration: 4000,
+        duration: 6000,
       });
     } finally {
       setIsSubmitting(false);
@@ -1076,7 +1224,7 @@ export default function CommodityModulePage() {
               </DialogDescription>
             </DialogHeader>
             
-            <form onSubmit={handleVarietySubmit} className="space-y-6">
+            <form onSubmit={handleVarietySubmit} className="space-y-6" noValidate>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Variety Name */}
                 <div className="space-y-2">
@@ -1254,6 +1402,13 @@ export default function CommodityModulePage() {
                   type="submit"
                   disabled={isSubmitting}
                   className="bg-blue-500 hover:bg-blue-600 text-white px-8 py-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => {
+                    console.log('🔘 Add Variety button clicked', {
+                      isSubmitting,
+                      varietyFormData,
+                      selectedCommodity: selectedCommodity?.commodityName
+                    });
+                  }}
                 >
                   {isSubmitting 
                     ? (isEditingVariety ? '⏳ Updating Variety...' : '⏳ Adding Variety...') 
