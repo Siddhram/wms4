@@ -88,11 +88,6 @@ export default function DeliveryOrderReportsPage() {
     { key: 'balanceQty', label: 'Balance QT', width: 'w-20' }
   ];
 
-  // Fetch delivery order data
-  useEffect(() => {
-    fetchDOData();
-  }, []);
-
   // Set default date range (last 6 months)
   useEffect(() => {
     const today = new Date();
@@ -103,33 +98,75 @@ export default function DeliveryOrderReportsPage() {
     setStartDate(sixMonthsAgo.toISOString().split('T')[0]);
   }, []);
 
+  // Fetch delivery order data when component mounts or when date filters change
+  useEffect(() => {
+    if (startDate && endDate) {
+      fetchDOData();
+    }
+  }, [startDate, endDate]);
+
   const fetchDOData = async () => {
     setLoading(true);
     try {
       const doCollection = collection(db, 'deliveryOrders');
       
-      // Build query with date filters
-      let q = query(doCollection, orderBy('createdAt', 'desc'), limit(1000));
-      
-      // Apply date filters if dates are set
-      if (startDate && endDate) {
-        const startTimestamp = Timestamp.fromDate(new Date(startDate));
-        const endTimestamp = Timestamp.fromDate(new Date(endDate + 'T23:59:59'));
-        
-        q = query(
-          doCollection,
-          where('createdAt', '>=', startTimestamp),
-          where('createdAt', '<=', endTimestamp),
-          orderBy('createdAt', 'desc'),
-          limit(1000)
-        );
-      }
+      // Fetch all documents first for reliable date filtering
+      let q = query(doCollection, limit(1000));
       
       const querySnapshot = await getDocs(q);
       
       console.log('DO collection query result:', querySnapshot.size, 'documents');
+      console.log('Applying date filtering for delivery order report. Date range:', startDate, 'to', endDate);
       
-      const data = await Promise.all(querySnapshot.docs.map(async (doc, index) => {
+      // Filter documents by date range first
+      let filteredDocs = querySnapshot.docs;
+      
+      if (startDate && endDate) {
+        const startDateObj = new Date(startDate);
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999); // Include the entire end date
+        
+        console.log('Filtering delivery orders by date range:', startDateObj, 'to', endDateObj);
+        
+        filteredDocs = querySnapshot.docs.filter(doc => {
+          const docData = doc.data();
+          let docDate = null;
+          
+          // Try to get date from createdAt field first
+          if (docData.createdAt) {
+            if (docData.createdAt.toDate) {
+              // Firestore Timestamp
+              docDate = docData.createdAt.toDate();
+            } else if (typeof docData.createdAt === 'string') {
+              // String date
+              docDate = new Date(docData.createdAt);
+            }
+          }
+          
+          // If no createdAt or invalid, try other date fields
+          if (!docDate || isNaN(docDate.getTime())) {
+            if (docData.doDate) {
+              docDate = new Date(docData.doDate);
+            } else if (docData.dateOfDelivery) {
+              docDate = new Date(docData.dateOfDelivery);
+            }
+          }
+          
+          // If still no valid date, exclude from results
+          if (!docDate || isNaN(docDate.getTime())) {
+            console.log('No valid date found for delivery order document:', doc.id);
+            return false;
+          }
+          
+          // Check if date falls within range
+          const isInRange = docDate >= startDateObj && docDate <= endDateObj;
+          return isInRange;
+        });
+        
+        console.log('Delivery order report: After date filtering:', filteredDocs.length, 'of', querySnapshot.docs.length, 'documents remain');
+      }
+      
+      const data = await Promise.all(filteredDocs.map(async (doc, index) => {
         const docData = doc.data();
         
         // Debug: Log available fields in DO data
@@ -554,7 +591,7 @@ export default function DeliveryOrderReportsPage() {
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, warehouseFilter, stateFilter, clientFilter, itemsPerPage]);
+  }, [searchTerm, statusFilter, warehouseFilter, stateFilter, clientFilter, itemsPerPage, startDate, endDate]);
 
   // Filter data based on search and filters
   const filteredData = useMemo(() => {
@@ -598,7 +635,7 @@ export default function DeliveryOrderReportsPage() {
     }
     
     return filtered;
-  }, [doData, searchTerm, statusFilter, warehouseFilter, stateFilter, clientFilter]);
+  }, [doData, searchTerm, statusFilter, warehouseFilter, stateFilter, clientFilter, startDate, endDate]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);

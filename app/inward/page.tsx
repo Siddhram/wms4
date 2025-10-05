@@ -1275,7 +1275,7 @@ export default function InwardPage() {
   };
 
   // Fetch available reservations based on warehouse and client
-  const fetchAvailableReservations = useCallback(async (warehouseName: string, clientName: string) => {
+  const fetchAvailableReservations = useCallback(async (warehouseName: string, clientName: string, state?: string, branch?: string, location?: string) => {
     if (!warehouseName || !clientName) {
       console.log('❌ fetchAvailableReservations: Missing warehouse or client', { warehouseName, clientName });
       setAvailableReservations([]);
@@ -1283,7 +1283,7 @@ export default function InwardPage() {
       return;
     }
 
-    console.log('🔍 Fetching reservations for:', { warehouseName, clientName });
+    console.log('🔍 Fetching reservations for:', { warehouseName, clientName, state, branch, location });
 
     try {
       const reservationCollection = collection(db, 'reservation');
@@ -1293,10 +1293,17 @@ export default function InwardPage() {
       console.log('📋 Total reservations found:', reservations.length);
       console.log('📋 Sample reservation structure:', reservations[0]);
       
-      // Filter reservations for the selected warehouse and client
-      const matchingReservations = reservations.filter(res => 
-        res.warehouse === warehouseName && res.client === clientName
-      );
+      // Filter reservations for the selected warehouse and client (with location matching if provided)
+      const matchingReservations = reservations.filter(res => {
+        const basicMatch = res.warehouse === warehouseName && res.client === clientName;
+        
+        // If location details are provided, use them for filtering, otherwise just basic match
+        if (state && branch && location) {
+          return basicMatch && res.state === state && res.branch === branch && res.location === location;
+        }
+        
+        return basicMatch;
+      });
       
       console.log('✅ Matching reservations:', matchingReservations.length);
       console.log('✅ Matching reservations data:', matchingReservations);
@@ -1711,6 +1718,9 @@ export default function InwardPage() {
             billingType: '',
             billingRate: '',
           }));
+          // Clear reservation state
+          setAvailableReservations([]);
+          setSelectedReservation(null);
         }
       } else {
         // Clear all warehouse-related fields if warehouse not found
@@ -2133,6 +2143,25 @@ export default function InwardPage() {
       alert(`Please fill in the following required base fields:\n\n${missingBaseFields.join('\n')}`);
       return;
     }
+    
+    // Validate reservation selection for non-CM warehouses
+    if (form.businessType !== 'cm' && availableReservations.length > 0 && !selectedReservation) {
+      alert('Please select a reservation from the available options.');
+      return;
+    }
+    
+    // Validate CAD number uniqueness across all inward entries (only for new entries, not edit mode)
+    if (!isEditMode && form.cadNumber) {
+      const isDuplicateCAD = inwardData.some(entry => 
+        entry.cadNumber && entry.cadNumber.toLowerCase() === form.cadNumber.toLowerCase()
+      );
+      
+      if (isDuplicateCAD) {
+        alert(`CAD Number "${form.cadNumber}" already exists. Please use a unique CAD number.`);
+        return;
+      }
+    }
+    
     console.log('All base form fields are valid');
     
     setIsUploading(true);
@@ -3103,6 +3132,9 @@ export default function InwardPage() {
     setIsUploading(false);
     setHasPendingEntries(false);
     setRemarks('');
+    // Clear reservation-related state
+    setAvailableReservations([]);
+    setSelectedReservation(null);
   };
 
   const handleModalClose = () => {
@@ -6387,7 +6419,7 @@ export default function InwardPage() {
                     // Fetch available reservations when warehouse changes
                     if (warehouseName && form.client) {
                       console.log('🔄 Fetching reservations for warehouse and client...');
-                      fetchAvailableReservations(warehouseName, form.client);
+                      fetchAvailableReservations(warehouseName, form.client, form.state, form.branch, form.location);
                     } else {
                       console.log('⚠️ Cannot fetch reservations - missing warehouse or client');
                     }
@@ -6475,7 +6507,7 @@ export default function InwardPage() {
                     // Fetch available reservations when client changes
                     if (form.warehouseName && v) {
                       console.log('🔄 Fetching reservations for client and warehouse...');
-                      fetchAvailableReservations(form.warehouseName, v);
+                      fetchAvailableReservations(form.warehouseName, v, form.state, form.branch, form.location);
                     } else {
                       console.log('⚠️ Cannot fetch reservations - missing warehouse or client');
                     }
@@ -6615,6 +6647,7 @@ export default function InwardPage() {
                   <Input 
                     type="number"
                     step="0.001"
+                    min="0"
                     value={baseForm.totalQuantity}
                     readOnly
                     placeholder="Auto-calculated from entries"
@@ -6798,7 +6831,7 @@ export default function InwardPage() {
                 <p className="text-sm text-blue-700">Available Reservations: {availableReservations.length}</p>
                 <p className="text-sm text-blue-700">Selected Reservation: {selectedReservation?.reservationId || 'None'}</p>
                 <Button 
-                  onClick={() => fetchAvailableReservations(form.warehouseName, form.client)} 
+                  onClick={() => fetchAvailableReservations(form.warehouseName, form.client, form.state, form.branch, form.location)} 
                   className="mt-2 bg-blue-600 hover:bg-blue-700"
                   size="sm"
                 >
@@ -6807,7 +6840,7 @@ export default function InwardPage() {
               </div>
             )}
 
-            {form.warehouseName && !form.billingStatus && form.businessType !== 'cm' && (
+            {form.warehouseName && form.businessType !== 'cm' && availableReservations.length === 0 && (
               <div className="border-t pt-4">
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <p className="text-yellow-800 text-sm">
@@ -7521,6 +7554,7 @@ export default function InwardPage() {
                   <Input 
                     type="number"
                     step="0.001"
+                    min="0"
                     value={form.grossWeight} 
                     onChange={e => handleGrossWeightChange(e.target.value)} 
                     placeholder="0.000"
@@ -7532,6 +7566,7 @@ export default function InwardPage() {
                   <Input 
                     type="number"
                     step="0.001"
+                    min="0"
                     value={form.tareWeight} 
                     onChange={e => handleTareWeightChange(e.target.value)} 
                     placeholder="0.000"
@@ -7558,6 +7593,7 @@ export default function InwardPage() {
                   <Label className="block font-semibold mb-2">Total Bags <span className="text-red-500">*</span></Label>
                   <Input 
                     type="number"
+                    min="1"
                     value={currentEntryForm.totalBags}
                     onChange={e => handleTotalBagsChange(e.target.value)}
                     placeholder="0"
@@ -7575,6 +7611,7 @@ export default function InwardPage() {
                   <Input 
                     type="number"
                     step="0.001"
+                    min="0.001"
                     value={currentEntryForm.totalQuantity}
                     onChange={e => setCurrentEntryForm(f => ({ ...f, totalQuantity: e.target.value }))} 
                     placeholder="0.000"
@@ -7640,6 +7677,7 @@ export default function InwardPage() {
                         <Label className="block font-semibold mb-2">Number of Bags <span className="text-red-500">*</span></Label>
                         <Input 
                           type="number"
+                          min="1"
                           value={stack.numberOfBags} 
                           onChange={e => updateStack(index, 'numberOfBags', e.target.value)} 
                           placeholder="0"

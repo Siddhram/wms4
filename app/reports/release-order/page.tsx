@@ -98,11 +98,6 @@ export default function ReleaseOrderReportsPage() {
     { key: 'balanceQty', label: 'Balance QT', width: 'w-20' }
   ];
 
-  // Fetch release order data
-  useEffect(() => {
-    fetchROData();
-  }, []);
-
   // Set default date range (last 6 months)
   useEffect(() => {
     const today = new Date();
@@ -113,33 +108,75 @@ export default function ReleaseOrderReportsPage() {
     setStartDate(sixMonthsAgo.toISOString().split('T')[0]);
   }, []);
 
+  // Fetch release order data when component mounts or when date filters change
+  useEffect(() => {
+    if (startDate && endDate) {
+      fetchROData();
+    }
+  }, [startDate, endDate]);
+
   const fetchROData = async () => {
     setLoading(true);
     try {
       const roCollection = collection(db, 'releaseOrders');
       
-      // Build query with date filters
-      let q = query(roCollection, orderBy('createdAt', 'desc'), limit(1000));
-      
-      // Apply date filters if dates are set
-      if (startDate && endDate) {
-        const startTimestamp = Timestamp.fromDate(new Date(startDate));
-        const endTimestamp = Timestamp.fromDate(new Date(endDate + 'T23:59:59'));
-        
-        q = query(
-          roCollection,
-          where('createdAt', '>=', startTimestamp),
-          where('createdAt', '<=', endTimestamp),
-          orderBy('createdAt', 'desc'),
-          limit(1000)
-        );
-      }
+      // Fetch all documents first for reliable date filtering
+      let q = query(roCollection, limit(1000));
       
       const querySnapshot = await getDocs(q);
       
       console.log('RO collection query result:', querySnapshot.size, 'documents');
+      console.log('Applying date filtering for release order report. Date range:', startDate, 'to', endDate);
       
-      const data = await Promise.all(querySnapshot.docs.map(async (doc, index) => {
+      // Filter documents by date range first
+      let filteredDocs = querySnapshot.docs;
+      
+      if (startDate && endDate) {
+        const startDateObj = new Date(startDate);
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999); // Include the entire end date
+        
+        console.log('Filtering release orders by date range:', startDateObj, 'to', endDateObj);
+        
+        filteredDocs = querySnapshot.docs.filter(doc => {
+          const docData = doc.data();
+          let docDate = null;
+          
+          // Try to get date from createdAt field first
+          if (docData.createdAt) {
+            if (docData.createdAt.toDate) {
+              // Firestore Timestamp
+              docDate = docData.createdAt.toDate();
+            } else if (typeof docData.createdAt === 'string') {
+              // String date
+              docDate = new Date(docData.createdAt);
+            }
+          }
+          
+          // If no createdAt or invalid, try other date fields
+          if (!docDate || isNaN(docDate.getTime())) {
+            if (docData.roDate) {
+              docDate = new Date(docData.roDate);
+            } else if (docData.dateOfRelease) {
+              docDate = new Date(docData.dateOfRelease);
+            }
+          }
+          
+          // If still no valid date, exclude from results
+          if (!docDate || isNaN(docDate.getTime())) {
+            console.log('No valid date found for release order document:', doc.id);
+            return false;
+          }
+          
+          // Check if date falls within range
+          const isInRange = docDate >= startDateObj && docDate <= endDateObj;
+          return isInRange;
+        });
+        
+        console.log('Release order report: After date filtering:', filteredDocs.length, 'of', querySnapshot.docs.length, 'documents remain');
+      }
+      
+      const data = await Promise.all(filteredDocs.map(async (doc, index) => {
         const docData = doc.data();
         
         // Debug: Log available fields in RO data
@@ -387,7 +424,7 @@ export default function ReleaseOrderReportsPage() {
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, warehouseFilter, clientFilter, stateFilter, branchFilter, commodityFilter, itemsPerPage]);
+  }, [searchTerm, statusFilter, warehouseFilter, clientFilter, stateFilter, branchFilter, commodityFilter, itemsPerPage, startDate, endDate]);
 
   // Filter data based on search and filters
   const filteredData = useMemo(() => {
@@ -428,7 +465,7 @@ export default function ReleaseOrderReportsPage() {
     }
     
     return filtered;
-  }, [roData, searchTerm, statusFilter, warehouseFilter, clientFilter, stateFilter, branchFilter, commodityFilter]);
+  }, [roData, searchTerm, statusFilter, warehouseFilter, clientFilter, stateFilter, branchFilter, commodityFilter, startDate, endDate]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);

@@ -884,6 +884,21 @@ export default function DeliveryOrderPage() {
       setRoOptions(combinedOptions);
     };
     fetchOptions();
+  }, [submitSuccess, doStatusUpdating]);
+
+  // Listen for RO data updates from other modules to refresh options
+  React.useEffect(() => {
+    const handleRODataUpdate = () => {
+      console.log('DO section: Detected RO data update, refreshing options...');
+      // Trigger options refresh by updating a local state
+      setSubmitSuccess(prev => !prev);
+    };
+
+    window.addEventListener('roDataUpdated', handleRODataUpdate);
+    
+    return () => {
+      window.removeEventListener('roDataUpdated', handleRODataUpdate);
+    };
   }, []);
 
   // Filtered options for dropdown - Enhanced search functionality focusing on SR/WR numbers
@@ -976,6 +991,14 @@ export default function DeliveryOrderPage() {
     };
     updateFormFields();
   }, [selectedRO]);
+
+  // Auto-fill when only 1 bag remains
+  React.useEffect(() => {
+    if (currentBalanceBags === 1 && currentBalanceQty !== null && !selectedDO) {
+      setDoBags('1');
+      setDoQty(currentBalanceQty.toString());
+    }
+  }, [currentBalanceBags, currentBalanceQty, selectedDO]);
   
   // Reset search and focus the search input when modal opens
   React.useEffect(() => {
@@ -1025,6 +1048,12 @@ export default function DeliveryOrderPage() {
 
     if (isNaN(dbBags) || dbBags <= 0) {
       setFormError('Please enter valid number of bags');
+      return;
+    }
+    
+    // Validate that DO bags is a whole number
+    if (!Number.isInteger(dbBags)) {
+      setFormError('DO Bags must be a whole number (no decimals allowed).');
       return;
     }
     if (isNaN(dQuantity) || dQuantity <= 0) {
@@ -1197,6 +1226,11 @@ export default function DeliveryOrderPage() {
       setSelectedDO(null);
       setRemark('');
       setDOStatusUpdating(false);
+      
+      // Dispatch event to notify other modules of DO data update
+      window.dispatchEvent(new CustomEvent('doDataUpdated', {
+        detail: { timestamp: Date.now() }
+      }));
     } catch (error) {
       console.error('Error updating DO status:', error);
       setDOStatusUpdating(false);
@@ -1630,7 +1664,7 @@ export default function DeliveryOrderPage() {
                                 <span>
                                   {option.srwrNo} - {option.roCode}
                                   <span className="ml-2 text-green-700">
-                                    (Balance: {balanceBags} bags)
+                                    (Balance: {balanceBags} bags, {option.balanceQuantity ? Number(option.balanceQuantity).toFixed(2) : '0.00'} QT)
                                   </span>
                                   {option.hasRejectedDO && (
                                     <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-pink-100 text-red-600 align-middle">
@@ -1717,14 +1751,25 @@ export default function DeliveryOrderPage() {
                         value={doBags}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           const newValue = e.target.value;
-                          setDoBags(newValue);
-                          // If user entered exactly the remaining balance bags, auto-set quantity too
-                          if (Number(newValue) === currentBalanceBags) {
-                            setDoQty(currentBalanceQty?.toString() || "0");
+                          // Only allow whole numbers (no decimals)
+                          if (newValue === '' || /^\d+$/.test(newValue)) {
+                            setDoBags(newValue);
+                            // If user entered exactly the remaining balance bags, auto-set quantity too
+                            if (Number(newValue) === currentBalanceBags) {
+                              setDoQty(currentBalanceQty?.toString() || "0");
+                            }
                           }
                         }}
+                        min="0"
+                        step="1"
                         required
                         className="bg-white border-orange-200"
+                        onKeyDown={(e) => {
+                          // Prevent decimal point entry
+                          if (e.key === '.' || e.key === ',') {
+                            e.preventDefault();
+                          }
+                        }}
                       />
                       {currentBalanceBags === 1 && (
                         <div className="text-xs text-blue-600 mt-1">

@@ -251,18 +251,24 @@ export default function OutwardPage() {
           let balanceBags = Number(doData.doBags || 0);
           let balanceQuantity = Number(doData.doQuantity || 0);
           
-          // Subtract outward quantities from each existing outward
+          // Subtract outward quantities from each existing outward - BUT ONLY APPROVED OUTWARDS
           if (existingOutwards.length > 0) {
             console.log(`Found ${existingOutwards.length} existing outwards for ${doCode}`);
             
             existingOutwards.forEach((outwardItem: any) => {
-              const outwardBags = Number(outwardItem.outwardBags || 0);
-              const outwardQty = Number(outwardItem.outwardQuantity || 0);
-              
-              console.log(`Subtracting outward ${outwardItem.outwardCode}: ${outwardBags} bags, ${outwardQty} quantity`);
-              
-              balanceBags -= outwardBags;
-              balanceQuantity -= outwardQty;
+              const outwardStatus = (outwardItem.outwardStatus || 'pending').toLowerCase();
+              // Only subtract quantities from approved outwards
+              if (outwardStatus === 'approved' || outwardStatus === 'approve') {
+                const outwardBags = Number(outwardItem.outwardBags || 0);
+                const outwardQty = Number(outwardItem.outwardQuantity || 0);
+                
+                console.log(`Subtracting APPROVED outward ${outwardItem.outwardCode}: ${outwardBags} bags, ${outwardQty} quantity`);
+                
+                balanceBags -= outwardBags;
+                balanceQuantity -= outwardQty;
+              } else {
+                console.log(`Skipping ${outwardStatus.toUpperCase()} outward ${outwardItem.outwardCode}: ${outwardItem.outwardBags} bags, ${outwardItem.outwardQuantity} quantity (NOT affecting balance)`);
+              }
             });
           }
           
@@ -292,6 +298,21 @@ export default function OutwardPage() {
     
     fetchDOs();
   }, [submitSuccess, outwardStatusUpdating]);
+
+  // Listen for DO data updates from other modules to refresh options
+  React.useEffect(() => {
+    const handleDODataUpdate = () => {
+      console.log('Outward section: Detected DO data update, refreshing DO options...');
+      // Trigger options refresh by updating a local state
+      setSubmitSuccess(prev => !prev);
+    };
+
+    window.addEventListener('doDataUpdated', handleDODataUpdate);
+    
+    return () => {
+      window.removeEventListener('doDataUpdated', handleDODataUpdate);
+    };
+  }, []);
 
   // Clear SR/WR search filter whenever Add Outward dialog opens or closes
   React.useEffect(() => {
@@ -360,6 +381,12 @@ export default function OutwardPage() {
       setFormError('Please enter valid number of bags');
       return;
     }
+    
+    // Validate that outward bags is a whole number
+    if (!Number.isInteger(obBags)) {
+      setFormError('Outward Bags must be a whole number (no decimals allowed).');
+      return;
+    }
     if (isNaN(oQuantity) || oQuantity <= 0) {
       setFormError('Please enter valid quantity');
       return;
@@ -367,6 +394,16 @@ export default function OutwardPage() {
 
     // Check stack entries total: must equal outwardBags
     const totalStackBags = stackEntries.reduce((sum, stack) => sum + Number(stack.bags || 0), 0);
+    
+    // Validate that all stack bags are whole numbers
+    for (let i = 0; i < stackEntries.length; i++) {
+      const stackBags = Number(stackEntries[i].bags || 0);
+      if (!Number.isInteger(stackBags)) {
+        setFormError(`Stack ${i + 1} bags must be a whole number (no decimals allowed).`);
+        return;
+      }
+    }
+    
     if (totalStackBags !== obBags) {
       setFormError(`Total stack bags (${totalStackBags}) must match outward bags (${obBags})`);
       return;
@@ -1367,25 +1404,7 @@ export default function OutwardPage() {
                 </Label>
                 <div className="relative">
                   <div className="relative mb-1">
-                    <Input
-                      ref={searchInputRef}
-                      placeholder="Type to search by SR/WR No or DO Code..."
-                      value={doSearch}
-                      onChange={(e) => setDoSearch(e.target.value)}
-                      className="mb-1 pr-8 border-2 border-orange-300 focus:border-orange-500"
-                      autoFocus
-                    />
-                    {doSearch && (
-                      <button 
-                        type="button" 
-                        onClick={() => setDoSearch('')}
-                        className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    )}
+                    {/*  */}
                   </div>
                   
                   {/* Filtered options display count */}
@@ -1416,12 +1435,21 @@ export default function OutwardPage() {
                       
                       // When a DO is selected, update current balance values
                       if (selected) {
-                        setCurrentBalanceBags(Number(selected.balanceBags || 0));
-                        setCurrentBalanceQty(Number(selected.balanceQuantity || 0));
+                        const balanceBags = Number(selected.balanceBags || 0);
+                        const balanceQty = Number(selected.balanceQuantity || 0);
                         
-                        // Reset outward values
-                        setOutwardBags('');
-                        setOutwardQty('');
+                        setCurrentBalanceBags(balanceBags);
+                        setCurrentBalanceQty(balanceQty);
+                        
+                        // Auto-fill if only 1 bag remains
+                        if (balanceBags === 1) {
+                          setOutwardBags('1');
+                          setOutwardQty(balanceQty.toString());
+                        } else {
+                          // Reset outward values
+                          setOutwardBags('');
+                          setOutwardQty('');
+                        }
                         
                         // Fetch stack information from the inward collection
                         const fetchStackInfo = async () => {
@@ -1835,11 +1863,12 @@ export default function OutwardPage() {
                             <SelectLabel className="text-orange-700">SR/WR: {group.srwrNo}</SelectLabel>
                             {itemsWithBalance.map(option => {
                               const balanceBags = option.balanceBags !== undefined ? Number(option.balanceBags) : (option.doBags !== undefined ? Number(option.doBags) : 0);
+                              const balanceQuantity = option.balanceQuantity !== undefined ? Number(option.balanceQuantity) : (option.doQuantity || 0);
                               return (
                                 <SelectItem key={option.id} value={option.id}>
                                   <span>
                                     DO: {option.doCode}
-                                    <span className="ml-2 text-green-700">(Balance: {balanceBags} bags)</span>
+                                    <span className="ml-2 text-green-700">(Balance: {balanceBags} bags, {Number(balanceQuantity).toFixed(2)} QT)</span>
                                   </span>
                                 </SelectItem>
                               );
@@ -1944,12 +1973,33 @@ export default function OutwardPage() {
                       type="number"
                       value={outwardBags}
                       onChange={(e) => {
-                        setOutwardBags(e.target.value);
-                        setTotalBagsOutward(e.target.value);
+                        const newValue = e.target.value;
+                        // Only allow whole numbers (no decimals)
+                        if (newValue === '' || /^\d+$/.test(newValue)) {
+                          setOutwardBags(newValue);
+                          setTotalBagsOutward(newValue);
+                          // If user entered exactly the remaining balance bags, auto-set quantity too
+                          if (Number(newValue) === currentBalanceBags) {
+                            setOutwardQty(currentBalanceQty?.toString() || "0");
+                          }
+                        }
                       }}
+                      min="0"
+                      step="1"
                       required
                       className="bg-white border-orange-200"
+                      onKeyDown={(e) => {
+                        // Prevent decimal point entry
+                        if (e.key === '.' || e.key === ',') {
+                          e.preventDefault();
+                        }
+                      }}
                     />
+                    {currentBalanceBags === 1 && (
+                      <div className="text-xs text-blue-600 mt-1">
+                        This is the last bag - full remaining quantity will be used
+                      </div>
+                    )}
                   </div>
                   <div>
                     <Label htmlFor="outwardQty" className="text-green-600 font-medium">OUTWARD QUANTITY (MT)</Label>
@@ -1961,7 +2011,14 @@ export default function OutwardPage() {
                       onChange={(e) => setOutwardQty(e.target.value)}
                       required
                       className="bg-white border-orange-200"
+                      // Auto-set to full remaining quantity if this is the last bag
+                      readOnly={Number(outwardBags) === currentBalanceBags}
                     />
+                    {Number(outwardBags) === currentBalanceBags && (
+                      <div className="text-xs text-blue-600 mt-1">
+                        Using full remaining quantity for last bag
+                      </div>
+                    )}
                   </div>
 
                   {/* Auto calculated balance fields */}

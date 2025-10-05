@@ -120,34 +120,64 @@ export default function OutwardReportsPage() {
         firstDoc: testSnapshot.docs[0]?.id
       });
       
-      // First, try to fetch without date filters to see if data exists
-      let q = query(outwardCollection, orderBy('createdAt', 'desc'), limit(1000));
-      console.log('Built initial query without date filters');
-      
-      // Apply date filters if dates are set
-      if (startDate && endDate) {
-        console.log('Applying date filters:', { startDate, endDate });
-        const startTimestamp = Timestamp.fromDate(new Date(startDate + 'T00:00:00'));
-        const endTimestamp = Timestamp.fromDate(new Date(endDate + 'T23:59:59'));
-        
-        console.log('Date range timestamps:', { startTimestamp, endTimestamp });
-        
-        q = query(
-          outwardCollection,
-          where('createdAt', '>=', startTimestamp),
-          where('createdAt', '<=', endTimestamp),
-          orderBy('createdAt', 'desc'),
-          limit(1000)
-        );
-      } else {
-        console.log('No date filters applied, fetching all data');
-      }
+      // Fetch all documents first for reliable date filtering
+      let q = query(outwardCollection, limit(1000));
+      console.log('Built query to fetch all documents');
       
       const querySnapshot = await getDocs(q);
       
       console.log('Outward collection query result:', querySnapshot.size, 'documents');
+      console.log('Applying date filtering for outward report. Date range:', startDate, 'to', endDate);
       
-      const data = await Promise.all(querySnapshot.docs.map(async (doc, index) => {
+      // Filter documents by date range first
+      let filteredDocs = querySnapshot.docs;
+      
+      if (startDate && endDate) {
+        const startDateObj = new Date(startDate);
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999); // Include the entire end date
+        
+        console.log('Filtering outward by date range:', startDateObj, 'to', endDateObj);
+        
+        filteredDocs = querySnapshot.docs.filter(doc => {
+          const docData = doc.data();
+          let docDate = null;
+          
+          // Try to get date from createdAt field first
+          if (docData.createdAt) {
+            if (docData.createdAt.toDate) {
+              // Firestore Timestamp
+              docDate = docData.createdAt.toDate();
+            } else if (typeof docData.createdAt === 'string') {
+              // String date
+              docDate = new Date(docData.createdAt);
+            }
+          }
+          
+          // If no createdAt or invalid, try outwardDate
+          if (!docDate || isNaN(docDate.getTime())) {
+            if (docData.outwardDate) {
+              docDate = new Date(docData.outwardDate);
+            } else if (docData.dateOfOutward) {
+              docDate = new Date(docData.dateOfOutward);
+            }
+          }
+          
+          // If still no valid date, exclude from results
+          if (!docDate || isNaN(docDate.getTime())) {
+            console.log('No valid date found for outward document:', doc.id);
+            return false;
+          }
+          
+          // Check if date falls within range
+          const isInRange = docDate >= startDateObj && docDate <= endDateObj;
+          return isInRange;
+        });
+        
+        console.log('Outward report: After date filtering:', filteredDocs.length, 'of', querySnapshot.docs.length, 'documents remain');
+      }
+      
+      const data = await Promise.all(filteredDocs.map(async (doc, index) => {
         const docData = doc.data();
         
         // Debug: Log available fields in outward data
@@ -543,11 +573,6 @@ export default function OutwardReportsPage() {
     }
   }, [startDate, endDate]);
 
-  // Fetch outward data
-  useEffect(() => {
-    fetchOutwardData();
-  }, [fetchOutwardData]);
-
   // Set default date range (last 6 months)
   useEffect(() => {
     console.log('Setting default date range...');
@@ -562,6 +587,13 @@ export default function OutwardReportsPage() {
     setEndDate(endDateStr);
     setStartDate(startDateStr);
   }, []);
+
+  // Fetch outward data when component mounts or when date filters change
+  useEffect(() => {
+    if (startDate && endDate) {
+      fetchOutwardData();
+    }
+  }, [startDate, endDate, fetchOutwardData]);
 
   // Get unique filter options
   const uniqueWarehouses = useMemo(() => {
@@ -591,7 +623,7 @@ export default function OutwardReportsPage() {
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, warehouseFilter, clientFilter, commodityFilter, stateFilter, branchFilter, itemsPerPage]);
+  }, [searchTerm, statusFilter, warehouseFilter, clientFilter, commodityFilter, stateFilter, branchFilter, itemsPerPage, startDate, endDate]);
 
   // Filter data based on search and filters
   const filteredData = useMemo(() => {
@@ -659,7 +691,7 @@ export default function OutwardReportsPage() {
     });
     
     return filtered;
-  }, [outwardData, searchTerm, statusFilter, warehouseFilter, clientFilter, commodityFilter, branchFilter, stateFilter]);
+  }, [outwardData, searchTerm, statusFilter, warehouseFilter, clientFilter, commodityFilter, branchFilter, stateFilter, startDate, endDate]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);

@@ -115,10 +115,12 @@ export default function InsuranceReportsPage() {
     setStartDate(sixMonthsAgo.toISOString().split('T')[0]);
   }, []);
 
-  // Fetch insurance data
+  // Fetch insurance data when component mounts or when date filters change
   useEffect(() => {
-    fetchInsuranceData();
-  }, []);
+    if (startDate && endDate) {
+      fetchInsuranceData();
+    }
+  }, [startDate, endDate]);
 
   const fetchInsuranceData = async () => {
     setLoading(true);
@@ -217,8 +219,58 @@ export default function InsuranceReportsPage() {
         }
       });
       
-      // Process insurance master data with comprehensive data enhancement
-      insuranceSnap.docs.forEach(doc => {
+      console.log('Applying date filtering for insurance report. Date range:', startDate, 'to', endDate);
+      
+      // Filter insurance documents by date range first
+      let filteredInsuranceDocs = insuranceSnap.docs;
+      
+      if (startDate && endDate) {
+        const startDateObj = new Date(startDate);
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999); // Include the entire end date
+        
+        console.log('Filtering insurance by date range:', startDateObj, 'to', endDateObj);
+        
+        filteredInsuranceDocs = insuranceSnap.docs.filter(doc => {
+          const docData = doc.data();
+          let docDate = null;
+          
+          // Try to get date from createdAt field first
+          if (docData.createdAt) {
+            if (docData.createdAt.toDate) {
+              // Firestore Timestamp
+              docDate = docData.createdAt.toDate();
+            } else if (typeof docData.createdAt === 'string') {
+              // String date
+              docDate = new Date(docData.createdAt);
+            }
+          }
+          
+          // If no createdAt or invalid, try other date fields
+          if (!docDate || isNaN(docDate.getTime())) {
+            if (docData.dateOfCreation) {
+              docDate = new Date(docData.dateOfCreation);
+            } else if (docData.firePolicyStartDate) {
+              docDate = new Date(docData.firePolicyStartDate);
+            }
+          }
+          
+          // If still no valid date, exclude from results
+          if (!docDate || isNaN(docDate.getTime())) {
+            console.log('No valid date found for insurance document:', doc.id);
+            return false;
+          }
+          
+          // Check if date falls within range
+          const isInRange = docDate >= startDateObj && docDate <= endDateObj;
+          return isInRange;
+        });
+        
+        console.log('Insurance report: After date filtering:', filteredInsuranceDocs.length, 'of', insuranceSnap.docs.length, 'documents remain');
+      }
+      
+      // Process filtered insurance master data with comprehensive data enhancement
+      filteredInsuranceDocs.forEach(doc => {
         const insuranceData = doc.data();
         const warehouseName = insuranceData.warehouseName;
         
@@ -371,7 +423,7 @@ export default function InsuranceReportsPage() {
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, warehouseFilter, stateFilter, branchFilter, clientFilter, commodityFilter, insuranceManagedByFilter, itemsPerPage]);
+  }, [searchTerm, statusFilter, warehouseFilter, stateFilter, branchFilter, clientFilter, commodityFilter, insuranceManagedByFilter, itemsPerPage, startDate, endDate]);
 
   // Filter data based on search and filters
   const filteredData = useMemo(() => {
@@ -416,7 +468,7 @@ export default function InsuranceReportsPage() {
     }
     
     return filtered;
-  }, [insuranceData, searchTerm, statusFilter, warehouseFilter, stateFilter, branchFilter, clientFilter, commodityFilter, insuranceManagedByFilter]);
+  }, [insuranceData, searchTerm, statusFilter, warehouseFilter, stateFilter, branchFilter, clientFilter, commodityFilter, insuranceManagedByFilter, startDate, endDate]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);

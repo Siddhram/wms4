@@ -538,7 +538,7 @@ export default function ReleaseOrderPage() {
       setInwardOptions(merged);
     };
     fetchInwards();
-  }, []);
+  }, [submitSuccess, roStatusUpdating, dataVersion]);
 
   // Filtered options for dropdown
   const filteredInwardOptions = React.useMemo(() => {
@@ -570,11 +570,15 @@ export default function ReleaseOrderPage() {
         const allROs = snap.docs.map((doc: any) => doc.data());
         
         // Subtract only approved RO quantities
+        console.log(`Analyzing ${allROs.length} existing ROs for ${srwrNo}:`);
         allROs.forEach((ro: any) => {
           const roStatus = (ro.roStatus || 'pending').toLowerCase();
           if (roStatus === 'approved' || roStatus === 'approve') {
+            console.log(`  - Subtracting APPROVED RO ${ro.roCode}: ${ro.releaseBags} bags, ${ro.releaseQuantity} quantity`);
             balanceBags -= Number(ro.releaseBags || 0);
             balanceQuantity -= Number(ro.releaseQuantity || 0);
+          } else {
+            console.log(`  - Skipping ${roStatus.toUpperCase()} RO ${ro.roCode}: ${ro.releaseBags} bags, ${ro.releaseQuantity} quantity (NOT affecting balance)`);
           }
         });
         
@@ -588,6 +592,14 @@ export default function ReleaseOrderPage() {
     };
     fetchLatestBalance();
   }, [selectedInward]);
+
+  // Auto-fill when only 1 bag remains
+  React.useEffect(() => {
+    if (currentBalanceBags === 1 && currentBalanceQty !== null && !editingRO) {
+      setReleaseBags('1');
+      setReleaseQty(currentBalanceQty.toString());
+    }
+  }, [currentBalanceBags, currentBalanceQty, editingRO]);
 
   // Fetch previous ROs for the selected SR/WR
   React.useEffect(() => {
@@ -644,6 +656,12 @@ export default function ReleaseOrderPage() {
     }
     if (!releaseBags || !releaseQty) {
       setFormError('Please enter Release Bags and Release Qty.');
+      return;
+    }
+    
+    // Validate that release bags is a whole number
+    if (!Number.isInteger(Number(releaseBags)) || Number(releaseBags) <= 0) {
+      setFormError('Release Bags must be a positive whole number (no decimals allowed).');
       return;
     }
     
@@ -971,7 +989,9 @@ export default function ReleaseOrderPage() {
                       className="mb-1"
                     />
                     {filteredInwardOptions.map((opt: any) => (
-                      <SelectItem key={opt.inwardId} value={`${opt.receiptType || 'SR'}-${opt.inwardId || ''}-${opt.dateOfInward || ''}`}>{`${opt.receiptType || 'SR'}-${opt.inwardId || ''}-${opt.dateOfInward || ''}`}</SelectItem>
+                      <SelectItem key={opt.inwardId} value={`${opt.receiptType || 'SR'}-${opt.inwardId || ''}-${opt.dateOfInward || ''}`}>
+                        {`${opt.receiptType || 'SR'}-${opt.inwardId || ''}-${opt.dateOfInward || ''} (${opt.balanceBags || 0} bags, ${opt.balanceQuantity ? Number(opt.balanceQuantity).toFixed(2) : '0.00'} QT)`}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1038,11 +1058,55 @@ export default function ReleaseOrderPage() {
                 </div>
                 <div>
                   <Label className="text-sm sm:text-base">RELEASE BAGS</Label>
-                  <Input value={releaseBags} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReleaseBags(e.target.value)} type="number" min="0" required className="text-sm" />
+                  <Input 
+                    value={releaseBags} 
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const newValue = e.target.value;
+                      // Only allow whole numbers (no decimals)
+                      if (newValue === '' || /^\d+$/.test(newValue)) {
+                        setReleaseBags(newValue);
+                        // If user entered exactly the remaining balance bags, auto-set quantity too
+                        if (Number(newValue) === currentBalanceBags) {
+                          setReleaseQty(currentBalanceQty?.toString() || "0");
+                        }
+                      }
+                    }} 
+                    type="number" 
+                    min="0" 
+                    step="1"
+                    required 
+                    className="text-sm" 
+                    onKeyDown={(e) => {
+                      // Prevent decimal point entry
+                      if (e.key === '.' || e.key === ',') {
+                        e.preventDefault();
+                      }
+                    }}
+                  />
+                  {currentBalanceBags === 1 && (
+                    <div className="text-xs text-blue-600 mt-1">
+                      This is the last bag - full remaining quantity will be used
+                    </div>
+                  )}
                 </div>
                 <div>
                   <Label className="text-sm sm:text-base">RELEASE QTY (MT)</Label>
-                  <Input value={releaseQty} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReleaseQty(e.target.value)} type="number" min="0" step="0.001" required className="text-sm" />
+                  <Input 
+                    value={releaseQty} 
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReleaseQty(e.target.value)} 
+                    type="number" 
+                    min="0" 
+                    step="0.001" 
+                    required 
+                    className="text-sm"
+                    // Auto-set to full remaining quantity if this is the last bag
+                    readOnly={Number(releaseBags) === currentBalanceBags}
+                  />
+                  {Number(releaseBags) === currentBalanceBags && (
+                    <div className="text-xs text-blue-600 mt-1">
+                      Using full remaining quantity for last bag
+                    </div>
+                  )}
                 </div>
                 <div className="sm:col-span-2">
                   <Label className="text-sm sm:text-base">

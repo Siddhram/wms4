@@ -98,11 +98,6 @@ export default function DetailedInwardReportsPage() {
   // Get all column keys for visibility toggle
   const allColumnKeys = allColumns.map(col => col.key);
 
-  // Fetch inward data
-  useEffect(() => {
-    fetchInwardData();
-  }, []);
-
   // Set default date range (last 6 months)
   useEffect(() => {
     const today = new Date();
@@ -113,43 +108,84 @@ export default function DetailedInwardReportsPage() {
     setStartDate(sixMonthsAgo.toISOString().split('T')[0]);
   }, []);
 
+  // Fetch inward data when component mounts or when date filters change
+  useEffect(() => {
+    if (startDate && endDate) {
+      fetchInwardData();
+    }
+  }, [startDate, endDate]);
+
   const fetchInwardData = async () => {
     setLoading(true);
     try {
+      console.log('Fetching inward data with date range:', startDate, 'to', endDate);
+      
       // Fetch from inward collection (main dashboard collection)
       const inwardCollection = collection(db, 'inward');
           
-          // Build query - try to order by createdAt if available, otherwise get all documents
-          let q = query(inwardCollection, limit(1000));
+      // Build query - fetch all documents first, then filter in memory for more reliable date filtering
+      let q = query(inwardCollection, limit(1000));
           
-          // Apply date filters if dates are set
-          if (startDate && endDate) {
-            try {
-              const startTimestamp = Timestamp.fromDate(new Date(startDate));
-              const endTimestamp = Timestamp.fromDate(new Date(endDate + 'T23:59:59'));
-              
-              q = query(
-                inwardCollection,
-                where('createdAt', '>=', startTimestamp),
-                where('createdAt', '<=', endTimestamp),
-                limit(1000)
-              );
-            } catch (error) {
-              console.log('Date filtering not available, fetching all documents');
-              q = query(inwardCollection, limit(1000));
-            }
-          }
-          
-          const querySnapshot = await getDocs(q);
-          console.log('Inward collection query result:', querySnapshot.size, 'documents');
+      const querySnapshot = await getDocs(q);
+      console.log('Inward collection query result:', querySnapshot.size, 'documents');
           
           if (querySnapshot.size > 0) {
             console.log('Sample document data:', querySnapshot.docs[0].data());
             console.log('Sample document ID:', querySnapshot.docs[0].id);
             console.log('All document IDs:', querySnapshot.docs.map(doc => doc.id));
-            // Process each inward record
+            
+            // Filter documents by date range first
+            let filteredDocs = querySnapshot.docs;
+            
+            if (startDate && endDate) {
+              const startDateObj = new Date(startDate);
+              const endDateObj = new Date(endDate);
+              endDateObj.setHours(23, 59, 59, 999); // Include the entire end date
+              
+              console.log('Filtering by date range:', startDateObj, 'to', endDateObj);
+              
+              filteredDocs = querySnapshot.docs.filter(doc => {
+                const docData = doc.data();
+                let docDate = null;
+                
+                // Try to get date from createdAt field first
+                if (docData.createdAt) {
+                  if (docData.createdAt.toDate) {
+                    // Firestore Timestamp
+                    docDate = docData.createdAt.toDate();
+                  } else if (typeof docData.createdAt === 'string') {
+                    // String date
+                    docDate = new Date(docData.createdAt);
+                  }
+                }
+                
+                // If no createdAt or invalid, try dateOfInward
+                if (!docDate || isNaN(docDate.getTime())) {
+                  if (docData.dateOfInward) {
+                    docDate = new Date(docData.dateOfInward);
+                  }
+                }
+                
+                // If still no valid date, exclude from results
+                if (!docDate || isNaN(docDate.getTime())) {
+                  console.log('No valid date found for document:', doc.id, 'createdAt:', docData.createdAt, 'dateOfInward:', docData.dateOfInward);
+                  return false;
+                }
+                
+                // Check if date falls within range
+                const isInRange = docDate >= startDateObj && docDate <= endDateObj;
+                if (!isInRange) {
+                  console.log('Document', doc.id, 'date', docDate, 'is outside range');
+                }
+                return isInRange;
+              });
+              
+              console.log('After date filtering:', filteredDocs.length, 'of', querySnapshot.docs.length, 'documents remain');
+            }
+            
+            // Process each filtered inward record
             const processedData = await Promise.all(
-              querySnapshot.docs.map(async (doc, index) => {
+              filteredDocs.map(async (doc, index) => {
                 const docData = doc.data();
                 
                 // Get warehouse type from warehouse creation survey section for activated warehouses
@@ -218,9 +254,23 @@ export default function DetailedInwardReportsPage() {
                   }
                 }
                 
+                // Extract and format the date properly
+                let formattedDate = '';
+                if (docData.createdAt) {
+                  if (docData.createdAt.toDate) {
+                    // Firestore Timestamp
+                    formattedDate = docData.createdAt.toDate().toISOString().split('T')[0];
+                  } else if (typeof docData.createdAt === 'string') {
+                    // String date
+                    formattedDate = new Date(docData.createdAt).toISOString().split('T')[0];
+                  }
+                } else if (docData.dateOfInward) {
+                  formattedDate = new Date(docData.dateOfInward).toISOString().split('T')[0];
+                }
+                
                 return {
                   id: doc.id,
-                  dateOfInward: docData.dateOfInward || '',
+                  dateOfInward: formattedDate || docData.dateOfInward || '',
                   state: docData.state || '',
                   branch: docData.branch || '',
                   location: docData.location || '',
@@ -251,8 +301,16 @@ export default function DetailedInwardReportsPage() {
             
             setInwardData(processedData);
             console.log('Total processed inward data:', processedData.length, 'records');
+            console.log('Date range applied:', startDate, 'to', endDate);
             console.log('Sample processed data:', processedData[0]);
-            console.log('All processed data:', processedData);
+            
+            // Log date distribution for debugging
+            const dateCount = processedData.reduce((acc: any, item) => {
+              const date = item.dateOfInward;
+              acc[date] = (acc[date] || 0) + 1;
+              return acc;
+            }, {});
+            console.log('Date distribution in results:', dateCount);
           } else {
             setInwardData([]);
             console.log('No inward data found');
@@ -288,19 +346,38 @@ export default function DetailedInwardReportsPage() {
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, clientFilter, commodityFilter, stateFilter, branchFilter, itemsPerPage]);
+  }, [searchTerm, statusFilter, clientFilter, commodityFilter, stateFilter, branchFilter, itemsPerPage, startDate, endDate]);
 
   // Filter data based on search and filters
   const filteredData = useMemo(() => {
     let filtered = inwardData;
     
     console.log('Filtering data. Total records:', inwardData.length);
+    console.log('Date range for client-side filtering:', startDate, 'to', endDate);
     console.log('Search term:', searchTerm);
     console.log('Status filter:', statusFilter);
     console.log('Client filter:', clientFilter);
     console.log('Commodity filter:', commodityFilter);
     console.log('State filter:', stateFilter);
     console.log('Branch filter:', branchFilter);
+    
+    // Apply additional date filtering on client side as backup
+    if (startDate && endDate) {
+      const startDateObj = new Date(startDate);
+      const endDateObj = new Date(endDate);
+      endDateObj.setHours(23, 59, 59, 999);
+      
+      filtered = filtered.filter(item => {
+        if (!item.dateOfInward) return false;
+        
+        const itemDate = new Date(item.dateOfInward);
+        if (isNaN(itemDate.getTime())) return false;
+        
+        return itemDate >= startDateObj && itemDate <= endDateObj;
+      });
+      
+      console.log('After client-side date filter:', filtered.length, 'records');
+    }
     
     // Apply search filter
     if (searchTerm) {
@@ -346,7 +423,7 @@ export default function DetailedInwardReportsPage() {
     
     console.log('Final filtered data:', filtered.length, 'records');
     return filtered;
-  }, [inwardData, searchTerm, statusFilter, clientFilter, commodityFilter, stateFilter, branchFilter]);
+  }, [inwardData, searchTerm, statusFilter, clientFilter, commodityFilter, stateFilter, branchFilter, startDate, endDate]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
