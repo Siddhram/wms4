@@ -125,65 +125,199 @@ export default function InsuranceReportsPage() {
     try {
       const data: InsuranceReportData[] = [];
       
-      // Fetch from Insurance Master collection (single source of truth for updated amounts)
-      console.log('🔍 INSURANCE REPORT: Fetching from Insurance Master collection...');
-      const insuranceSnap = await getDocs(collection(db, 'insurance'));
-      console.log('📊 Insurance Master query result:', insuranceSnap.size, 'documents');
+      // Fetch from multiple collections for comprehensive data
+      console.log('🔍 INSURANCE REPORT: Fetching from multiple collections...');
+      const [insuranceSnap, inspectionsSnap, inwardSnap, outwardSnap] = await Promise.all([
+        getDocs(collection(db, 'insurance')),
+        getDocs(collection(db, 'inspections')),
+        getDocs(collection(db, 'inward')),
+        getDocs(collection(db, 'outward'))
+      ]);
       
-      // Also fetch inspections for warehouse details
-      const inspectionsSnap = await getDocs(collection(db, 'inspections'));
-      console.log('📊 Inspections query result:', inspectionsSnap.size, 'documents');
+      console.log('📊 Collection query results:', {
+        insurance: insuranceSnap.size,
+        inspections: inspectionsSnap.size,
+        inward: inwardSnap.size,
+        outward: outwardSnap.size
+      });
       
-      // Create a map of warehouse details from inspections
+      // Create comprehensive maps for cross-referencing data
       const warehouseDetailsMap = new Map();
+      const inwardDataMap = new Map();
+      const outwardDataMap = new Map();
+      
+      // Build warehouse details map from inspections (warehouse type, business type, bank details)
       inspectionsSnap.docs.forEach(doc => {
         const docData = doc.data();
-        if (docData.status === 'activated' || docData.status === 'reactivate') {
-          warehouseDetailsMap.set(docData.warehouseName, {
-            warehouseCode: docData.warehouseCode,
+        const warehouseName = docData.warehouseName;
+        if (warehouseName && (docData.status === 'activated' || docData.status === 'reactivate')) {
+          warehouseDetailsMap.set(warehouseName, {
+            warehouseCode: docData.warehouseCode || '',
             address: docData.address || docData.warehouseInspectionData?.address || '',
             state: docData.state || docData.warehouseInspectionData?.state || '',
             branch: docData.branch || docData.warehouseInspectionData?.branch || '',
             location: docData.location || docData.warehouseInspectionData?.location || '',
+            // Warehouse type with comprehensive fallback chain
+            warehouseType: docData.typeOfWarehouse ||
+                          docData.typeofwarehouse ||
+                          docData.warehouseType ||
+                          docData.warehouseInspectionData?.typeOfWarehouse ||
+                          docData.warehouseInspectionData?.warehouseType || '',
+            // Business type with fallback chain
+            businessType: docData.businessType ||
+                         docData.typeOfBusiness ||
+                         docData.warehouseInspectionData?.businessType ||
+                         docData.warehouseInspectionData?.typeOfBusiness || '',
+            // Bank details from inspections
+            bankName: docData.bankName || docData.warehouseInspectionData?.bankName || '',
+            bankBranchName: docData.bankBranch || docData.bankBranchName || docData.warehouseInspectionData?.bankBranch || '',
+            bankState: docData.bankState || docData.warehouseInspectionData?.bankState || '',
+            ifscCode: docData.ifscCode || docData.warehouseInspectionData?.ifscCode || ''
           });
         }
       });
       
-      // Process insurance master data with warehouse details
+      // Build inward data map for balance calculations, rates, and commodity details
+      inwardSnap.docs.forEach(doc => {
+        const docData = doc.data();
+        const warehouseName = docData.warehouseName;
+        if (warehouseName) {
+          if (!inwardDataMap.has(warehouseName)) {
+            inwardDataMap.set(warehouseName, []);
+          }
+          inwardDataMap.get(warehouseName).push({
+            commodity: docData.commodity || docData.commodityName || '',
+            variety: docData.variety || docData.varietyName || '',
+            totalBags: Number(docData.totalBags || docData.inwardBags || 0),
+            totalQuantity: Number(docData.totalQuantity || docData.inwardQuantity || 0),
+            rate: docData.rate || docData.marketRate || docData.reservationRate || '',
+            // Bank details from inward data
+            bankName: docData.bankName || docData.bank || docData.selectedBankName || '',
+            bankBranchName: docData.bankBranchName || docData.bankBranch || docData.branchName || docData.selectedBankBranchName || '',
+            bankState: docData.bankState || docData.selectedBankState || '',
+            ifscCode: docData.ifscCode || docData.IFSC || docData.ifsc || '',
+            clientCode: docData.clientCode || '',
+            clientName: docData.clientName || ''
+          });
+        }
+      });
+      
+      // Build outward data map for balance calculations
+      outwardSnap.docs.forEach(doc => {
+        const docData = doc.data();
+        const warehouseName = docData.warehouseName;
+        if (warehouseName) {
+          if (!outwardDataMap.has(warehouseName)) {
+            outwardDataMap.set(warehouseName, []);
+          }
+          outwardDataMap.get(warehouseName).push({
+            outwardBags: Number(docData.outwardBags || 0),
+            outwardQuantity: Number(docData.outwardQuantity || 0)
+          });
+        }
+      });
+      
+      // Process insurance master data with comprehensive data enhancement
       insuranceSnap.docs.forEach(doc => {
         const insuranceData = doc.data();
-        const warehouseDetails = warehouseDetailsMap.get(insuranceData.warehouseName) || {};
+        const warehouseName = insuranceData.warehouseName;
         
-        console.log(`Processing insurance for warehouse: ${insuranceData.warehouseName}`, {
-          firePolicyAmount: insuranceData.firePolicyAmount,
-          firePolicyRemainingAmount: insuranceData.firePolicyRemainingAmount,
-          burglaryPolicyAmount: insuranceData.burglaryPolicyAmount,
-          burglaryPolicyRemainingAmount: insuranceData.burglaryPolicyRemainingAmount
+        console.log('=== INSURANCE DOCUMENT DEBUG ===');
+        console.log('Processing insurance for warehouse:', warehouseName);
+        console.log('Available insurance fields:', Object.keys(insuranceData));
+        
+        // Get warehouse details from inspections
+        const warehouseDetails = warehouseDetailsMap.get(warehouseName) || {};
+        console.log('Warehouse details from inspections:', warehouseDetails);
+        
+        // Get inward data for balance calculations and commodity details
+        const inwardEntries = inwardDataMap.get(warehouseName) || [];
+        const latestInward = inwardEntries.length > 0 ? inwardEntries[inwardEntries.length - 1] : {};
+        console.log('Latest inward data:', latestInward);
+        
+        // Get outward data for balance calculations
+        const outwardEntries = outwardDataMap.get(warehouseName) || [];
+        const totalOutwardBags = outwardEntries.reduce((sum: number, entry: any) => sum + entry.outwardBags, 0);
+        const totalOutwardQuantity = outwardEntries.reduce((sum: number, entry: any) => sum + entry.outwardQuantity, 0);
+        
+        // Calculate balance bags and quantity
+        const totalInwardBags = inwardEntries.reduce((sum: number, entry: any) => sum + entry.totalBags, 0);
+        const totalInwardQuantity = inwardEntries.reduce((sum: number, entry: any) => sum + entry.totalQuantity, 0);
+        const balanceBags = totalInwardBags - totalOutwardBags;
+        const balanceQty = totalInwardQuantity - totalOutwardQuantity;
+        
+        console.log('Balance calculations:', {
+          totalInwardBags,
+          totalOutwardBags,
+          balanceBags,
+          totalInwardQuantity,
+          totalOutwardQuantity,
+          balanceQty
         });
+        
+        // Calculate AUM (Assets Under Management) - rate * balance quantity
+        const rate = Number(insuranceData.rate || latestInward.rate || 0);
+        const aum = rate * Math.max(0, balanceQty);
+        
+        // Comprehensive bank details with multiple fallback sources
+        const bankName = insuranceData.bankFundedBy ||
+                        insuranceData.bankName ||
+                        latestInward.bankName ||
+                        warehouseDetails.bankName || '';
+        
+        const bankBranchName = insuranceData.bankBranchName ||
+                              insuranceData.bankBranch ||
+                              latestInward.bankBranchName ||
+                              warehouseDetails.bankBranchName || '';
+        
+        const bankState = insuranceData.bankState ||
+                         latestInward.bankState ||
+                         warehouseDetails.bankState || '';
+        
+        const ifscCode = insuranceData.ifscCode ||
+                        latestInward.ifscCode ||
+                        warehouseDetails.ifscCode || '';
+        
+        console.log('Final bank details:', { bankName, bankBranchName, bankState, ifscCode });
         
         data.push({
           id: doc.id,
           state: insuranceData.state || warehouseDetails.state || '',
           branch: insuranceData.branch || warehouseDetails.branch || '',
           location: insuranceData.location || warehouseDetails.location || '',
-          typeOfBusiness: insuranceData.insuranceType || '',
-          warehouseType: insuranceData.warehouseType || '',
+          // Type of Business with multiple fallback sources
+          typeOfBusiness: insuranceData.insuranceType ||
+                         insuranceData.businessType ||
+                         warehouseDetails.businessType ||
+                         latestInward.businessType || '',
+          // Warehouse Type with comprehensive fallback
+          warehouseType: insuranceData.warehouseType ||
+                        warehouseDetails.warehouseType || '',
           warehouseCode: insuranceData.warehouseCode || warehouseDetails.warehouseCode || '',
-          warehouseName: insuranceData.warehouseName || '',
+          warehouseName: warehouseName || '',
           warehouseAddress: warehouseDetails.address || '',
-          clientCode: insuranceData.clientCode || '',
-          clientName: insuranceData.clientName || '',
-          commodity: insuranceData.commodityName || '',
-          variety: insuranceData.varietyName || '',
-          bankName: insuranceData.bankFundedBy || '',
-          bankBranchName: insuranceData.bankBranchName || '',
-          bankState: insuranceData.bankState || '',
-          ifscCode: insuranceData.ifscCode || '',
-          balanceBags: insuranceData.balanceBags || '',
-          balanceQty: insuranceData.balanceQty || '',
+          clientCode: insuranceData.clientCode || latestInward.clientCode || '',
+          clientName: insuranceData.clientName || latestInward.clientName || '',
+          // Commodity and Variety with fallback to inward data
+          commodity: insuranceData.commodityName ||
+                    insuranceData.commodity ||
+                    latestInward.commodity || '',
+          variety: insuranceData.varietyName ||
+                  insuranceData.variety ||
+                  latestInward.variety || '',
+          // Bank details with comprehensive fallback chain
+          bankName: bankName,
+          bankBranchName: bankBranchName,
+          bankState: bankState,
+          ifscCode: ifscCode,
+          // Balance calculations with proper zero handling
+          balanceBags: String(Math.max(0, balanceBags)),
+          balanceQty: String(Math.max(0, balanceQty)),
           insuranceManagedBy: insuranceData.insuranceType || '',
-          rate: insuranceData.rate || '',
-          aum: insuranceData.aum || '',
+          // Rate with fallback to inward data
+          rate: String(rate),
+          // AUM calculation
+          aum: String(aum),
           // Policy details with updated amounts from Insurance Master
           firePolicyNumber: insuranceData.firePolicyNumber || '',
           firePolicySumInsured: insuranceData.firePolicyRemainingAmount || insuranceData.firePolicyAmount || '',
@@ -196,10 +330,10 @@ export default function InsuranceReportsPage() {
         });
       });
       
-      console.log('Total insurance data:', data.length, 'records');
+      console.log('✅ INSURANCE REPORT: Final processed data:', data.length, 'records');
       setInsuranceData(data);
     } catch (error) {
-      console.error('Error fetching insurance data:', error);
+      console.error('❌ Error fetching insurance data:', error);
     } finally {
       setLoading(false);
     }

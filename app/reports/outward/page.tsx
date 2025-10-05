@@ -32,10 +32,10 @@ interface OutwardReportData {
   gatepassNumber: string;
   weighbridgeName: string;
   weighbridgeSlipNumber: string;
-  grossWeight: string;
-  tareWeight: string;
-  netWeight: string;
-  totalOutwardBags: string;
+  grossWeight: string | number;
+  tareWeight: string | number;
+  netWeight: string | number;
+  totalOutwardBags: string | number;
   stackNumber: string;
   stackOutwardBags: string;
   doCode: string;
@@ -63,7 +63,8 @@ export default function OutwardReportsPage() {
   const [visibleColumns, setVisibleColumns] = useState<string[]>([
     'outwardDate', 'outwardCode', 'srWrNumber', 'state', 'branch', 'location', 'typeOfBusiness', 
     'warehouseType', 'warehouseCode', 'warehouseName', 'clientCode', 'clientName', 'commodity', 
-    'variety', 'vehicleNumber', 'cadNumber', 'gatepassNumber', 'totalOutwardBags', 'doCode'
+    'variety', 'vehicleNumber', 'cadNumber', 'gatepassNumber', 'weighbridgeName', 'weighbridgeSlipNumber',
+    'grossWeight', 'tareWeight', 'netWeight', 'totalOutwardBags', 'stackNumber', 'stackOutwardBags', 'doCode'
   ]);
 
   // Pagination state
@@ -154,11 +155,23 @@ export default function OutwardReportsPage() {
         console.log('Outward document fields for warehouse:', docData.warehouseName, Object.keys(docData));
         console.log('Outward document data:', docData);
         
+        // Specific debugging for problematic fields
+        console.log('Problematic fields debug:', {
+          gatepass: docData.gatepass,
+          weighbridgeSlipNo: docData.weighbridgeSlipNo,
+          stackEntries: docData.stackEntries,
+          doCode: docData.doCode,
+          deliveryOrderCode: docData.deliveryOrderCode,
+          stackEntriesLength: docData.stackEntries ? docData.stackEntries.length : 0,
+          stackEntriesType: typeof docData.stackEntries
+        });
+        
         // Fetch warehouse type from inspections collection with enhanced logic
-        let warehouseType = '';
-        let warehouseCode = '';
-        let warehouseAddress = '';
-        let businessType = '';
+        // Initialize with outward collection data as base values
+        let warehouseType = docData.warehouseType || docData.typeOfWarehouse || '';
+        let warehouseCode = docData.warehouseCode || '';
+        let warehouseAddress = docData.warehouseAddress || '';
+        let businessType = docData.typeOfBusiness || docData.businessType || '';
         
         if (docData.warehouseName) {
           console.log('Looking for warehouse type for warehouse name:', docData.warehouseName);
@@ -190,7 +203,8 @@ export default function OutwardReportsPage() {
                             inspectionData.typeofwarehouse || 
                             inspectionData.warehouseType || 
                             inspectionData.warehouseInspectionData?.typeOfWarehouse ||
-                            inspectionData.warehouseInspectionData?.warehouseType || '';
+                            inspectionData.warehouseInspectionData?.warehouseType ||
+                            inspectionData.warehouseInspectionData?.typeofwarehouse || '';
               
               // Get other warehouse details
               warehouseCode = inspectionData.warehouseCode || 
@@ -198,7 +212,9 @@ export default function OutwardReportsPage() {
               warehouseAddress = inspectionData.warehouseAddress || 
                                inspectionData.warehouseInspectionData?.warehouseAddress || '';
               businessType = inspectionData.businessType || 
-                           inspectionData.warehouseInspectionData?.businessType || '';
+                           inspectionData.typeOfBusiness ||
+                           inspectionData.warehouseInspectionData?.businessType ||
+                           inspectionData.warehouseInspectionData?.typeOfBusiness || '';
               
               console.log('Extracted warehouse type from inspections:', warehouseType);
             } else {
@@ -268,6 +284,33 @@ export default function OutwardReportsPage() {
           }
         }
         
+        // Debug Type of Business and Warehouse Type sources
+        console.log('Business/Warehouse Type debug for warehouse:', docData.warehouseName, {
+          inspectionWarehouseType: warehouseType,
+          inspectionBusinessType: businessType,
+          inwardTypeOfBusiness: inwardData.typeOfBusiness,
+          inwardBusinessType: inwardData.businessType,
+          outwardTypeOfBusiness: docData.typeOfBusiness,
+          outwardBusinessType: docData.businessType,
+          outwardWarehouseType: docData.warehouseType,
+          outwardTypeOfWarehouse: docData.typeOfWarehouse
+        });
+        
+        // Debug Commodity, Variety, and Weight fields
+        console.log('Commodity/Variety/Weight debug for SR/WR:', srwrNo, {
+          inwardCommodity: commodity,
+          inwardVariety: variety,
+          outwardCommodity: docData.commodity,
+          outwardCommodityName: docData.commodityName,
+          outwardVariety: docData.variety,
+          outwardVarietyName: docData.varietyName,
+          grossWeight: docData.grossWeight,
+          tareWeight: docData.tareWeight,
+          netWeight: docData.netWeight,
+          quantity: docData.quantity,
+          outwardQuantity: docData.outwardQuantity
+        });
+        
         // Format date for consistent ISO display (YYYY-MM-DD)
         const formatDateForISO = (dateValue: any) => {
           if (!dateValue) return '';
@@ -310,10 +353,10 @@ export default function OutwardReportsPage() {
           location: docData.location || docData.warehouseAddress || docData.address || '',
           
           // Type of Business - picked from inward section for a particular sr/wr number
-          typeOfBusiness: inwardTypeOfBusiness || docData.typeOfBusiness || docData.businessType || '',
+          typeOfBusiness: inwardTypeOfBusiness || businessType || docData.typeOfBusiness || docData.businessType || inwardData.typeOfBusiness || inwardData.businessType || '',
           
           // Warehouse type – picked from warehouse inspection survey form with parameter name \"TYPE OF WAREHOUSE\"
-          warehouseType: warehouseType || 'N/A',
+          warehouseType: warehouseType || docData.warehouseType || docData.typeOfWarehouse || inwardData.warehouseType || inwardData.typeOfWarehouse || '',
           
           // Warehouse code - picked from inward section for a particular sr/wr number
           warehouseCode: inwardWarehouseCode || warehouseCode || docData.warehouseCode || '',
@@ -331,10 +374,10 @@ export default function OutwardReportsPage() {
           clientName: clientName || docData.client || docData.clientName || '',
           
           // Commodity - picked from inward section for a particular sr/wr number
-          commodity: commodity || docData.commodity || '',
+          commodity: commodity || docData.commodity || docData.commodityName || inwardData.commodity || inwardData.commodityName || '',
           
           // Variety - picked from inward section for a particular sr/wr number
-          variety: variety || docData.varietyName || docData.variety || '',
+          variety: variety || docData.variety || docData.varietyName || inwardData.variety || inwardData.varietyName || '',
           
           // Vehicle number - picked from outward section for a particular sr/wr number
           vehicleNumber: docData.vehicleNumber || docData.truckNumber || '',
@@ -343,34 +386,67 @@ export default function OutwardReportsPage() {
           cadNumber: docData.cadNumber || docData.cad || '',
           
           // Gatepass number - picked from outward section for a particular sr/wr number
-          gatepassNumber: docData.gatepassNumber || docData.gatepass || docData.gatePassNumber || '',
+          gatepassNumber: docData.gatepass || docData.gatepassNumber || docData.gatePassNumber || docData.gatePassNo || docData.gatepassNo || '',
           
           // Weighbridge name - picked from outward section for a particular sr/wr number
           weighbridgeName: docData.weighbridgeName || docData.weighBridgeName || '',
           
           // Weighbridge slip number - picked from outward section for a particular sr/wr number
-          weighbridgeSlipNumber: docData.weighbridgeSlipNumber || docData.weighBridgeSlipNumber || docData.slipNumber || '',
+          weighbridgeSlipNumber: docData.weighbridgeSlipNo || docData.weighbridgeSlipNumber || docData.weighBridgeSlipNumber || docData.slipNumber || docData.slipNo || '',
           
           // Gross Weight (MT) - picked from outward section for a particular sr/wr number
-          grossWeight: docData.grossWeight || docData.grossWeightMT || '',
+          grossWeight: (docData.grossWeight !== null && docData.grossWeight !== undefined && String(docData.grossWeight).trim() !== '') 
+            ? String(docData.grossWeight)
+            : (docData.grossWeightMT !== null && docData.grossWeightMT !== undefined && String(docData.grossWeightMT).trim() !== '') 
+              ? String(docData.grossWeightMT)
+              : '',
           
           // Tare Weight (MT) - picked from outward section for a particular sr/wr number
-          tareWeight: docData.tareWeight || docData.tareWeightMT || '',
+          tareWeight: (docData.tareWeight !== null && docData.tareWeight !== undefined && String(docData.tareWeight).trim() !== '') 
+            ? String(docData.tareWeight)
+            : (docData.tareWeightMT !== null && docData.tareWeightMT !== undefined && String(docData.tareWeightMT).trim() !== '') 
+              ? String(docData.tareWeightMT)
+              : '',
           
           // Net Weight (MT) - picked from outward section for a particular sr/wr number
-          netWeight: docData.netWeight || docData.netWeightMT || docData.quantity || '',
+          netWeight: (docData.netWeight !== null && docData.netWeight !== undefined && String(docData.netWeight).trim() !== '') 
+            ? String(docData.netWeight)
+            : (docData.netWeightMT !== null && docData.netWeightMT !== undefined && String(docData.netWeightMT).trim() !== '') 
+              ? String(docData.netWeightMT)
+              : (docData.quantity !== null && docData.quantity !== undefined && String(docData.quantity).trim() !== '') 
+                ? String(docData.quantity)
+                : (docData.outwardQuantity !== null && docData.outwardQuantity !== undefined && String(docData.outwardQuantity).trim() !== '') 
+                  ? String(docData.outwardQuantity)
+                  : '',
           
           // Total Outward Bags - picked from outward section for a particular sr/wr number
-          totalOutwardBags: docData.totalOutwardBags || docData.outwardBags || docData.bags || docData.totalBags || '',
+          totalOutwardBags: docData.totalBagsOutward || docData.totalOutwardBags || docData.outwardBags || docData.bags || docData.totalBags || '',
           
           // Stack Number- picked from outward section for a particular sr/wr number
-          stackNumber: docData.stackNumber || docData.stackNo || '',
+          stackNumber: (() => {
+            if (docData.stackEntries && Array.isArray(docData.stackEntries) && docData.stackEntries.length > 0) {
+              const stackNos = docData.stackEntries
+                .filter((stack: any) => stack && (stack.stackNo || stack.stackNumber))
+                .map((stack: any) => stack.stackNo || stack.stackNumber || stack.stack)
+                .filter(Boolean);
+              return stackNos.length > 0 ? stackNos.join(', ') : '';
+            }
+            return docData.stackNumber || docData.stackNo || '';
+          })(),
           
           // Stack Outward Bags- picked from outward section for a particular sr/wr number
-          stackOutwardBags: docData.stackOutwardBags || docData.stackBags || '',
+          stackOutwardBags: (() => {
+            if (docData.stackEntries && Array.isArray(docData.stackEntries) && docData.stackEntries.length > 0) {
+              const stackBags = docData.stackEntries
+                .filter((stack: any) => stack && (stack.bags !== undefined && stack.bags !== null))
+                .map((stack: any) => stack.bags || stack.outwardBags || 0);
+              return stackBags.length > 0 ? stackBags.join(', ') : '';
+            }
+            return docData.stackOutwardBags || docData.stackBags || '';
+          })(),
           
           // DO code - picked from outward section for a particular sr/wr number
-          doCode: docData.doCode || docData.doNumber || docData.deliveryOrderCode || '',
+          doCode: docData.doCode || docData.deliveryOrderCode || docData.doNumber || '',
           
           // Keep original fields for backward compatibility and debugging
           _originalData: {
@@ -583,7 +659,7 @@ export default function OutwardReportsPage() {
     });
     
     return filtered;
-  }, [outwardData, searchTerm, statusFilter, warehouseFilter, clientFilter, commodityFilter]);
+  }, [outwardData, searchTerm, statusFilter, warehouseFilter, clientFilter, commodityFilter, branchFilter, stateFilter]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
@@ -923,7 +999,9 @@ export default function OutwardReportsPage() {
                                        column.key === 'netWeight' || column.key === 'totalOutwardBags' || 
                                        column.key === 'stackOutwardBags' ? (
                                 <span className="text-right block">
-                                  {item[column.key] || '-'}
+                                  {(item[column.key] !== null && item[column.key] !== undefined && item[column.key] !== '') 
+                                    ? item[column.key] 
+                                    : '-'}
                                 </span>
                               ) : column.key === 'outwardCode' || column.key === 'srWrNumber' || 
                                        column.key === 'warehouseCode' || column.key === 'clientCode' || 
@@ -931,10 +1009,14 @@ export default function OutwardReportsPage() {
                                        column.key === 'gatepassNumber' || column.key === 'weighbridgeSlipNumber' ||
                                        column.key === 'stackNumber' || column.key === 'doCode' ? (
                                 <span className="font-mono text-sm">
-                                  {item[column.key] || '-'}
+                                  {(item[column.key] !== null && item[column.key] !== undefined && item[column.key] !== '') 
+                                    ? item[column.key] 
+                                    : '-'}
                                 </span>
                               ) : (
-                                item[column.key] || '-'
+                                (item[column.key] !== null && item[column.key] !== undefined && item[column.key] !== '') 
+                                  ? item[column.key] 
+                                  : '-'
                               )}
                             </td>
                           ))}

@@ -126,30 +126,76 @@ export default function InwardReportsPage() {
   const fetchInwardData = async () => {
     setLoading(true);
     try {
-      console.log('Starting comprehensive data fetch...');
+      console.log('🔍 INWARD REPORT: Starting comprehensive data fetch from multiple collections...');
       
-      // Fetch from main inward collection
-      const inwardCollection = collection(db, 'inward');
+      // Fetch from multiple collections for comprehensive data
+      const [inwardSnapshot, inspectionsSnapshot] = await Promise.all([
+        // Fetch from main inward collection
+        (() => {
+          const inwardCollection = collection(db, 'inward');
+          let inwardQuery = query(inwardCollection, orderBy('createdAt', 'desc'), limit(1000));
+          
+          // Apply date filters if dates are set
+          if (startDate && endDate) {
+            const startTimestamp = Timestamp.fromDate(new Date(startDate));
+            const endTimestamp = Timestamp.fromDate(new Date(endDate + 'T23:59:59'));
+            
+            inwardQuery = query(
+              inwardCollection,
+              where('createdAt', '>=', startTimestamp),
+              where('createdAt', '<=', endTimestamp),
+              orderBy('createdAt', 'desc'),
+              limit(1000)
+            );
+          }
+          
+          return getDocs(inwardQuery);
+        })(),
+        // Fetch from inspections collection for warehouse type and bank details
+        getDocs(collection(db, 'inspections'))
+      ]);
       
-      // Build query with date filters
-      let inwardQuery = query(inwardCollection, orderBy('createdAt', 'desc'), limit(1000));
+      console.log('📊 Collection query results:', {
+        inward: inwardSnapshot.size,
+        inspections: inspectionsSnapshot.size
+      });
       
-      // Apply date filters if dates are set
-      if (startDate && endDate) {
-        const startTimestamp = Timestamp.fromDate(new Date(startDate));
-        const endTimestamp = Timestamp.fromDate(new Date(endDate + 'T23:59:59'));
-        
-        inwardQuery = query(
-          inwardCollection,
-          where('createdAt', '>=', startTimestamp),
-          where('createdAt', '<=', endTimestamp),
-          orderBy('createdAt', 'desc'),
-          limit(1000)
-        );
-      }
+      // Create warehouse details map from inspections for comprehensive fallback data
+      const warehouseDetailsMap = new Map();
+      inspectionsSnapshot.docs.forEach(doc => {
+        const docData = doc.data();
+        const warehouseName = docData.warehouseName;
+        if (warehouseName && (docData.status === 'activated' || docData.status === 'reactivate')) {
+          warehouseDetailsMap.set(warehouseName, {
+            // Warehouse type with comprehensive fallback chain
+            warehouseType: docData.typeOfWarehouse ||
+                          docData.typeofwarehouse ||
+                          docData.warehouseType ||
+                          docData.warehouseInspectionData?.typeOfWarehouse ||
+                          docData.warehouseInspectionData?.warehouseType || '',
+            // Business type with fallback chain
+            businessType: docData.businessType ||
+                         docData.typeOfBusiness ||
+                         docData.warehouseInspectionData?.businessType ||
+                         docData.warehouseInspectionData?.typeOfBusiness || '',
+            // Bank details from inspections
+            bankName: docData.bankName || docData.warehouseInspectionData?.bankName || '',
+            bankBranchName: docData.bankBranch || docData.bankBranchName || docData.warehouseInspectionData?.bankBranch || '',
+            bankState: docData.bankState || docData.warehouseInspectionData?.bankState || '',
+            ifscCode: docData.ifscCode || docData.warehouseInspectionData?.ifscCode || '',
+            // Other warehouse details
+            warehouseCode: docData.warehouseCode || '',
+            address: docData.address || docData.warehouseInspectionData?.address || '',
+            state: docData.state || docData.warehouseInspectionData?.state || '',
+            branch: docData.branch || docData.warehouseInspectionData?.branch || '',
+            location: docData.location || docData.warehouseInspectionData?.location || '',
+            // Insurance data for validity calculation
+            insuranceEntries: docData.warehouseInspectionData?.insuranceEntries || []
+          });
+        }
+      });
       
-      const inwardSnapshot = await getDocs(inwardQuery);
-      console.log('Inward collection query result:', inwardSnapshot.size, 'documents');
+      console.log('✅ Created warehouse details map for', warehouseDetailsMap.size, 'warehouses');
 
       // Debug: Show sample inward documents
       if (inwardSnapshot.size > 0) {
@@ -514,31 +560,91 @@ export default function InwardReportsPage() {
           const balanceBags = inwardTotalBags - aggregatedRoBags - aggregatedDoBags;
           const balanceQty = inwardTotalQty - aggregatedRoQty - aggregatedDoQty;
 
-          // Field mapping with proper aggregation
+          // Get warehouse details from inspections for enhanced data
+          const warehouseDetails = warehouseDetailsMap.get(docData.warehouseName) || {};
+          
+          console.log('=== INWARD DOCUMENT DEBUG ===');
+          console.log('Processing inward for warehouse:', docData.warehouseName);
+          console.log('Warehouse details from inspections:', warehouseDetails);
+          console.log('Inward data warehouse type:', docData.warehouseType);
+          console.log('Inward data bank branch name:', docData.bankBranchName);
+          console.log('Available insurance entries:', warehouseDetails.insuranceEntries?.length || 0);
+          
+          // Calculate SR Last Validity Date based on insurance policy end dates
+          const calculateSRValidityDate = () => {
+            // First try the direct field from inward data
+            if (docData.srLastValidityDate) {
+              return formatDate(docData.srLastValidityDate);
+            }
+            
+            // If no direct field, calculate based on insurance policy end dates
+            const insuranceEntries = warehouseDetails.insuranceEntries || [];
+            if (insuranceEntries.length > 0) {
+              // Find the earliest policy end date among all insurance entries
+              let earliestEndDate: Date | null = null;
+              
+              insuranceEntries.forEach((insurance: any) => {
+                const fireEndDate = insurance.firePolicyEndDate ? new Date(insurance.firePolicyEndDate) : null;
+                const burglaryEndDate = insurance.burglaryPolicyEndDate ? new Date(insurance.burglaryPolicyEndDate) : null;
+                
+                [fireEndDate, burglaryEndDate].forEach(date => {
+                  if (date && !isNaN(date.getTime())) {
+                    if (!earliestEndDate || date < earliestEndDate) {
+                      earliestEndDate = date;
+                    }
+                  }
+                });
+              });
+              
+              if (earliestEndDate) {
+                console.log('Calculated SR validity date from insurance policies:', earliestEndDate.toISOString().split('T')[0]);
+                return earliestEndDate.toISOString().split('T')[0];
+              }
+            }
+            
+            // Fallback: If insurance taken by bank, typically 9 months from inward date
+            const inwardDate = docData.inwardDate || docData.dateOfInward;
+            if (inwardDate && hasBankDetails(docData)) {
+              const date = new Date(inwardDate);
+              if (!isNaN(date.getTime())) {
+                date.setMonth(date.getMonth() + 9); // Add 9 months for bank-funded storage
+                console.log('Calculated SR validity date (9 months from inward):', date.toISOString().split('T')[0]);
+                return date.toISOString().split('T')[0];
+              }
+            }
+            
+            return ''; // Empty if cannot calculate
+          };
+
+          // Field mapping with comprehensive fallback logic
           return {
             id: doc.id,
-            state: docData.state || docData.databaseLocation || '',
-            branch: docData.branch || '',
-            location: docData.location || '',
-            typeOfBusiness: docData.typeOfBusiness || docData.businessType || '',
-            warehouseType: docData.warehouseType || '',
-            warehouseCode: docData.warehouseCode || '',
+            state: docData.state || docData.databaseLocation || warehouseDetails.state || '',
+            branch: docData.branch || warehouseDetails.branch || '',
+            location: docData.location || warehouseDetails.location || '',
+            // Type of Business with fallback to inspections
+            typeOfBusiness: docData.typeOfBusiness || docData.businessType || warehouseDetails.businessType || '',
+            // Warehouse Type with comprehensive fallback from inspections
+            warehouseType: docData.warehouseType || warehouseDetails.warehouseType || '',
+            warehouseCode: docData.warehouseCode || warehouseDetails.warehouseCode || '',
             warehouseName: docData.warehouseName || '',
-            warehouseAddress: docData.warehouseAddress || '',
+            warehouseAddress: docData.warehouseAddress || warehouseDetails.address || '',
             clientCode: docData.clientCode || '',
             clientName: docData.clientName || docData.client || '',
             commodity: safeString(docData.commodity || docData.commodityName),
             variety: safeString(docData.variety || docData.varietyName),
-            bankName: docData.bankName || '',
-            bankBranchName: docData.bankBranchName || '',
-            bankState: docData.bankState || '',
-            ifscCode: docData.ifscCode || '',
+            // Bank details with comprehensive fallback from inspections
+            bankName: docData.bankName || warehouseDetails.bankName || '',
+            bankBranchName: docData.bankBranchName || warehouseDetails.bankBranchName || '',
+            bankState: docData.bankState || warehouseDetails.bankState || '',
+            ifscCode: docData.ifscCode || warehouseDetails.ifscCode || '',
             cadNumber: docData.cadNumber || '',
             inwardDate: formatDate(docData.inwardDate || docData.dateOfInward || docData.createdAt),
             srWrNumber: possibleSrWrNumbers[0] || '',
             srWrDate: formatDate(docData.srGenerationDate),
             fundingSrWrDate: hasBankDetails(docData) ? formatDate(docData.srGenerationDate) : '',
-            srLastValidityDate: formatDate(docData.srLastValidityDate),
+            // SR Last Validity Date with comprehensive calculation
+            srLastValidityDate: calculateSRValidityDate(),
             
             // ** PROPERLY SOURCED VALUES AS PER REQUIREMENTS **
             // Total bags & qty from inward collection - ORIGINAL QUANTITIES AT TIME OF INWARD ENTRY
@@ -1003,7 +1109,7 @@ export default function InwardReportsPage() {
             )}
             {searchTerm && (
               <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
-                Search: "{searchTerm}"
+                Search: &ldquo;{searchTerm}&rdquo;
                 <button onClick={() => setSearchTerm('')} className="ml-1">
                   <X className="w-3 h-3" />
                 </button>
