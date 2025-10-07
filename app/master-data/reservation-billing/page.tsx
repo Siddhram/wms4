@@ -1177,17 +1177,7 @@ export default function ReservationBillingPage() {
               {/* Billing Status */}
               <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-green-600 font-medium">Billing Status</Label>
-                  <Select value={newReservation.billingStatus} onValueChange={v => setNewReservation(f => ({ ...f, billingStatus: v as 'processing' | 'unpaid' | 'complete' }))}>
-                    <SelectTrigger className="border-orange-300 focus:border-orange-500">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="processing">Processing</SelectItem>
-                      <SelectItem value="unpaid">Unpaid</SelectItem>
-                      <SelectItem value="complete">Complete</SelectItem>
-                    </SelectContent>
-                  </Select>
+                 
                 </div>
               </div>
 
